@@ -1,0 +1,4 @@
+{
+  "build_type": "python",
+  "start_command": "python app.py"
+}

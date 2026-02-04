@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>集運預報系統 - 御用達</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #fff;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            text-align: center;
+            padding: 30px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            margin-bottom: 30px;
+        }
+        
+        header h1 {
+            font-size: 28px;
+            color: #f39c12;
+            margin-bottom: 10px;
+        }
+        
+        header p {
+            color: #888;
+            font-size: 14px;
+        }
+        
+        /* 登入區 */
+        .login-section {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 20px;
+        }
+        
+        .login-section.hidden {
+            display: none;
+        }
+        
+        .form-row {
+            display: flex;
+            gap: 15px;
+            align-items: flex-end;
+        }
+        
+        .form-group {
+            flex: 1;
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #aaa;
+            font-size: 14px;
+        }
+        
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 12px 15px;
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            color: #fff;
+            font-size: 14px;
+        }
+        
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #f39c12;
+        }
+        
+        .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #f39c12, #e74c3c);
+            color: #fff;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(243, 156, 18, 0.3);
+        }
+        
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+        
+        .btn-success {
+            background: #27ae60;
+            color: #fff;
+        }
+        
+        .btn-danger {
+            background: #e74c3c;
+            color: #fff;
+        }
+        
+        /* 主要內容區 */
+        .main-content {
+            display: none;
+        }
+        
+        .main-content.active {
+            display: block;
+        }
+        
+        /* 使用者資訊 */
+        .user-info {
+            background: rgba(39, 174, 96, 0.2);
+            border: 1px solid rgba(39, 174, 96, 0.3);
+            border-radius: 8px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .user-info .name {
+            font-size: 16px;
+            color: #27ae60;
+        }
+        
+        .user-info .id {
+            color: #888;
+            font-size: 12px;
+        }
+        
+        /* 標籤頁 */
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .tab {
+            padding: 12px 25px;
+            background: rgba(255,255,255,0.05);
+            border: none;
+            border-radius: 8px;
+            color: #888;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .tab.active {
+            background: linear-gradient(135deg, #f39c12, #e74c3c);
+            color: #fff;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        /* 預報表單 */
+        .forecast-form {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 25px;
+        }
+        
+        .package-card {
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 15px;
+        }
+        
+        .package-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .package-title {
+            font-size: 16px;
+            color: #f39c12;
+        }
+        
+        .item-row {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr 1fr auto;
+            gap: 10px;
+            margin-bottom: 10px;
+            align-items: end;
+        }
+        
+        .item-row input {
+            padding: 10px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 6px;
+            color: #fff;
+            font-size: 13px;
+        }
+        
+        .item-row input:focus {
+            outline: none;
+            border-color: #f39c12;
+        }
+        
+        .item-row label {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 5px;
+            display: block;
+        }
+        
+        .btn-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+        
+        .add-item-btn {
+            background: rgba(39, 174, 96, 0.2);
+            border: 1px dashed rgba(39, 174, 96, 0.5);
+            color: #27ae60;
+            padding: 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            text-align: center;
+            margin-top: 10px;
+        }
+        
+        .add-package-btn {
+            background: rgba(243, 156, 18, 0.1);
+            border: 1px dashed rgba(243, 156, 18, 0.5);
+            color: #f39c12;
+            padding: 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        /* 包裹列表 */
+        .package-list {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        
+        .package-item {
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            padding: 15px 20px;
+            margin-bottom: 10px;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr auto;
+            gap: 15px;
+            align-items: center;
+        }
+        
+        .package-item .label {
+            font-size: 11px;
+            color: #888;
+            margin-bottom: 3px;
+        }
+        
+        .package-item .value {
+            font-size: 14px;
+        }
+        
+        .status-badge {
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        
+        .status-waiting {
+            background: rgba(243, 156, 18, 0.2);
+            color: #f39c12;
+        }
+        
+        .status-arrived {
+            background: rgba(39, 174, 96, 0.2);
+            color: #27ae60;
+        }
+        
+        .status-shipped {
+            background: rgba(52, 152, 219, 0.2);
+            color: #3498db;
+        }
+        
+        /* 空狀態 */
+        .empty-state {
+            text-align: center;
+            padding: 50px;
+            color: #888;
+        }
+        
+        .empty-state .icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+        
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            border-radius: 8px;
+            color: #fff;
+            z-index: 1000;
+            animation: slideIn 0.3s ease;
+        }
+        
+        .toast-success { background: #27ae60; }
+        .toast-error { background: #e74c3c; }
+        
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        
+        /* 倉庫地址 */
+        .warehouse-info {
+            background: rgba(52, 152, 219, 0.1);
+            border: 1px solid rgba(52, 152, 219, 0.3);
+            border-radius: 8px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+        }
+        
+        .warehouse-info h4 {
+            color: #3498db;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+        
+        .warehouse-info p {
+            font-size: 13px;
+            line-height: 1.6;
+            color: #ccc;
+        }
+        
+        .warehouse-info .highlight {
+            color: #f39c12;
+            font-weight: bold;
+        }
+        
+        /* 響應式 */
+        @media (max-width: 768px) {
+            .item-row {
+                grid-template-columns: 1fr;
+            }
+            
+            .package-item {
+                grid-template-columns: 1fr 1fr;
+            }
+            
+            .form-row {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📦 集運預報系統</h1>
+            <p>御用達 × JPD 雲倉</p>
+        </header>
+        
+        <!-- 登入區 -->
+        <div class="login-section" id="loginSection">
+            <h3 style="margin-bottom: 20px;">請輸入您的客戶編號</h3>
+            <div class="form-row">
+                <div class="form-group" style="flex: 2;">
+                    <label>客戶編號 (Shopify Customer ID)</label>
+                    <input type="text" id="customerId" placeholder="例：5583055111400">
+                </div>
+                <button class="btn btn-primary" onclick="login()">🔐 登入</button>
+            </div>
+            <p style="margin-top: 15px; color: #888; font-size: 12px;">
+                💡 您可以在訂單確認信或會員中心找到您的客戶編號
+            </p>
+        </div>
+        
+        <!-- 主要內容 -->
+        <div class="main-content" id="mainContent">
+            <!-- 使用者資訊 -->
+            <div class="user-info">
+                <div>
+                    <div class="name" id="userName">歡迎</div>
+                    <div class="id">客戶編號：<span id="userIdDisplay"></span></div>
+                </div>
+                <button class="btn btn-secondary" onclick="logout()">登出</button>
+            </div>
+            
+            <!-- 標籤頁 -->
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('forecast')">📝 預報包裹</button>
+                <button class="tab" onclick="switchTab('packages')">📦 我的包裹</button>
+                <button class="tab" onclick="switchTab('orders')">🚚 運單查詢</button>
+            </div>
+            
+            <!-- 預報包裹 -->
+            <div class="tab-content active" id="tab-forecast">
+                <div class="warehouse-info">
+                    <h4>📍 寄送倉庫地址</h4>
+                    <p>
+                        〒121-0062 東京都足立区南花畑5-2-6<br>
+                        JPD足立倉庫<br>
+                        收件人：<span class="highlight" id="warehouseRecipient">您的客戶編號</span>
+                    </p>
+                </div>
+                
+                <div class="forecast-form">
+                    <div id="packagesContainer">
+                        <!-- 動態添加包裹 -->
+                    </div>
+                    
+                    <div class="add-package-btn" onclick="addPackage()">
+                        ➕ 新增包裹
+                    </div>
+                    
+                    <button class="btn btn-primary" style="width: 100%; padding: 15px;" onclick="submitForecast()">
+                        🚀 提交預報
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 我的包裹 -->
+            <div class="tab-content" id="tab-packages">
+                <div class="package-list">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h3>📦 我的包裹</h3>
+                        <button class="btn btn-secondary" onclick="loadPackages()">🔄 重新整理</button>
+                    </div>
+                    <div id="packagesList">
+                        <div class="empty-state">
+                            <div class="icon">📭</div>
+                            <p>尚無包裹記錄</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 運單查詢 -->
+            <div class="tab-content" id="tab-orders">
+                <div class="package-list">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h3>🚚 運單查詢</h3>
+                        <button class="btn btn-secondary" onclick="loadOrders()">🔄 重新整理</button>
+                    </div>
+                    <div id="ordersList">
+                        <div class="empty-state">
+                            <div class="icon">📭</div>
+                            <p>尚無運單記錄</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let currentCustomer = null;
+        let packageCount = 0;
+        
+        // 登入
+        async function login() {
+            const customerId = document.getElementById('customerId').value.trim();
+            if (!customerId) {
+                showToast('請輸入客戶編號', 'error');
+                return;
+            }
+            
+            try {
+                const res = await fetch('/api/verify_customer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ customer_id: customerId })
+                });
+                const result = await res.json();
+                
+                if (result.success) {
+                    currentCustomer = result.customer;
+                    document.getElementById('loginSection').classList.add('hidden');
+                    document.getElementById('mainContent').classList.add('active');
+                    document.getElementById('userName').textContent = `歡迎，${currentCustomer.name}`;
+                    document.getElementById('userIdDisplay').textContent = currentCustomer.id;
+                    document.getElementById('warehouseRecipient').textContent = currentCustomer.id;
+                    
+                    // 初始化一個包裹
+                    addPackage();
+                    
+                    // 儲存登入狀態
+                    localStorage.setItem('customerId', customerId);
+                    
+                    showToast('登入成功！', 'success');
+                } else {
+                    showToast(result.error, 'error');
+                }
+            } catch (e) {
+                showToast('網路錯誤', 'error');
+            }
+        }
+        
+        // 登出
+        function logout() {
+            currentCustomer = null;
+            localStorage.removeItem('customerId');
+            document.getElementById('loginSection').classList.remove('hidden');
+            document.getElementById('mainContent').classList.remove('active');
+            document.getElementById('customerId').value = '';
+            document.getElementById('packagesContainer').innerHTML = '';
+            packageCount = 0;
+        }
+        
+        // 切換標籤
+        function switchTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            document.querySelector(`.tab[onclick="switchTab('${tab}')"]`).classList.add('active');
+            document.getElementById(`tab-${tab}`).classList.add('active');
+            
+            if (tab === 'packages') loadPackages();
+            if (tab === 'orders') loadOrders();
+        }
+        
+        // 新增包裹
+        function addPackage() {
+            packageCount++;
+            const container = document.getElementById('packagesContainer');
+            
+            const packageHtml = `
+                <div class="package-card" id="package-${packageCount}">
+                    <div class="package-header">
+                        <span class="package-title">📦 包裹 #${packageCount}</span>
+                        <button class="btn btn-danger btn-icon" onclick="removePackage(${packageCount})">✕</button>
+                    </div>
+                    <div class="form-group">
+                        <label>自訂包裹編號（選填，方便您識別）</label>
+                        <input type="text" class="client-pid" placeholder="例：蝦皮訂單12345">
+                    </div>
+                    <div class="items-container" id="items-${packageCount}">
+                        <div class="item-row">
+                            <div>
+                                <label>商品名稱</label>
+                                <input type="text" class="item-name" placeholder="商品名稱">
+                            </div>
+                            <div>
+                                <label>數量</label>
+                                <input type="number" class="item-qty" value="1" min="1">
+                            </div>
+                            <div>
+                                <label>單價 (日圓)</label>
+                                <input type="number" class="item-price" placeholder="0">
+                            </div>
+                            <div>
+                                <label>商品連結</label>
+                                <input type="text" class="item-url" placeholder="https://...">
+                            </div>
+                            <button class="btn btn-danger btn-icon" onclick="removeItem(this)">✕</button>
+                        </div>
+                    </div>
+                    <div class="add-item-btn" onclick="addItem(${packageCount})">
+                        ➕ 新增商品
+                    </div>
+                </div>
+            `;
+            
+            container.insertAdjacentHTML('beforeend', packageHtml);
+        }
+        
+        // 移除包裹
+        function removePackage(id) {
+            document.getElementById(`package-${id}`).remove();
+        }
+        
+        // 新增商品項目
+        function addItem(packageId) {
+            const container = document.getElementById(`items-${packageId}`);
+            const itemHtml = `
+                <div class="item-row">
+                    <div>
+                        <input type="text" class="item-name" placeholder="商品名稱">
+                    </div>
+                    <div>
+                        <input type="number" class="item-qty" value="1" min="1">
+                    </div>
+                    <div>
+                        <input type="number" class="item-price" placeholder="0">
+                    </div>
+                    <div>
+                        <input type="text" class="item-url" placeholder="https://...">
+                    </div>
+                    <button class="btn btn-danger btn-icon" onclick="removeItem(this)">✕</button>
+                </div>
+            `;
+            container.insertAdjacentHTML('beforeend', itemHtml);
+        }
+        
+        // 移除商品項目
+        function removeItem(btn) {
+            btn.closest('.item-row').remove();
+        }
+        
+        // 提交預報
+        async function submitForecast() {
+            const packageCards = document.querySelectorAll('.package-card');
+            if (packageCards.length === 0) {
+                showToast('請至少新增一個包裹', 'error');
+                return;
+            }
+            
+            const packages = [];
+            
+            packageCards.forEach(card => {
+                const clientPid = card.querySelector('.client-pid').value.trim();
+                const items = [];
+                
+                card.querySelectorAll('.item-row').forEach(row => {
+                    const name = row.querySelector('.item-name').value.trim();
+                    const qty = row.querySelector('.item-qty').value;
+                    const price = row.querySelector('.item-price').value;
+                    const url = row.querySelector('.item-url').value.trim();
+                    
+                    if (name) {
+                        items.push({
+                            name: name,
+                            quantity: qty || 1,
+                            price: price || 0,
+                            url: url
+                        });
+                    }
+                });
+                
+                if (items.length > 0) {
+                    packages.push({
+                        client_pid: clientPid,
+                        items: items
+                    });
+                }
+            });
+            
+            if (packages.length === 0) {
+                showToast('請至少填寫一個商品', 'error');
+                return;
+            }
+            
+            try {
+                const res = await fetch('/api/forecast', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        customer_id: currentCustomer.id,
+                        packages: packages
+                    })
+                });
+                const result = await res.json();
+                
+                if (result.success) {
+                    showToast('✅ 預報成功！請盡快將包裹寄往倉庫', 'success');
+                    // 清空表單
+                    document.getElementById('packagesContainer').innerHTML = '';
+                    packageCount = 0;
+                    addPackage();
+                    // 切換到包裹列表
+                    setTimeout(() => switchTab('packages'), 1500);
+                } else {
+                    showToast('❌ 預報失敗：' + (result.error || '未知錯誤'), 'error');
+                }
+            } catch (e) {
+                showToast('網路錯誤', 'error');
+            }
+        }
+        
+        // 載入包裹列表
+        async function loadPackages() {
+            if (!currentCustomer) return;
+            
+            try {
+                const res = await fetch(`/api/packages?customer_id=${currentCustomer.id}`);
+                const result = await res.json();
+                
+                const container = document.getElementById('packagesList');
+                
+                if (result.success && result.packages.length > 0) {
+                    container.innerHTML = result.packages.map(pkg => `
+                        <div class="package-item">
+                            <div>
+                                <div class="label">包裹編號</div>
+                                <div class="value">${pkg.client_pid || pkg.local_logis_num || '-'}</div>
+                            </div>
+                            <div>
+                                <div class="label">商品</div>
+                                <div class="value">${pkg.product_name || '-'}</div>
+                            </div>
+                            <div>
+                                <div class="label">重量</div>
+                                <div class="value">${pkg.weight ? pkg.weight + ' kg' : '待秤重'}</div>
+                            </div>
+                            <div>
+                                <div class="label">狀態</div>
+                                <div class="value">
+                                    <span class="status-badge ${getStatusClass(pkg.status_id)}">${pkg.status || '待入庫'}</span>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="label">預報日期</div>
+                                <div class="value">${pkg.create_date || '-'}</div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="icon">📭</div>
+                            <p>尚無包裹記錄</p>
+                        </div>
+                    `;
+                }
+            } catch (e) {
+                showToast('載入失敗', 'error');
+            }
+        }
+        
+        // 載入運單列表
+        async function loadOrders() {
+            if (!currentCustomer) return;
+            
+            try {
+                const res = await fetch(`/api/orders?customer_id=${currentCustomer.id}`);
+                const result = await res.json();
+                
+                const container = document.getElementById('ordersList');
+                
+                if (result.success && result.orders.length > 0) {
+                    container.innerHTML = result.orders.map(order => `
+                        <div class="package-item">
+                            <div>
+                                <div class="label">物流單號</div>
+                                <div class="value">${order.logis_num || '-'}</div>
+                            </div>
+                            <div>
+                                <div class="label">收件人</div>
+                                <div class="value">${order.recipient || '-'}</div>
+                            </div>
+                            <div>
+                                <div class="label">重量</div>
+                                <div class="value">${order.weight ? order.weight + ' kg' : '-'}</div>
+                            </div>
+                            <div>
+                                <div class="label">狀態</div>
+                                <div class="value">
+                                    <span class="status-badge status-shipped">${order.status || '-'}</span>
+                                </div>
+                            </div>
+                            <div>
+                                ${order.logis_num ? `
+                                    <a href="https://www.sgxpress.com/query/?logic_num=${order.logis_num}" 
+                                       target="_blank" class="btn btn-primary" style="padding: 8px 15px; font-size: 12px;">
+                                        📍 追蹤
+                                    </a>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="icon">📭</div>
+                            <p>尚無運單記錄</p>
+                        </div>
+                    `;
+                }
+            } catch (e) {
+                showToast('載入失敗', 'error');
+            }
+        }
+        
+        // 狀態樣式
+        function getStatusClass(statusId) {
+            switch (statusId) {
+                case '1': return 'status-arrived';
+                case '2': return 'status-shipped';
+                default: return 'status-waiting';
+            }
+        }
+        
+        // Toast
+        function showToast(message, type = 'success') {
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+        
+        // 自動登入
+        window.onload = function() {
+            const savedId = localStorage.getItem('customerId');
+            if (savedId) {
+                document.getElementById('customerId').value = savedId;
+                login();
+            }
+        };
+    </script>
+</body>
+</html>
