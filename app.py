@@ -291,7 +291,7 @@ def set_shipping_rate():
                 "ownerId": customer_gid,
                 "namespace": "custom",
                 "key": "shipping_rate",
-                "type": "number_integer",
+                "type": "single_line_text_field",
                 "value": str(rate_val)
             }
         ]
@@ -466,7 +466,10 @@ def get_packages():
     if not g_code:
         return jsonify({"success": False, "error": "缺少會員編號"})
 
-    result = jpd_request("TSearchPackages", {"client_cid": g_code})
+    result = jpd_request("TSearchPackages", {
+        "client_cid": g_code,
+        "warehouse_id": JPD_WAREHOUSE_ID
+    })
 
     if "OperationResult" in result:
         op_result = result["OperationResult"]
@@ -502,7 +505,10 @@ def get_orders():
     if not g_code:
         return jsonify({"success": False, "error": "缺少會員編號"})
 
-    result = jpd_request("TSearchOrders", {"client_cid": g_code})
+    result = jpd_request("TSearchOrders", {
+        "client_cid": g_code,
+        "warehouse_id": JPD_WAREHOUSE_ID
+    })
 
     if "OperationResult" in result:
         op_result = result["OperationResult"]
