@@ -580,6 +580,205 @@
             to { transform: translateX(0); opacity: 1; }
         }
         
+        /* ========== 集運介紹 Info Tab Styles ========== */
+        .info-section {
+            margin-bottom: 24px;
+        }
+        
+        .info-section-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #fff;
+        }
+        
+        .info-card {
+            background: rgba(0,0,0,0.2);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 16px;
+        }
+        
+        .info-card h4 {
+            font-size: 15px;
+            font-weight: 600;
+            color: #f39c12;
+            margin-bottom: 12px;
+        }
+        
+        .info-card p, .info-card li {
+            font-size: 14px;
+            line-height: 1.8;
+            color: #bbb;
+        }
+        
+        .info-card ul {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .info-card ul li {
+            padding: 6px 0;
+            padding-left: 20px;
+            position: relative;
+        }
+        
+        .info-card ul li::before {
+            content: "•";
+            position: absolute;
+            left: 4px;
+            color: #f39c12;
+        }
+        
+        .price-highlight {
+            display: inline-block;
+            background: linear-gradient(135deg, rgba(243, 156, 18, 0.15), rgba(243, 156, 18, 0.05));
+            border: 1px solid rgba(243, 156, 18, 0.3);
+            border-radius: 8px;
+            padding: 10px 18px;
+            font-size: 18px;
+            font-weight: 700;
+            color: #f39c12;
+            margin: 8px 0;
+        }
+        
+        .info-note {
+            font-size: 13px;
+            color: #888;
+            margin-top: 8px;
+            padding: 10px 14px;
+            background: rgba(255,255,255,0.03);
+            border-left: 3px solid rgba(243, 156, 18, 0.4);
+            border-radius: 0 8px 8px 0;
+        }
+        
+        /* Pricing Table */
+        .pricing-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 12px 0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        
+        .pricing-table thead th {
+            background: rgba(243, 156, 18, 0.15);
+            color: #f39c12;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid rgba(243, 156, 18, 0.2);
+        }
+        
+        .pricing-table tbody td {
+            padding: 12px 16px;
+            font-size: 13px;
+            color: #ccc;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            vertical-align: top;
+        }
+        
+        .pricing-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+        
+        .pricing-table tbody tr:hover {
+            background: rgba(255,255,255,0.03);
+        }
+        
+        .pricing-table .price-cell {
+            color: #f39c12;
+            font-weight: 700;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+        
+        .pricing-table .free-cell {
+            color: #27ae60;
+            font-weight: 700;
+        }
+        
+        .pricing-table .service-name {
+            color: #fff;
+            font-weight: 500;
+        }
+        
+        .pricing-table .service-desc {
+            font-size: 12px;
+            color: #888;
+            margin-top: 4px;
+            line-height: 1.5;
+        }
+        
+        .tax-note {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 16px;
+            background: rgba(231, 76, 60, 0.1);
+            border: 1px solid rgba(231, 76, 60, 0.2);
+            border-radius: 8px;
+            font-size: 13px;
+            color: #e74c3c;
+            font-weight: 500;
+            margin-top: 12px;
+        }
+        
+        /* Category Labels */
+        .category-label {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        
+        .cat-packing { background: rgba(52, 152, 219, 0.15); color: #3498db; }
+        .cat-photo { background: rgba(155, 89, 182, 0.15); color: #9b59b6; }
+        .cat-declare { background: rgba(231, 76, 60, 0.15); color: #e74c3c; }
+        .cat-operation { background: rgba(39, 174, 96, 0.15); color: #27ae60; }
+        .cat-material { background: rgba(243, 156, 18, 0.15); color: #f39c12; }
+        .cat-free { background: rgba(149, 165, 166, 0.15); color: #95a5a6; }
+        .cat-other { background: rgba(255, 255, 255, 0.1); color: #bbb; }
+        
+        /* Collapsible section */
+        .collapse-toggle {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            padding: 4px 0;
+        }
+        
+        .collapse-toggle .arrow {
+            transition: transform 0.3s;
+            font-size: 12px;
+            color: #888;
+        }
+        
+        .collapse-toggle.open .arrow {
+            transform: rotate(180deg);
+        }
+        
+        .collapse-body {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.4s ease;
+        }
+        
+        .collapse-body.open {
+            max-height: 5000px;
+        }
+        
         /* Responsive */
         @media (max-width: 768px) {
             .container { padding: 16px; }
@@ -606,6 +805,10 @@
             }
             .package-item > div:last-child { grid-column: 1 / -1; }
             .user-bar { flex-direction: column; gap: 16px; text-align: center; }
+            
+            .pricing-table { font-size: 12px; }
+            .pricing-table thead th { padding: 10px 10px; font-size: 11px; }
+            .pricing-table tbody td { padding: 10px 10px; font-size: 12px; }
         }
     </style>
 </head>
@@ -658,13 +861,448 @@
             </div>
             
             <div class="tabs">
-                <button class="tab active" onclick="switchTab('forecast')">📝 預報包裹</button>
+                <button class="tab active" onclick="switchTab('info')">📋 集運介紹</button>
+                <button class="tab" onclick="switchTab('forecast')">📝 預報包裹</button>
                 <button class="tab" onclick="switchTab('packages')">📦 我的包裹</button>
                 <button class="tab" onclick="switchTab('orders')">🚚 運單查詢</button>
             </div>
             
-            <!-- 預報包裹 -->
-            <div class="tab-content active" id="tab-forecast">
+            <!-- ====== 集運介紹 ====== -->
+            <div class="tab-content active" id="tab-info">
+                
+                <!-- 集運地址 -->
+                <div class="warehouse-box" style="background: linear-gradient(135deg, rgba(243, 156, 18, 0.1), rgba(243, 156, 18, 0.05)); border-color: rgba(243, 156, 18, 0.2); margin-bottom: 24px;">
+                    <h4 style="color: #f39c12;">📍 GOYOUTATI 集運地址</h4>
+                    <p>
+                        〒130-0021<br>
+                        <a href="https://maps.app.goo.gl/yMosqrkKTdA3h6UF8" target="_blank" style="color: #3498db; text-decoration: none;">
+                            東京都墨田区緑1-28-4 ニュー両国ハイツ 303号室 🔗
+                        </a><br>
+                        CW502-<span class="highlight" id="warehouseRecipient2">會員編號</span><br>
+                        收件人：omishonin<br><br>
+                        <span style="color: #e74c3c; font-size: 13px;">⚠️ 要提貨過來之前請先聯絡，避免白跑一趟</span><br>
+                        <a href="https://line.me/R/ti/p/@544kaytb" target="_blank" style="color: #06C755; text-decoration: none; font-weight: 600;">
+                            官方 LINE：@544kaytb
+                        </a>
+                    </p>
+                </div>
+                
+                <!-- 基本理貨費用 -->
+                <div class="card info-section">
+                    <div class="info-section-title">💰 基本理貨費用</div>
+                    
+                    <div class="info-card">
+                        <h4>📦 訂單理貨費</h4>
+                        <div class="price-highlight">首重 40 日圓/kg，續重 20 日圓/kg</div>
+                        <div class="info-note">
+                            📐 體積重 = 長(cm) × 寬(cm) × 高(cm) ÷ 6000<br>
+                            體積重超過實際重量 2 倍時，超出部分產生運費
+                        </div>
+                    </div>
+                    
+                    <div class="info-card">
+                        <h4>🏢 場地費</h4>
+                        <p>入庫日起 <strong style="color:#27ae60;">30 天內免倉儲</strong>，超過 30 天，每個 <strong style="color:#f39c12;">50 日圓/天</strong></p>
+                    </div>
+                    
+                    <div class="info-card">
+                        <h4>🛠️ 服務內容</h4>
+                        <ul>
+                            <li>包裹入庫：登記物流號，含重量、會員 ID、體積，箱子外觀拍照（系統自動拍照，僅限參考）</li>
+                            <li>整併出庫：根據貴司打包指令，盡可能縮小體積，必要時更換箱子</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="info-card">
+                        <h4>💻 系統支持</h4>
+                        <p>入庫包裹查看，出庫包裹全程跟蹤</p>
+                    </div>
+                    
+                    <div class="info-card">
+                        <h4>🛡️ 理賠</h4>
+                        <ul>
+                            <li>倉庫庫內丟失的包裹，賠付上限 <strong style="color:#e74c3c;">10 萬日圓</strong></li>
+                            <li>台灣段丟件，最大 <strong style="color:#e74c3c;">3,000 台幣</strong></li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <!-- 增值服務 -->
+                <div class="card info-section">
+                    <div class="info-section-title">⭐ 增值服務費用</div>
+                    
+                    <!-- 收費服務 -->
+                    <div class="info-card">
+                        <div class="collapse-toggle open" onclick="toggleCollapse(this)">
+                            <h4 style="margin-bottom:0;">💳 收費服務</h4>
+                            <span class="arrow">▼</span>
+                        </div>
+                        <div class="collapse-body open">
+                            <table class="pricing-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 35%;">服務名稱</th>
+                                        <th style="width: 50%;">說明</th>
+                                        <th style="width: 15%; text-align: right;">價格</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-declare">申報</span>
+                                            <div class="service-name">報關單修改</div>
+                                        </td>
+                                        <td><span class="service-desc">申報相關</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥5,500</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-declare">申報</span>
+                                            <div class="service-name">出口子單申報</div>
+                                        </td>
+                                        <td><span class="service-desc">申報相關</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥1,800</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-packing">加固</span>
+                                            <div class="service-name">特大型包裝箱加固</div>
+                                        </td>
+                                        <td><span class="service-desc">厚度 8mm，長寬高和 180cm（操作費＋資材費）</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥500</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-material">資材</span>
+                                            <div class="service-name">套箱 — 長寬高和 160cm</div>
+                                        </td>
+                                        <td><span class="service-desc">厚度 8mm，長寬高和 160cm</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥450</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-material">資材</span>
+                                            <div class="service-name">套箱 — 長寬高和 140cm</div>
+                                        </td>
+                                        <td><span class="service-desc">厚度 8mm，長寬高和 140cm</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥350</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-material">資材</span>
+                                            <div class="service-name">服裝線專用箱</div>
+                                        </td>
+                                        <td><span class="service-desc">75×45×45cm，5mm（價格含稅）</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥330</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-operation">操作</span>
+                                            <div class="service-name">特長件加值費</div>
+                                        </td>
+                                        <td><span class="service-desc">最長邊超過 1.5m 的包裹都需要添加此服務</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥300</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-packing">加固</span>
+                                            <div class="service-name">普通包裝箱加固</div>
+                                        </td>
+                                        <td><span class="service-desc">厚度 8mm，長寬高和 160cm（操作費＋資材費）</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥300</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-packing">加固</span>
+                                            <div class="service-name">外箱氣泡膜加固</div>
+                                        </td>
+                                        <td><span class="service-desc">
+                                            外箱加一層加厚薄膜，防震防摔<br>
+                                            長寬高和 120 以內：¥300/圈<br>
+                                            長寬高和 170 以內：¥600/圈<br>
+                                            長寬高和 200 以內：¥1,200/圈
+                                        </span></td>
+                                        <td class="price-cell" style="text-align:right;">¥300 起</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-operation">操作</span>
+                                            <div class="service-name">日本國內退換貨服務</div>
+                                        </td>
+                                        <td><span class="service-desc">服務費（單價 1 個包裹的手續費），運費以佐川官方為準</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥300</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-operation">操作</span>
+                                            <div class="service-name">精確分箱</div>
+                                        </td>
+                                        <td><span class="service-desc">根據客戶提供清單分箱</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥300</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-operation">操作</span>
+                                            <div class="service-name">退運</div>
+                                        </td>
+                                        <td><span class="service-desc">退運服務</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥300</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-operation">操作</span>
+                                            <div class="service-name">更改地址 — 跨省</div>
+                                        </td>
+                                        <td><span class="service-desc">適用服裝、雜貨管道（無法確保能夠更改成功，不成功不收費）</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥300</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-material">資材</span>
+                                            <div class="service-name">套箱 — 長寬高和 120cm</div>
+                                        </td>
+                                        <td><span class="service-desc">厚度 8mm，長寬高和 120cm</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥250</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-photo">拍照</span>
+                                            <div class="service-name">清點拍照</div>
+                                        </td>
+                                        <td><span class="service-desc">取出所有商品排列拍照，每 10 個商品費用</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥200</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-operation">操作</span>
+                                            <div class="service-name">隨機分箱</div>
+                                        </td>
+                                        <td><span class="service-desc">根據倉庫經驗隨機分箱</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥150</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-material">資材</span>
+                                            <div class="service-name">套箱 — 長寬高和 80cm</div>
+                                        </td>
+                                        <td><span class="service-desc">厚度 8mm，長寬高和 80cm</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥150</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-operation">操作</span>
+                                            <div class="service-name">入庫清點</div>
+                                        </td>
+                                        <td><span class="service-desc">入庫清點商品數量（每箱）</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥130</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-packing">加固</span>
+                                            <div class="service-name">套隨機外箱</div>
+                                        </td>
+                                        <td><span class="service-desc">利用倉庫積存的廢舊箱子（規格不定）</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥100</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-packing">加固</span>
+                                            <div class="service-name">商品氣柱加固</div>
+                                        </td>
+                                        <td><span class="service-desc">以商品為單位，氣柱長度 20cm 的單價，不足 20cm 以 20cm 計費</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥100</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-packing">加固</span>
+                                            <div class="service-name">商品氣泡膜加強</div>
+                                        </td>
+                                        <td><span class="service-desc">
+                                            長寬高和 40 以內：¥100/圈<br>
+                                            長寬高和 60 以內：¥200/圈<br>
+                                            長寬高和 80 以內：¥300/圈
+                                        </span></td>
+                                        <td class="price-cell" style="text-align:right;">¥100 起</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-photo">拍照</span>
+                                            <div class="service-name">拍照確認</div>
+                                        </td>
+                                        <td><span class="service-desc">隨機角度，3 張</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥100</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-photo">拍照</span>
+                                            <div class="service-name">面單拍照</div>
+                                        </td>
+                                        <td><span class="service-desc">只拍照面單</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥100</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-photo">拍照</span>
+                                            <div class="service-name">開箱拍照</div>
+                                        </td>
+                                        <td><span class="service-desc">外箱 1 張、開箱 1 張，共 2 張（不取出商品）</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥100</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-material">資材</span>
+                                            <div class="service-name">套箱 — 長寬高和 60cm</div>
+                                        </td>
+                                        <td><span class="service-desc">厚度 8mm，長寬高和 60cm</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥70</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-operation">操作</span>
+                                            <div class="service-name">去鞋盒</div>
+                                        </td>
+                                        <td><span class="service-desc">1 個鞋盒的操作費用</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥50</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-operation">操作</span>
+                                            <div class="service-name">合箱</div>
+                                        </td>
+                                        <td><span class="service-desc">3 個包裹以內合箱不收費，超過 3 個，每個加收</span></td>
+                                        <td class="price-cell" style="text-align:right;">¥50/個</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-other">其他</span>
+                                            <div class="service-name">其他收費服務</div>
+                                        </td>
+                                        <td><span class="service-desc">不在服務範圍的服務</span></td>
+                                        <td class="price-cell" style="text-align:right;">按實際</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-other">其他</span>
+                                            <div class="service-name">退貨運費</div>
+                                        </td>
+                                        <td><span class="service-desc">按實際金額計算</span></td>
+                                        <td class="price-cell" style="text-align:right;">按實際</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-other">其他</span>
+                                            <div class="service-name">到付手續費</div>
+                                        </td>
+                                        <td><span class="service-desc">5% 到付手續費，330 日圓起</span></td>
+                                        <td class="price-cell" style="text-align:right;">5%</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-other">其他</span>
+                                            <div class="service-name">到付費用</div>
+                                        </td>
+                                        <td><span class="service-desc">按實際金額計算</span></td>
+                                        <td class="price-cell" style="text-align:right;">按實際</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <!-- 免費服務 -->
+                    <div class="info-card">
+                        <div class="collapse-toggle open" onclick="toggleCollapse(this)">
+                            <h4 style="margin-bottom:0; color: #27ae60;">🆓 免費服務</h4>
+                            <span class="arrow">▼</span>
+                        </div>
+                        <div class="collapse-body open">
+                            <table class="pricing-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 35%;">服務名稱</th>
+                                        <th style="width: 50%;">說明</th>
+                                        <th style="width: 15%; text-align: right;">價格</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-free">免費</span>
+                                            <div class="service-name">取出價格明細</div>
+                                        </td>
+                                        <td><span class="service-desc">取出價格明細，方便送禮等用途</span></td>
+                                        <td class="free-cell" style="text-align:right;">免費</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-free">處理方案</span>
+                                            <div class="service-name">加固優先</div>
+                                        </td>
+                                        <td><span class="service-desc">以倉庫判斷為準，不構成索賠憑證</span></td>
+                                        <td class="free-cell" style="text-align:right;">免費</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-free">處理方案</span>
+                                            <div class="service-name">減重優先</div>
+                                        </td>
+                                        <td><span class="service-desc">以倉庫判斷為準，不構成索賠憑證</span></td>
+                                        <td class="free-cell" style="text-align:right;">免費</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-free">免費</span>
+                                            <div class="service-name">原箱（不整併）</div>
+                                        </td>
+                                        <td><span class="service-desc">保持原箱出庫，不進行整併</span></td>
+                                        <td class="free-cell" style="text-align:right;">免費</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-free">處理方案</span>
+                                            <div class="service-name">原箱不換箱</div>
+                                        </td>
+                                        <td><span class="service-desc">無需減少拋重，不做任何加固處理（預設減拋減重，需要時更換更適合舊箱子）</span></td>
+                                        <td class="free-cell" style="text-align:right;">免費</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-free">處理方案</span>
+                                            <div class="service-name">使用新箱（收費）</div>
+                                        </td>
+                                        <td><span class="service-desc">倉庫會使用新箱打包（產生耗材費）。不選擇則默認使用廢舊箱子（不產生耗材費），但如果沒有廢棄舊箱，還是會加上耗材費用</span></td>
+                                        <td class="free-cell" style="text-align:right;">免費<span style="font-size:11px; color:#888; font-weight:400;">（耗材另計）</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-declare">報關</span>
+                                            <div class="service-name">G1 正式報關</div>
+                                        </td>
+                                        <td><span class="service-desc">報單費 630 台幣（含稅）＋關稅，由清關行直接收取</span></td>
+                                        <td class="free-cell" style="text-align:right;">免費<span style="font-size:11px; color:#888; font-weight:400;">（清關行收費）</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <span class="category-label cat-declare">報關</span>
+                                            <div class="service-name">X3 簡易報關</div>
+                                        </td>
+                                        <td><span class="service-desc">報單費 210 台幣（含稅）＋關稅，由清關行直接收取</span></td>
+                                        <td class="free-cell" style="text-align:right;">免費<span style="font-size:11px; color:#888; font-weight:400;">（清關行收費）</span></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div class="tax-note">
+                        ⚠️ 以上收費服務價格不含消費稅，需另外加收 10% 消費稅
+                    </div>
+                </div>
+                
+            </div>
+            
+            <!-- ====== 預報包裹 ====== -->
+            <div class="tab-content" id="tab-forecast">
                 <div class="warehouse-box" style="background: linear-gradient(135deg, rgba(243, 156, 18, 0.1), rgba(243, 156, 18, 0.05)); border-color: rgba(243, 156, 18, 0.2);">
                     <h4 style="color: #f39c12;">📍 GOYOUTATI 集運地址</h4>
                     <p>
@@ -730,6 +1368,13 @@
         let currentCustomer = null;
         let packageCount = 0;
         
+        /* Collapsible sections */
+        function toggleCollapse(el) {
+            el.classList.toggle('open');
+            const body = el.nextElementSibling;
+            body.classList.toggle('open');
+        }
+        
         async function login() {
             let gCode = document.getElementById('customerId').value.trim().toUpperCase();
             let password = document.getElementById('password').value.trim();
@@ -764,6 +1409,7 @@
                     document.getElementById('userName').textContent = currentCustomer.name || '會員';
                     document.getElementById('userIdDisplay').textContent = currentCustomer.g_code;
                     document.getElementById('warehouseRecipient').textContent = currentCustomer.g_code;
+                    document.getElementById('warehouseRecipient2').textContent = currentCustomer.g_code;
                     addPackage();
                     localStorage.setItem('gCode', currentCustomer.g_code);
                     showToast('登入成功！', 'success');
