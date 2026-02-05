@@ -164,7 +164,12 @@ def get_all_members():
                     customer_name = node.get("email", "")
                 
                 default_address = node.get("defaultAddress") or {}
-                phone = default_address.get("phone") or node.get("phone") or ""
+                phone_raw = default_address.get("phone") or node.get("phone") or ""
+                
+                # 統一手機格式：+886 → 0 開頭，移除空格橫線
+                phone = phone_raw.replace(" ", "").replace("-", "")
+                if phone.startswith("+886"):
+                    phone = "0" + phone[4:]
                 
                 members.append({
                     "g_code": g_code,
@@ -180,8 +185,21 @@ def get_all_members():
         # 按 G 編號排序
         members.sort(key=lambda x: x["g_code"])
         
-        # 計算下一個可用編號
-        next_number = max_number + 1
+        # 收集所有已用的編號
+        used_numbers = set()
+        for m in members:
+            if m["g_code"].startswith("G"):
+                try:
+                    used_numbers.add(int(m["g_code"][1:]))
+                except:
+                    pass
+        
+        max_number = max(used_numbers) if used_numbers else 0
+        
+        # 找出最小可用編號（跳號優先填補）
+        next_number = 1
+        while next_number in used_numbers:
+            next_number += 1
         next_g_code = f"G{next_number:04d}"
         
         return jsonify({
