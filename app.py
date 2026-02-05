@@ -28,10 +28,12 @@ DEFAULT_SHIPPING_RATE = int(os.environ.get("DEFAULT_SHIPPING_RATE", "0"))
 
 
 def normalize_phone(phone_raw):
-    """統一手機格式：移除空格橫線，+886 → 0 開頭"""
+    """統一手機格式：移除空格橫線，+886 / +81 → 0 開頭"""
     phone = phone_raw.replace(" ", "").replace("-", "")
     if phone.startswith("+886"):
         phone = "0" + phone[4:]
+    elif phone.startswith("+81"):
+        phone = "0" + phone[3:]
     return phone
 
 
