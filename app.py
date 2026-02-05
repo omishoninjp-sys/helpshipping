@@ -88,33 +88,49 @@ def verify_customer():
     print(f"\n{'='*50}")
     print(f"🔍 查詢會員編號: {g_code}")
     
-    # 使用 GraphQL 查詢 metafield（修正查詢語法）
-    graphql_query = """
-    {
-        customers(first: 10, query: "metafields.custom.goyoutati_id:'%s'") {
-            edges {
-                node {
-                    id
-                    firstName
-                    lastName
-                    email
-                    phone
-                    metafield(namespace: "custom", key: "goyoutati_id") {
-                        value
-                    }
-                }
-            }
-        }
-    }
-    """ % g_code
-    
-    graphql_url = f"https://{SHOPIFY_STORE}/admin/api/2026-01/graphql.json"
+    # 使用 REST API 查詢所有客戶，然後用 metafield API 檢查
+    # 先用 metafield 值搜尋
+    search_url = f"https://{SHOPIFY_STORE}/admin/api/2026-01/customers/search.json"
     headers = {
         "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
         "Content-Type": "application/json"
     }
     
     try:
+        # 方法：查詢所有客戶的 metafield
+        # 使用 GraphQL 查詢有設定 goyoutati_id 的客戶
+        graphql_query = """
+        {
+            metafieldDefinitions(first: 1, ownerType: CUSTOMER, namespace: "custom", key: "goyoutati_id") {
+                edges {
+                    node {
+                        id
+                        name
+                        metafieldsCount
+                        metafields(first: 50) {
+                            edges {
+                                node {
+                                    value
+                                    owner {
+                                        ... on Customer {
+                                            id
+                                            firstName
+                                            lastName
+                                            email
+                                            phone
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        """
+        
+        graphql_url = f"https://{SHOPIFY_STORE}/admin/api/2026-01/graphql.json"
+        
         response = requests.post(
             graphql_url, 
             headers=headers, 
@@ -122,35 +138,37 @@ def verify_customer():
             timeout=30
         )
         result = response.json()
-        print(f"📥 GraphQL 回應: {json.dumps(result, ensure_ascii=False)[:1000]}")
+        print(f"📥 GraphQL 回應: {json.dumps(result, ensure_ascii=False)[:1500]}")
         
-        if "data" in result and result["data"]["customers"]["edges"]:
-            # 找到符合的客戶（metafield 值完全匹配）
-            for edge in result["data"]["customers"]["edges"]:
-                customer_node = edge["node"]
-                metafield = customer_node.get("metafield")
+        # 解析結果
+        if "data" in result:
+            definitions = result["data"].get("metafieldDefinitions", {}).get("edges", [])
+            if definitions:
+                metafields = definitions[0]["node"].get("metafields", {}).get("edges", [])
                 
-                if metafield and metafield.get("value") == g_code:
-                    # 從 GraphQL ID 提取數字 ID
-                    gid = customer_node["id"]
-                    customer_id = gid.split("/")[-1] if "/" in gid else gid
-                    
-                    customer_name = f"{customer_node.get('lastName', '')}{customer_node.get('firstName', '')}".strip()
-                    if not customer_name:
-                        customer_name = customer_node.get("email", "會員")
-                    
-                    print(f"✅ 找到客戶: {customer_name} (ID: {customer_id})")
-                    
-                    return jsonify({
-                        "success": True,
-                        "customer": {
-                            "id": customer_id,
-                            "g_code": g_code,
-                            "name": customer_name,
-                            "email": customer_node.get("email", ""),
-                            "phone": customer_node.get("phone", "")
-                        }
-                    })
+                for mf in metafields:
+                    node = mf["node"]
+                    if node.get("value") == g_code:
+                        owner = node.get("owner", {})
+                        gid = owner.get("id", "")
+                        customer_id = gid.split("/")[-1] if "/" in gid else gid
+                        
+                        customer_name = f"{owner.get('lastName', '')}{owner.get('firstName', '')}".strip()
+                        if not customer_name:
+                            customer_name = owner.get("email", "會員")
+                        
+                        print(f"✅ 找到客戶: {customer_name} (ID: {customer_id})")
+                        
+                        return jsonify({
+                            "success": True,
+                            "customer": {
+                                "id": customer_id,
+                                "g_code": g_code,
+                                "name": customer_name,
+                                "email": owner.get("email", ""),
+                                "phone": owner.get("phone", "")
+                            }
+                        })
         
         print(f"❌ 找不到會員編號: {g_code}")
         return jsonify({"success": False, "error": "找不到此會員編號，請確認後重試"})
