@@ -120,10 +120,57 @@ def get_shopify_orders():
         orders = []
         for order in result["orders"]:
             shipping = order.get("shipping_address", {}) or {}
-            # 台灣習慣：姓 + 名（last_name + first_name）
-            last_name = shipping.get("last_name", "")
-            first_name = shipping.get("first_name", "")
-            customer_name = f"{last_name}{first_name}".strip() or shipping.get("name", "N/A")
+            customer_info = order.get("customer", {}) or {}
+            billing = order.get("billing_address", {}) or {}
+            
+            # ===== 除錯：印出所有姓名來源 =====
+            print(f"\n--- 訂單 {order.get('name', '?')} 姓名來源 ---")
+            print(f"  shipping.name        = '{shipping.get('name', '')}'")
+            print(f"  shipping.first_name  = '{shipping.get('first_name', '')}'")
+            print(f"  shipping.last_name   = '{shipping.get('last_name', '')}'")
+            print(f"  customer.first_name  = '{customer_info.get('first_name', '')}'")
+            print(f"  customer.last_name   = '{customer_info.get('last_name', '')}'")
+            print(f"  billing.name         = '{billing.get('name', '')}'")
+            print(f"  order.contact_email  = '{order.get('contact_email', '')}'")
+            # ===================================
+            
+            # 無效姓名（結帳時常見的佔位字）
+            invalid_names = {"本人", "本人本人", "本人 本人", "同上", "同收件人", "test", "測試", ".", "-", ""}
+            
+            def is_valid(name):
+                return name and name.strip() not in invalid_names
+            
+            # 收件人姓名判斷（多重來源 fallback）
+            # 來源 1: shipping_address.name（Shopify 自動組合的完整名字）
+            shipping_name = shipping.get("name", "").strip()
+            
+            # 來源 2: shipping_address.last_name + first_name（自己拼接）
+            s_last = shipping.get("last_name", "").strip()
+            s_first = shipping.get("first_name", "").strip()
+            shipping_combined = f"{s_last}{s_first}".strip()
+            
+            # 來源 3: customer 物件
+            c_last = customer_info.get("last_name", "").strip()
+            c_first = customer_info.get("first_name", "").strip()
+            customer_combined = f"{c_last}{c_first}".strip()
+            
+            # 來源 4: billing_address.name
+            billing_name = billing.get("name", "").strip()
+            
+            # 優先順序判斷
+            if is_valid(shipping_name):
+                customer_name = shipping_name
+            elif is_valid(shipping_combined):
+                customer_name = shipping_combined
+            elif is_valid(customer_combined):
+                customer_name = customer_combined
+            elif is_valid(billing_name):
+                customer_name = billing_name
+            else:
+                # 最後 fallback
+                customer_name = shipping_name or shipping_combined or customer_combined or "N/A"
+            
+            print(f"  ➡️ 最終使用: '{customer_name}'")
             
             orders.append({
                 "id": order["id"],
