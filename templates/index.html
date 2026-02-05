@@ -623,15 +623,15 @@
                 <div class="card-title">🔐 會員登入</div>
                 <div class="login-form">
                     <div class="form-group">
-                        <label>客戶編號</label>
-                        <input type="text" id="customerId" class="form-control" placeholder="請輸入您的客戶編號">
+                        <label>會員編號</label>
+                        <input type="text" id="customerId" class="form-control" placeholder="請輸入會員編號（例：G0001）">
                     </div>
                     <button class="btn btn-primary" onclick="login()" style="height: 52px; margin-top: 23px;">登入</button>
                 </div>
                 
                 <div class="help-box">
-                    <div class="help-box-title">💡 不知道客戶編號？</div>
-                    <p>請加入官方 LINE 詢問您的專屬客戶編號</p>
+                    <div class="help-box-title">💡 不知道會員編號？</div>
+                    <p>請加入官方 LINE 詢問您的專屬會員編號</p>
                     <a href="https://line.me/R/ti/p/@544kaytb" target="_blank" class="line-link">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M12 2C6.48 2 2 5.82 2 10.5c0 2.55 1.25 4.83 3.21 6.41-.12.44-.78 2.82-.81 3.04-.05.32.12.63.42.76.1.04.21.06.31.06.21 0 .41-.08.56-.24l3.37-2.47c.95.15 1.93.23 2.94.23 5.52 0 10-3.82 10-8.5S17.52 2 12 2z"/>
@@ -649,7 +649,7 @@
                     <div class="user-avatar">👤</div>
                     <div>
                         <div class="user-name" id="userName">歡迎</div>
-                        <div class="user-id">客戶編號：<span id="userIdDisplay"></span></div>
+                        <div class="user-id">會員編號：<span id="userIdDisplay"></span></div>
                     </div>
                 </div>
                 <button class="btn btn-secondary" onclick="logout()">登出</button>
@@ -663,17 +663,6 @@
             
             <!-- 預報包裹 -->
             <div class="tab-content active" id="tab-forecast">
-                <div class="warehouse-box">
-                    <h4>📍 寄送倉庫地址</h4>
-                    <p>
-                        〒123-0874<br>
-                        東京都足立区堀之內2-2-15 CW502-<span class="highlight" id="warehouseRecipient">XXX</span><br>
-                        <span style="color: #888; font-size: 12px;">（XXX 請填入您的客戶編號）</span><br>
-                        收件人：omishonin<br>
-                        電話：080-83535498
-                    </p>
-                </div>
-                
                 <div class="warehouse-box" style="background: linear-gradient(135deg, rgba(243, 156, 18, 0.1), rgba(243, 156, 18, 0.05)); border-color: rgba(243, 156, 18, 0.2);">
                     <h4 style="color: #f39c12;">📍 GOYOUTATI 公司地址</h4>
                     <p>
@@ -681,6 +670,8 @@
                         <a href="https://maps.app.goo.gl/yMosqrkKTdA3h6UF8" target="_blank" style="color: #3498db; text-decoration: none;">
                             東京都墨田区緑1-28-4 ニュー両国ハイツ 303号室 🔗
                         </a><br>
+                        CW502-<span class="highlight" id="warehouseRecipient">會員編號</span><br>
+                        收件人：omishonin<br><br>
                         <span style="color: #e74c3c; font-size: 13px;">⚠️ 要過來之前請先聯絡，避免白跑一趟</span><br>
                         <a href="https://line.me/R/ti/p/@544kaytb" target="_blank" style="color: #06C755; text-decoration: none; font-weight: 600;">
                             官方 LINE：@544kaytb
@@ -734,17 +725,22 @@
         let packageCount = 0;
         
         async function login() {
-            const customerId = document.getElementById('customerId').value.trim();
-            if (!customerId) {
-                showToast('請輸入客戶編號', 'error');
+            let gCode = document.getElementById('customerId').value.trim().toUpperCase();
+            if (!gCode) {
+                showToast('請輸入會員編號', 'error');
                 return;
+            }
+            
+            // 自動補上 G 前綴
+            if (!gCode.startsWith('G')) {
+                gCode = 'G' + gCode;
             }
             
             try {
                 const res = await fetch('/api/verify_customer', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ customer_id: customerId })
+                    body: JSON.stringify({ customer_id: gCode })
                 });
                 const result = await res.json();
                 
@@ -753,10 +749,10 @@
                     document.getElementById('loginSection').classList.add('hidden');
                     document.getElementById('mainContent').classList.add('active');
                     document.getElementById('userName').textContent = currentCustomer.name || '會員';
-                    document.getElementById('userIdDisplay').textContent = currentCustomer.id;
-                    document.getElementById('warehouseRecipient').textContent = currentCustomer.id;
+                    document.getElementById('userIdDisplay').textContent = currentCustomer.g_code;
+                    document.getElementById('warehouseRecipient').textContent = currentCustomer.g_code;
                     addPackage();
-                    localStorage.setItem('customerId', customerId);
+                    localStorage.setItem('gCode', currentCustomer.g_code);
                     showToast('登入成功！', 'success');
                 } else {
                     showToast(result.error || '登入失敗', 'error');
@@ -769,7 +765,7 @@
         
         function logout() {
             currentCustomer = null;
-            localStorage.removeItem('customerId');
+            localStorage.removeItem('gCode');
             document.getElementById('loginSection').classList.remove('hidden');
             document.getElementById('mainContent').classList.remove('active');
             document.getElementById('customerId').value = '';
@@ -896,12 +892,16 @@
                 const res = await fetch('/api/forecast', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ customer_id: currentCustomer.id, packages })
+                    body: JSON.stringify({ 
+                        customer_id: currentCustomer.id, 
+                        g_code: currentCustomer.g_code,
+                        packages 
+                    })
                 });
                 const result = await res.json();
                 
                 if (result.success) {
-                    showToast('✅ 預報成功！請盡快將包裹寄往倉庫', 'success');
+                    showToast('✅ 預報成功！請盡快將包裹寄往公司', 'success');
                     document.getElementById('packagesContainer').innerHTML = '';
                     packageCount = 0;
                     addPackage();
@@ -918,7 +918,7 @@
         async function loadPackages() {
             if (!currentCustomer) return;
             try {
-                const res = await fetch(`/api/packages?customer_id=${currentCustomer.id}`);
+                const res = await fetch(`/api/packages?g_code=${currentCustomer.g_code}`);
                 const result = await res.json();
                 const container = document.getElementById('packagesList');
                 
@@ -961,7 +961,7 @@
         async function loadOrders() {
             if (!currentCustomer) return;
             try {
-                const res = await fetch(`/api/orders?customer_id=${currentCustomer.id}`);
+                const res = await fetch(`/api/orders?g_code=${currentCustomer.g_code}`);
                 const result = await res.json();
                 const container = document.getElementById('ordersList');
                 
@@ -1028,9 +1028,9 @@
         });
         
         window.onload = function() {
-            const savedId = localStorage.getItem('customerId');
-            if (savedId) {
-                document.getElementById('customerId').value = savedId;
+            const savedCode = localStorage.getItem('gCode');
+            if (savedCode) {
+                document.getElementById('customerId').value = savedCode;
                 login();
             }
         };

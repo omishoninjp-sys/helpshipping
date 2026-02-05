@@ -48,7 +48,7 @@ def jpd_request(operation: str, data: dict) -> dict:
         return {"error": str(e)}
 
 
-def shopify_request(endpoint: str) -> dict:
+def shopify_request(endpoint: str, method: str = "GET", data: dict = None) -> dict:
     """Shopify API 請求"""
     url = f"https://{SHOPIFY_STORE}/admin/api/2026-01/{endpoint}"
     headers = {
@@ -57,7 +57,10 @@ def shopify_request(endpoint: str) -> dict:
     }
     
     try:
-        response = requests.get(url, headers=headers, timeout=30)
+        if method == "GET":
+            response = requests.get(url, headers=headers, timeout=30)
+        elif method == "POST":
+            response = requests.post(url, headers=headers, json=data, timeout=30)
         return response.json()
     except Exception as e:
         return {"error": str(e)}
@@ -71,29 +74,82 @@ def index():
 
 @app.route("/api/verify_customer", methods=["POST"])
 def verify_customer():
-    """驗證客戶 ID"""
+    """驗證客戶 G 編號"""
     data = request.json
-    customer_id = data.get("customer_id", "").strip()
+    g_code = data.get("customer_id", "").strip().upper()
     
-    if not customer_id:
-        return jsonify({"success": False, "error": "請輸入客戶編號"})
+    if not g_code:
+        return jsonify({"success": False, "error": "請輸入會員編號"})
     
-    # 呼叫 Shopify API 驗證客戶
-    result = shopify_request(f"customers/{customer_id}.json")
+    # 確保格式正確（G 開頭）
+    if not g_code.startswith("G"):
+        g_code = "G" + g_code
     
-    if "customer" in result:
-        customer = result["customer"]
-        return jsonify({
-            "success": True,
-            "customer": {
-                "id": customer["id"],
-                "name": f"{customer.get('last_name', '')}{customer.get('first_name', '')}".strip() or customer.get("email", ""),
-                "email": customer.get("email", ""),
-                "phone": customer.get("phone", "")
+    print(f"\n{'='*50}")
+    print(f"🔍 查詢會員編號: {g_code}")
+    
+    # 使用 GraphQL 查詢 metafield
+    graphql_query = """
+    {
+        customers(first: 1, query: "metafields.custom.goyoutati_id:%s") {
+            edges {
+                node {
+                    id
+                    firstName
+                    lastName
+                    email
+                    phone
+                    metafield(namespace: "custom", key: "goyoutati_id") {
+                        value
+                    }
+                }
             }
-        })
+        }
+    }
+    """ % g_code
     
-    return jsonify({"success": False, "error": "找不到此客戶編號，請確認後重試"})
+    graphql_url = f"https://{SHOPIFY_STORE}/admin/api/2026-01/graphql.json"
+    headers = {
+        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
+        "Content-Type": "application/json"
+    }
+    
+    try:
+        response = requests.post(
+            graphql_url, 
+            headers=headers, 
+            json={"query": graphql_query},
+            timeout=30
+        )
+        result = response.json()
+        print(f"📥 GraphQL 回應: {json.dumps(result, ensure_ascii=False)[:500]}")
+        
+        if "data" in result and result["data"]["customers"]["edges"]:
+            customer_node = result["data"]["customers"]["edges"][0]["node"]
+            # 從 GraphQL ID 提取數字 ID (gid://shopify/Customer/123456 -> 123456)
+            gid = customer_node["id"]
+            customer_id = gid.split("/")[-1] if "/" in gid else gid
+            
+            customer_name = f"{customer_node.get('lastName', '')}{customer_node.get('firstName', '')}".strip()
+            if not customer_name:
+                customer_name = customer_node.get("email", "會員")
+            
+            return jsonify({
+                "success": True,
+                "customer": {
+                    "id": customer_id,
+                    "g_code": g_code,
+                    "name": customer_name,
+                    "email": customer_node.get("email", ""),
+                    "phone": customer_node.get("phone", "")
+                }
+            })
+        
+        return jsonify({"success": False, "error": "找不到此會員編號，請確認後重試"})
+        
+    except Exception as e:
+        print(f"❌ 錯誤: {e}")
+        return jsonify({"success": False, "error": f"查詢失敗: {str(e)}"})
 
 
 @app.route("/api/forecast", methods=["POST"])
@@ -101,7 +157,8 @@ def create_forecast():
     """建立預報包裹"""
     data = request.json
     
-    customer_id = data.get("customer_id")
+    customer_id = data.get("customer_id")  # Shopify Customer ID
+    g_code = data.get("g_code", "")  # G 編號
     packages = data.get("packages", [])
     
     if not customer_id:
@@ -113,9 +170,9 @@ def create_forecast():
     results = []
     
     for idx, pkg in enumerate(packages):
-        # 產生預報編號：客戶ID + 日期 + 序號
+        # 產生預報編號：G編號 + 日期 + 序號
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        local_logis_num = f"{customer_id}-{timestamp}-{idx+1}"
+        local_logis_num = f"{g_code}-{timestamp}-{idx+1}"
         
         # 組裝申報列表
         declare_list = []
@@ -136,8 +193,8 @@ def create_forecast():
         forecast_data = {
             "packages": [{
                 "local_logis_num": local_logis_num,
-                "client_cid": str(customer_id),  # 客戶會員 ID
-                "client_pid": pkg.get("client_pid") or local_logis_num,  # 客戶自訂包裹編號
+                "client_cid": g_code,  # 使用 G 編號作為客戶識別
+                "client_pid": pkg.get("client_pid") or local_logis_num,
                 "client_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "warehouse_id": JPD_WAREHOUSE_ID,
                 "product_name": declare_list[0]["product_name"] if declare_list else "商品",
@@ -178,14 +235,14 @@ def create_forecast():
 @app.route("/api/packages", methods=["GET"])
 def get_packages():
     """查詢客戶的包裹列表"""
-    customer_id = request.args.get("customer_id")
+    g_code = request.args.get("g_code") or request.args.get("customer_id")
     
-    if not customer_id:
-        return jsonify({"success": False, "error": "缺少客戶編號"})
+    if not g_code:
+        return jsonify({"success": False, "error": "缺少會員編號"})
     
-    # 查詢該客戶的包裹
+    # 查詢該客戶的包裹（用 G 編號）
     result = jpd_request("TSearchPackages", {
-        "client_cid": str(customer_id)
+        "client_cid": g_code
     })
     
     if "OperationResult" in result:
@@ -206,7 +263,7 @@ def get_packages():
                     "product_name": pkg.get("product_name"),
                     "product_num": pkg.get("product_num"),
                     "create_date": pkg.get("create_date"),
-                    "in_date": pkg.get("in_date"),  # 入庫日期
+                    "in_date": pkg.get("in_date"),
                     "declare_list": pkg.get("declare_list", [])
                 })
             
@@ -221,14 +278,14 @@ def get_packages():
 @app.route("/api/orders", methods=["GET"])
 def get_orders():
     """查詢客戶的運單列表"""
-    customer_id = request.args.get("customer_id")
+    g_code = request.args.get("g_code") or request.args.get("customer_id")
     
-    if not customer_id:
-        return jsonify({"success": False, "error": "缺少客戶編號"})
+    if not g_code:
+        return jsonify({"success": False, "error": "缺少會員編號"})
     
     # 查詢該客戶的運單
     result = jpd_request("TSearchOrders", {
-        "client_cid": str(customer_id)
+        "client_cid": g_code
     })
     
     if "OperationResult" in result:
