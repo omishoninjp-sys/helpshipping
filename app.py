@@ -66,6 +66,141 @@ def shopify_request(endpoint: str, method: str = "GET", data: dict = None) -> di
         return {"error": str(e)}
 
 
+@app.route("/admin")
+def admin_page():
+    """Admin 頁面"""
+    return render_template("admin.html")
+
+
+@app.route("/api/admin/members", methods=["GET"])
+def get_all_members():
+    """取得所有已分配 G 編號的會員"""
+    
+    graphql_query = """
+    {
+        metafieldDefinitions(first: 1, ownerType: CUSTOMER, namespace: "custom", key: "goyoutati_id") {
+            edges {
+                node {
+                    id
+                    name
+                    metafieldsCount
+                    metafields(first: 100) {
+                        edges {
+                            node {
+                                value
+                                owner {
+                                    ... on Customer {
+                                        id
+                                        firstName
+                                        lastName
+                                        email
+                                        phone
+                                        defaultAddress {
+                                            phone
+                                        }
+                                        createdAt
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    """
+    
+    graphql_url = f"https://{SHOPIFY_STORE}/admin/api/2026-01/graphql.json"
+    headers = {
+        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
+        "Content-Type": "application/json"
+    }
+    
+    try:
+        response = requests.post(
+            graphql_url, 
+            headers=headers, 
+            json={"query": graphql_query},
+            timeout=30
+        )
+        result = response.json()
+        
+        members = []
+        max_number = 0
+        
+        if "data" in result:
+            definitions = result["data"].get("metafieldDefinitions", {}).get("edges", [])
+            if definitions:
+                metafields = definitions[0]["node"].get("metafields", {}).get("edges", [])
+                
+                for mf in metafields:
+                    node = mf["node"]
+                    g_code = node.get("value", "")
+                    owner = node.get("owner", {})
+                    
+                    # 提取編號數字
+                    if g_code.startswith("G"):
+                        try:
+                            num = int(g_code[1:])
+                            if num > max_number:
+                                max_number = num
+                        except:
+                            pass
+                    
+                    gid = owner.get("id", "")
+                    customer_id = gid.split("/")[-1] if "/" in gid else gid
+                    
+                    customer_name = f"{owner.get('lastName', '')}{owner.get('firstName', '')}".strip()
+                    if not customer_name:
+                        customer_name = owner.get("email", "")
+                    
+                    default_address = owner.get("defaultAddress") or {}
+                    phone = default_address.get("phone") or owner.get("phone") or ""
+                    
+                    members.append({
+                        "g_code": g_code,
+                        "customer_id": customer_id,
+                        "name": customer_name,
+                        "email": owner.get("email", ""),
+                        "phone": phone,
+                        "created_at": owner.get("createdAt", "")
+                    })
+        
+        # 按 G 編號排序
+        members.sort(key=lambda x: x["g_code"])
+        
+        # 計算下一個可用編號
+        next_number = max_number + 1
+        next_g_code = f"G{next_number:04d}"
+        
+        return jsonify({
+            "success": True,
+            "members": members,
+            "total": len(members),
+            "max_number": max_number,
+            "next_g_code": next_g_code
+        })
+        
+    except Exception as e:
+        print(f"❌ 錯誤: {e}")
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route("/api/admin/verify", methods=["POST"])
+def admin_verify():
+    """Admin 密碼驗證"""
+    data = request.json
+    password = data.get("password", "")
+    
+    # 從環境變數取得 admin 密碼，預設為 "admin123"
+    admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
+    
+    if password == admin_password:
+        return jsonify({"success": True})
+    
+    return jsonify({"success": False, "error": "密碼錯誤"})
+
+
 @app.route("/")
 def index():
     """首頁 - 客人預報表單"""
