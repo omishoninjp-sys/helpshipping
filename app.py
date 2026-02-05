@@ -74,49 +74,47 @@ def index():
 
 @app.route("/api/verify_customer", methods=["POST"])
 def verify_customer():
-    """驗證客戶 G 編號"""
+    """驗證客戶 G 編號 + 手機密碼"""
     data = request.json
     g_code = data.get("customer_id", "").strip().upper()
+    password = data.get("password", "").strip()
     
     if not g_code:
         return jsonify({"success": False, "error": "請輸入會員編號"})
+    
+    if not password:
+        return jsonify({"success": False, "error": "請輸入密碼"})
     
     # 確保格式正確（G 開頭）
     if not g_code.startswith("G"):
         g_code = "G" + g_code
     
+    # 清理密碼格式（移除空格、橫線等）
+    password_clean = password.replace(" ", "").replace("-", "").replace("+886", "0")
+    
     print(f"\n{'='*50}")
     print(f"🔍 查詢會員編號: {g_code}")
     
-    # 使用 REST API 查詢所有客戶，然後用 metafield API 檢查
-    # 先用 metafield 值搜尋
-    search_url = f"https://{SHOPIFY_STORE}/admin/api/2026-01/customers/search.json"
-    headers = {
-        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
-        "Content-Type": "application/json"
-    }
-    
-    try:
-        # 方法：查詢所有客戶的 metafield
-        # 使用 GraphQL 查詢有設定 goyoutati_id 的客戶
-        graphql_query = """
-        {
-            metafieldDefinitions(first: 1, ownerType: CUSTOMER, namespace: "custom", key: "goyoutati_id") {
-                edges {
-                    node {
-                        id
-                        name
-                        metafieldsCount
-                        metafields(first: 50) {
-                            edges {
-                                node {
-                                    value
-                                    owner {
-                                        ... on Customer {
-                                            id
-                                            firstName
-                                            lastName
-                                            email
+    graphql_query = """
+    {
+        metafieldDefinitions(first: 1, ownerType: CUSTOMER, namespace: "custom", key: "goyoutati_id") {
+            edges {
+                node {
+                    id
+                    name
+                    metafieldsCount
+                    metafields(first: 50) {
+                        edges {
+                            node {
+                                value
+                                owner {
+                                    ... on Customer {
+                                        id
+                                        firstName
+                                        lastName
+                                        email
+                                        phone
+                                        defaultAddress {
                                             phone
                                         }
                                     }
@@ -127,10 +125,16 @@ def verify_customer():
                 }
             }
         }
-        """
-        
-        graphql_url = f"https://{SHOPIFY_STORE}/admin/api/2026-01/graphql.json"
-        
+    }
+    """
+    
+    graphql_url = f"https://{SHOPIFY_STORE}/admin/api/2026-01/graphql.json"
+    headers = {
+        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
+        "Content-Type": "application/json"
+    }
+    
+    try:
         response = requests.post(
             graphql_url, 
             headers=headers, 
@@ -150,25 +154,40 @@ def verify_customer():
                     node = mf["node"]
                     if node.get("value") == g_code:
                         owner = node.get("owner", {})
-                        gid = owner.get("id", "")
-                        customer_id = gid.split("/")[-1] if "/" in gid else gid
                         
-                        customer_name = f"{owner.get('lastName', '')}{owner.get('firstName', '')}".strip()
-                        if not customer_name:
-                            customer_name = owner.get("email", "會員")
+                        # 取得手機號碼（優先用 defaultAddress.phone，其次用 customer.phone）
+                        default_address = owner.get("defaultAddress") or {}
+                        customer_phone = default_address.get("phone") or owner.get("phone") or ""
                         
-                        print(f"✅ 找到客戶: {customer_name} (ID: {customer_id})")
+                        # 清理手機號碼格式
+                        phone_clean = customer_phone.replace(" ", "").replace("-", "").replace("+886", "0")
                         
-                        return jsonify({
-                            "success": True,
-                            "customer": {
-                                "id": customer_id,
-                                "g_code": g_code,
-                                "name": customer_name,
-                                "email": owner.get("email", ""),
-                                "phone": owner.get("phone", "")
-                            }
-                        })
+                        print(f"📱 客戶手機: {phone_clean}, 輸入密碼: {password_clean}")
+                        
+                        # 驗證密碼（手機號碼）
+                        if phone_clean and phone_clean == password_clean:
+                            gid = owner.get("id", "")
+                            customer_id = gid.split("/")[-1] if "/" in gid else gid
+                            
+                            customer_name = f"{owner.get('lastName', '')}{owner.get('firstName', '')}".strip()
+                            if not customer_name:
+                                customer_name = owner.get("email", "會員")
+                            
+                            print(f"✅ 登入成功: {customer_name} (ID: {customer_id})")
+                            
+                            return jsonify({
+                                "success": True,
+                                "customer": {
+                                    "id": customer_id,
+                                    "g_code": g_code,
+                                    "name": customer_name,
+                                    "email": owner.get("email", ""),
+                                    "phone": customer_phone
+                                }
+                            })
+                        else:
+                            print(f"❌ 密碼錯誤")
+                            return jsonify({"success": False, "error": "密碼錯誤，請輸入您的手機號碼"})
         
         print(f"❌ 找不到會員編號: {g_code}")
         return jsonify({"success": False, "error": "找不到此會員編號，請確認後重試"})

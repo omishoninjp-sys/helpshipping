@@ -621,13 +621,15 @@
         <div class="login-section" id="loginSection">
             <div class="card">
                 <div class="card-title">🔐 會員登入</div>
-                <div class="login-form">
-                    <div class="form-group">
-                        <label>會員編號</label>
-                        <input type="text" id="customerId" class="form-control" placeholder="請輸入會員編號（例：G0001）">
-                    </div>
-                    <button class="btn btn-primary" onclick="login()" style="height: 52px; margin-top: 23px;">登入</button>
+                <div class="form-group">
+                    <label>會員編號</label>
+                    <input type="text" id="customerId" class="form-control" placeholder="請輸入會員編號（例：G0001）">
                 </div>
+                <div class="form-group">
+                    <label>密碼（您的手機號碼）</label>
+                    <input type="password" id="password" class="form-control" placeholder="請輸入手機號碼">
+                </div>
+                <button class="btn btn-primary btn-block" onclick="login()" style="padding: 14px;">登入</button>
                 
                 <div class="help-box">
                     <div class="help-box-title">💡 不知道會員編號？</div>
@@ -730,8 +732,15 @@
         
         async function login() {
             let gCode = document.getElementById('customerId').value.trim().toUpperCase();
+            let password = document.getElementById('password').value.trim();
+            
             if (!gCode) {
                 showToast('請輸入會員編號', 'error');
+                return;
+            }
+            
+            if (!password) {
+                showToast('請輸入密碼', 'error');
                 return;
             }
             
@@ -744,7 +753,7 @@
                 const res = await fetch('/api/verify_customer', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ customer_id: gCode })
+                    body: JSON.stringify({ customer_id: gCode, password: password })
                 });
                 const result = await res.json();
                 
@@ -773,6 +782,7 @@
             document.getElementById('loginSection').classList.remove('hidden');
             document.getElementById('mainContent').classList.remove('active');
             document.getElementById('customerId').value = '';
+            document.getElementById('password').value = '';
             document.getElementById('packagesContainer').innerHTML = '';
             packageCount = 0;
         }
@@ -1027,15 +1037,18 @@
         
         document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('customerId').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') document.getElementById('password').focus();
+            });
+            document.getElementById('password').addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') login();
             });
         });
         
         window.onload = function() {
+            // 自動填入會員編號（但不自動登入，需要輸入密碼）
             const savedCode = localStorage.getItem('gCode');
             if (savedCode) {
                 document.getElementById('customerId').value = savedCode;
-                login();
             }
         };
     </script>
