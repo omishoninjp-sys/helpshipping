@@ -515,6 +515,12 @@
                 </div>
                 
                 <div class="form-group">
+                    <label>📦 入庫包裹 ID（JPD 倉庫包裹編號，多個用逗號分隔）</label>
+                    <input type="text" id="form-package-ids" placeholder="例如: 7465126 或 7465126,7465127">
+                    <p style="font-size:12px; color:#888; margin-top:4px;">倉庫代發必填，自出貨可留空（系統會自動預報）</p>
+                </div>
+                
+                <div class="form-group">
                     <label>備註</label>
                     <input type="text" id="form-memo">
                 </div>
@@ -732,6 +738,7 @@
             const mode = document.getElementById('form-mode').value;
             const data = {
                 mode: mode,
+                shopify_order_id: document.getElementById('form-shopify-order-id').value,
                 customer_order_id: document.getElementById('form-customer-order-id').value,
                 recipient: document.getElementById('form-recipient').value,
                 phone: document.getElementById('form-phone').value,
@@ -745,9 +752,17 @@
                 }))
             };
             
-            if (mode === 'warehouse') {
-                const select = document.getElementById('form-package-id');
-                data.package_ids = Array.from(select.selectedOptions).map(o => o.value);
+            // 讀取手動輸入的入庫包裹 ID
+            const packageIdsInput = document.getElementById('form-package-ids').value.trim();
+            if (packageIdsInput) {
+                // 支援逗號、空格、頓號分隔
+                data.package_ids = packageIdsInput.split(/[,，、\s]+/).filter(id => id.trim());
+                data.mode = 'warehouse';  // 有填包裹 ID 就自動切成倉庫代發
+            }
+            
+            if (mode === 'warehouse' && (!data.package_ids || data.package_ids.length === 0)) {
+                showToast('❌ 倉庫代發模式請填入入庫包裹 ID', 'error');
+                return;
             }
             
             try {

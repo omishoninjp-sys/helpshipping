@@ -157,17 +157,19 @@ def get_shopify_orders():
             # 來源 4: billing_address.name
             billing_name = billing.get("name", "").strip()
             
-            # 優先順序判斷
-            if is_valid(shipping_name):
-                customer_name = shipping_name
-            elif is_valid(shipping_combined):
+            # 優先順序判斷（台灣習慣：姓+名）
+            # shipping.name 是 Shopify 自動組的「first last」西方順序，不直接用
+            # 優先用 last_name + first_name 自己拼
+            if is_valid(shipping_combined):
                 customer_name = shipping_combined
             elif is_valid(customer_combined):
                 customer_name = customer_combined
+            elif is_valid(shipping_name):
+                # shipping.name 是西方順序，但至少有名字
+                customer_name = shipping_name
             elif is_valid(billing_name):
                 customer_name = billing_name
             else:
-                # 最後 fallback
                 customer_name = shipping_name or shipping_combined or customer_combined or "N/A"
             
             print(f"  ➡️ 最終使用: '{customer_name}'")
@@ -325,6 +327,44 @@ def create_jpd_order():
             return jsonify({"success": False, "error": "預報包裹失敗：未取得 package_id"})
     
     # 組裝運單資料
+    # 收件人姓名處理：從 Shopify 原始訂單重新取得正確姓名（姓+名）
+    recipient = data["recipient"]
+    shopify_order_id = data.get("shopify_order_id")
+    if shopify_order_id:
+        order_detail = shopify_request(f"orders/{shopify_order_id}.json")
+        if "order" in order_detail:
+            orig_order = order_detail["order"]
+            orig_shipping = orig_order.get("shipping_address", {}) or {}
+            orig_customer = orig_order.get("customer", {}) or {}
+            orig_billing = orig_order.get("billing_address", {}) or {}
+            
+            invalid_names = {"本人", "本人本人", "本人 本人", "同上", "同收件人", "test", "測試", ".", "-", ""}
+            
+            def is_valid_name(name):
+                return name and name.strip() not in invalid_names
+            
+            # 台灣習慣：姓(last_name) + 名(first_name)
+            s_last = orig_shipping.get("last_name", "").strip()
+            s_first = orig_shipping.get("first_name", "").strip()
+            shipping_combined = f"{s_last}{s_first}".strip()
+            
+            c_last = orig_customer.get("last_name", "").strip()
+            c_first = orig_customer.get("first_name", "").strip()
+            customer_combined = f"{c_last}{c_first}".strip()
+            
+            b_last = orig_billing.get("last_name", "").strip()
+            b_first = orig_billing.get("first_name", "").strip()
+            billing_combined = f"{b_last}{b_first}".strip()
+            
+            if is_valid_name(shipping_combined):
+                recipient = shipping_combined
+            elif is_valid_name(customer_combined):
+                recipient = customer_combined
+            elif is_valid_name(billing_combined):
+                recipient = billing_combined
+            
+            print(f"📝 JPD 收件人: '{recipient}' (原始: shipping={shipping_combined}, customer={customer_combined})")
+    
     order_data = {
         "customer_order_id": data["customer_order_id"],
         "deliv_id": JPD_DELIV_ID,
