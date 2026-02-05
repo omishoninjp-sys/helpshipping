@@ -22,7 +22,7 @@
         }
         
         .container {
-            max-width: 1000px;
+            max-width: 1100px;
             margin: 0 auto;
             padding: 20px;
         }
@@ -88,6 +88,7 @@
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s;
+            font-family: inherit;
         }
         
         .btn-primary {
@@ -102,6 +103,29 @@
         .btn-secondary {
             background: rgba(255,255,255,0.08);
             color: #fff;
+        }
+        
+        .btn-sm {
+            padding: 8px 16px;
+            font-size: 13px;
+            border-radius: 8px;
+        }
+        
+        .btn-save {
+            background: linear-gradient(135deg, #27ae60, #2ecc71);
+            color: #fff;
+        }
+        
+        .btn-save:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(39, 174, 96, 0.3);
+        }
+        
+        .btn-save:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
         }
         
         /* Login */
@@ -195,10 +219,120 @@
             color: #f39c12;
             font-size: 12px;
             cursor: pointer;
+            font-family: inherit;
         }
         
         .copy-btn:hover {
             background: rgba(243, 156, 18, 0.3);
+        }
+        
+        /* Shipping Rate Input */
+        .rate-input-wrap {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .rate-input {
+            width: 80px;
+            padding: 8px 10px;
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 8px;
+            color: #fff;
+            font-size: 14px;
+            font-family: inherit;
+            text-align: right;
+            transition: all 0.3s;
+        }
+        
+        .rate-input:focus {
+            outline: none;
+            border-color: #f39c12;
+            box-shadow: 0 0 0 2px rgba(243, 156, 18, 0.15);
+        }
+        
+        .rate-input.changed {
+            border-color: #f39c12;
+            background: rgba(243, 156, 18, 0.08);
+        }
+        
+        .rate-input.saving {
+            opacity: 0.5;
+        }
+        
+        .rate-input.saved {
+            border-color: #27ae60;
+            background: rgba(39, 174, 96, 0.08);
+        }
+        
+        .rate-unit {
+            color: #888;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        
+        .rate-save-btn {
+            padding: 6px 12px;
+            background: rgba(39, 174, 96, 0.2);
+            border: none;
+            border-radius: 6px;
+            color: #27ae60;
+            font-size: 12px;
+            cursor: pointer;
+            font-family: inherit;
+            white-space: nowrap;
+            transition: all 0.2s;
+            display: none;
+        }
+        
+        .rate-save-btn.visible {
+            display: inline-block;
+        }
+        
+        .rate-save-btn:hover {
+            background: rgba(39, 174, 96, 0.3);
+        }
+        
+        .rate-no-set {
+            color: #666;
+            font-size: 12px;
+            font-style: italic;
+        }
+        
+        /* Toolbar */
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        
+        .toolbar h3 {
+            font-size: 18px;
+        }
+        
+        .toolbar-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .changes-badge {
+            display: none;
+            padding: 4px 12px;
+            background: rgba(243, 156, 18, 0.15);
+            border: 1px solid rgba(243, 156, 18, 0.3);
+            border-radius: 20px;
+            color: #f39c12;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .changes-badge.visible {
+            display: inline-block;
         }
         
         /* Toast */
@@ -229,7 +363,13 @@
             }
             
             th, td {
-                padding: 10px 12px;
+                padding: 10px 8px;
+                font-size: 13px;
+            }
+            
+            .rate-input {
+                width: 65px;
+                padding: 6px 8px;
                 font-size: 13px;
             }
         }
@@ -239,7 +379,7 @@
     <div class="container">
         <header>
             <h1>🔧 Admin 管理後台</h1>
-            <p>會員編號管理</p>
+            <p>會員編號 ＆ 運費管理</p>
         </header>
         
         <!-- 登入區 -->
@@ -272,9 +412,13 @@
             </div>
             
             <div class="card">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <div class="toolbar">
                     <h3>📋 會員列表</h3>
-                    <button class="btn btn-secondary" onclick="loadMembers()">🔄 重新整理</button>
+                    <div class="toolbar-actions">
+                        <span class="changes-badge" id="changesBadge">0 項待儲存</span>
+                        <button class="btn btn-save btn-sm" id="saveAllBtn" onclick="saveAllChanges()" disabled>💾 全部儲存</button>
+                        <button class="btn btn-secondary btn-sm" onclick="loadMembers()">🔄 重新整理</button>
+                    </div>
                 </div>
                 
                 <div class="table-container">
@@ -285,12 +429,13 @@
                                 <th>姓名</th>
                                 <th>Email</th>
                                 <th>手機（密碼）</th>
+                                <th>運費 (日圓/kg)</th>
                                 <th>操作</th>
                             </tr>
                         </thead>
                         <tbody id="membersTable">
                             <tr>
-                                <td colspan="5" style="text-align: center; color: #666;">載入中...</td>
+                                <td colspan="6" style="text-align: center; color: #666;">載入中...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -300,6 +445,9 @@
     </div>
     
     <script>
+        let membersData = [];
+        let pendingChanges = {}; // { customer_gid: new_rate }
+        
         async function adminLogin() {
             const password = document.getElementById('adminPassword').value;
             
@@ -330,11 +478,17 @@
         }
         
         async function loadMembers() {
+            // 清空 pending changes
+            pendingChanges = {};
+            updateChangesBadge();
+            
             try {
                 const res = await fetch('/api/admin/members');
                 const result = await res.json();
                 
                 if (result.success) {
+                    membersData = result.members;
+                    
                     document.getElementById('totalMembers').textContent = result.total;
                     document.getElementById('maxNumber').textContent = result.max_number > 0 ? `G${String(result.max_number).padStart(4, '0')}` : '-';
                     document.getElementById('nextCode').textContent = result.next_g_code;
@@ -342,27 +496,196 @@
                     const tbody = document.getElementById('membersTable');
                     
                     if (result.members.length > 0) {
-                        tbody.innerHTML = result.members.map(m => `
+                        tbody.innerHTML = result.members.map((m, idx) => {
+                            const rate = m.shipping_rate || '';
+                            const rateDisplay = rate ? rate : '';
+                            const placeholder = result.default_shipping_rate > 0 ? result.default_shipping_rate : '未設定';
+                            
+                            return `
                             <tr>
                                 <td><span class="g-code">${m.g_code}</span></td>
                                 <td>${m.name || '-'}</td>
                                 <td>${m.email || '-'}</td>
                                 <td>${m.phone || '-'}</td>
                                 <td>
+                                    <div class="rate-input-wrap">
+                                        <input type="number" 
+                                               class="rate-input" 
+                                               id="rate-${idx}"
+                                               value="${rateDisplay}" 
+                                               placeholder="${placeholder}"
+                                               min="0"
+                                               data-gid="${m.gid}"
+                                               data-original="${rateDisplay}"
+                                               data-idx="${idx}"
+                                               oninput="onRateChange(${idx})"
+                                               onkeydown="onRateKeydown(event, ${idx})"
+                                        >
+                                        <span class="rate-unit">日圓/kg</span>
+                                        <button class="rate-save-btn" id="save-${idx}" onclick="saveSingleRate(${idx})">儲存</button>
+                                    </div>
+                                </td>
+                                <td>
                                     <button class="copy-btn" onclick="copyInfo('${m.g_code}', '${m.phone}')">
                                         📋 複製
                                     </button>
                                 </td>
                             </tr>
-                        `).join('');
+                        `}).join('');
                     } else {
-                        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #666;">尚無會員</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #666;">尚無會員</td></tr>';
                     }
                 } else {
                     showToast(result.error || '載入失敗', 'error');
                 }
             } catch (e) {
                 showToast('載入失敗', 'error');
+            }
+        }
+        
+        function onRateChange(idx) {
+            const input = document.getElementById(`rate-${idx}`);
+            const saveBtn = document.getElementById(`save-${idx}`);
+            const original = input.dataset.original;
+            const current = input.value;
+            const gid = input.dataset.gid;
+            
+            if (current !== original) {
+                input.classList.add('changed');
+                input.classList.remove('saved');
+                saveBtn.classList.add('visible');
+                pendingChanges[gid] = { idx, rate: current };
+            } else {
+                input.classList.remove('changed');
+                saveBtn.classList.remove('visible');
+                delete pendingChanges[gid];
+            }
+            
+            updateChangesBadge();
+        }
+        
+        function onRateKeydown(event, idx) {
+            if (event.key === 'Enter') {
+                saveSingleRate(idx);
+            }
+        }
+        
+        function updateChangesBadge() {
+            const count = Object.keys(pendingChanges).length;
+            const badge = document.getElementById('changesBadge');
+            const saveAllBtn = document.getElementById('saveAllBtn');
+            
+            if (count > 0) {
+                badge.textContent = `${count} 項待儲存`;
+                badge.classList.add('visible');
+                saveAllBtn.disabled = false;
+            } else {
+                badge.classList.remove('visible');
+                saveAllBtn.disabled = true;
+            }
+        }
+        
+        async function saveSingleRate(idx) {
+            const input = document.getElementById(`rate-${idx}`);
+            const saveBtn = document.getElementById(`save-${idx}`);
+            const gid = input.dataset.gid;
+            const rate = input.value;
+            
+            if (rate === '' || rate === null) {
+                showToast('請輸入運費', 'error');
+                return;
+            }
+            
+            input.classList.add('saving');
+            saveBtn.textContent = '⏳';
+            
+            try {
+                const res = await fetch('/api/admin/shipping_rate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        customer_gid: gid,
+                        shipping_rate: rate
+                    })
+                });
+                const result = await res.json();
+                
+                if (result.success) {
+                    input.classList.remove('saving', 'changed');
+                    input.classList.add('saved');
+                    input.dataset.original = rate;
+                    saveBtn.classList.remove('visible');
+                    delete pendingChanges[gid];
+                    updateChangesBadge();
+                    
+                    // 短暫閃綠後恢復
+                    setTimeout(() => input.classList.remove('saved'), 2000);
+                    
+                    showToast(`${membersData[idx].g_code} 運費已更新為 ${rate} 日圓/kg`, 'success');
+                } else {
+                    input.classList.remove('saving');
+                    saveBtn.textContent = '儲存';
+                    showToast(result.error || '儲存失敗', 'error');
+                }
+            } catch (e) {
+                input.classList.remove('saving');
+                saveBtn.textContent = '儲存';
+                showToast('網路錯誤', 'error');
+            }
+        }
+        
+        async function saveAllChanges() {
+            const entries = Object.entries(pendingChanges);
+            if (entries.length === 0) return;
+            
+            const saveAllBtn = document.getElementById('saveAllBtn');
+            saveAllBtn.disabled = true;
+            saveAllBtn.textContent = '⏳ 儲存中...';
+            
+            let successCount = 0;
+            let failCount = 0;
+            
+            for (const [gid, { idx, rate }] of entries) {
+                const input = document.getElementById(`rate-${idx}`);
+                const saveBtn = document.getElementById(`save-${idx}`);
+                input.classList.add('saving');
+                
+                try {
+                    const res = await fetch('/api/admin/shipping_rate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            customer_gid: gid,
+                            shipping_rate: rate
+                        })
+                    });
+                    const result = await res.json();
+                    
+                    if (result.success) {
+                        input.classList.remove('saving', 'changed');
+                        input.classList.add('saved');
+                        input.dataset.original = rate;
+                        saveBtn.classList.remove('visible');
+                        delete pendingChanges[gid];
+                        successCount++;
+                        setTimeout(() => input.classList.remove('saved'), 2000);
+                    } else {
+                        input.classList.remove('saving');
+                        failCount++;
+                    }
+                } catch (e) {
+                    input.classList.remove('saving');
+                    failCount++;
+                }
+            }
+            
+            updateChangesBadge();
+            saveAllBtn.textContent = '💾 全部儲存';
+            
+            if (failCount === 0) {
+                showToast(`✅ 已成功更新 ${successCount} 位會員的運費`, 'success');
+            } else {
+                showToast(`${successCount} 筆成功，${failCount} 筆失敗`, 'error');
             }
         }
         
