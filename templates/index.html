@@ -884,7 +884,7 @@
                         <a href="https://maps.app.goo.gl/yMosqrkKTdA3h6UF8" target="_blank" style="color: #3498db; text-decoration: none;">
                             東京都墨田区緑1-28-4 ニュー両国ハイツ 303号室 🔗</a>
                         <br> 
-                        收件人：自已的名字+<span class="highlight" id="warehouseRecipient">會員編號</span><br>
+                        收件人：自已的名字+<span class="highlight member-code-placeholder">會員編號</span><br>
                         電話：080-1325-8885<br><br>
                         <span style="color: #e74c3c; font-size: 13px;">⚠️ 要提貨過來之前請先聯絡，避免白跑一趟</span><br>
                         <a href="https://line.me/R/ti/p/@544kaytb" target="_blank" style="color: #06C755; text-decoration: none; font-weight: 600;">
@@ -1316,7 +1316,7 @@
                         <a href="https://maps.app.goo.gl/yMosqrkKTdA3h6UF8" target="_blank" style="color: #3498db; text-decoration: none;">
                             東京都墨田区緑1-28-4 ニュー両国ハイツ 303号室 🔗</a>
                         <br> 
-                        收件人：自已的名字+<span class="highlight" id="warehouseRecipient2">會員編號</span><br>
+                        收件人：自已的名字+<span class="highlight member-code-placeholder">會員編號</span><br>
                         電話：080-1325-8885<br><br>
                         <span style="color: #e74c3c; font-size: 13px;">⚠️ 要提貨過來之前請先聯絡，避免白跑一趟</span><br>
                         <a href="https://line.me/R/ti/p/@544kaytb" target="_blank" style="color: #06C755; text-decoration: none; font-weight: 600;">
@@ -1414,8 +1414,11 @@
                     document.getElementById('mainContent').classList.add('active');
                     document.getElementById('userName').textContent = currentCustomer.name || '會員';
                     document.getElementById('userIdDisplay').textContent = currentCustomer.g_code;
-                    document.getElementById('warehouseRecipient').textContent = currentCustomer.g_code;
-                    document.getElementById('warehouseRecipient2').textContent = currentCustomer.g_code;
+
+                    // ✅ 統一更新所有集運地址的會員編號
+                    document.querySelectorAll('.member-code-placeholder').forEach(el => {
+                        el.textContent = currentCustomer.g_code;
+                    });
                     
                     // 顯示運費
                     if (currentCustomer.shipping_rate && currentCustomer.shipping_rate > 0) {
@@ -1447,6 +1450,11 @@
             document.getElementById('packagesContainer').innerHTML = '';
             document.getElementById('shippingRateDisplay').style.display = 'none';
             packageCount = 0;
+
+            // 重置所有會員編號顯示
+            document.querySelectorAll('.member-code-placeholder').forEach(el => {
+                el.textContent = '會員編號';
+            });
         }
         
         function switchTab(tab) {
