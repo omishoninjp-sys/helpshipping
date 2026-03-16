@@ -396,7 +396,6 @@ HTML = '''<!DOCTYPE html>
 
 <script>
 let currentJobId = null;
-let evtSource = null;
 
 // 預設日期
 const today = new Date();
@@ -484,31 +483,33 @@ async function startJob() {
   currentJobId = data.job_id;
 
   // SSE 監聽日誌
-  evtSource = new EventSource(`/api/logs/${currentJobId}`);
-  evtSource.onmessage = e => {
-    const d = JSON.parse(e.data);
-    if (d.type === 'log') {
-      log(d.msg);
-    } else if (d.type === 'done') {
-      evtSource.close();
-      document.getElementById('progress-bar').classList.remove('running');
-      document.getElementById('btn-start').disabled = false;
-      document.getElementById('btn-stop').disabled  = true;
-      if (d.count > 0) {
-        document.getElementById('done-msg').textContent = `✅ 完成！共 ${d.count} 筆訂單`;
-        document.getElementById('download-btn').href = `/api/download/${currentJobId}`;
-        document.getElementById('download-area').classList.add('show');
-      } else {
-        log('⚠️ 無資料可下載');
-      }
-    } else if (d.type === 'error') {
-      log('❌ ' + d.msg, true);
-      evtSource.close();
-      document.getElementById('progress-bar').classList.remove('running');
-      document.getElementById('btn-start').disabled = false;
-      document.getElementById('btn-stop').disabled  = true;
-    }
-  };
+  // 輪詢方式，每 2 秒問一次，不受 proxy 60 秒逾時影響
+  function pollStatus() {
+    fetch(`/api/status/${currentJobId}`)
+      .then(r => r.json())
+      .then(data => {
+        (data.messages || []).forEach(m => {
+          if (m.type === 'log')        log(m.msg);
+          else if (m.type === 'error') log('❌ ' + m.msg, true);
+        });
+        if (data.done) {
+          document.getElementById('progress-bar').classList.remove('running');
+          document.getElementById('btn-start').disabled = false;
+          document.getElementById('btn-stop').disabled  = true;
+          if (data.has_file && data.count > 0) {
+            document.getElementById('done-msg').textContent = `✅ 完成！共 ${data.count} 筆訂單`;
+            document.getElementById('download-btn').href = `/api/download/${currentJobId}`;
+            document.getElementById('download-area').classList.add('show');
+          } else if (!data.has_file) {
+            log('⚠️ 無資料可下載');
+          }
+        } else {
+          setTimeout(pollStatus, 2000);
+        }
+      })
+      .catch(() => setTimeout(pollStatus, 3000));
+  }
+  setTimeout(pollStatus, 2000);
 }
 
 async function stopJob() {
@@ -559,27 +560,33 @@ def start():
     return jsonify({"job_id": job_id})
 
 
-@app.route("/api/logs/<job_id>")
-def logs(job_id):
+@app.route("/api/status/<job_id>")
+def status(job_id):
     job = jobs.get(job_id)
     if not job:
-        return "job not found", 404
+        return jsonify({"error": "job not found"}), 404
 
-    def stream():
-        while True:
-            try:
-                msg = job["queue"].get(timeout=30)
-                yield f"data: {json.dumps(msg, ensure_ascii=False)}\n\n"
-                if msg.get("type") in ("done", "error"):
-                    # 存 result buffer
-                    if msg.get("type") == "done" and msg.get("file"):
-                        jobs[job_id]["result"] = msg["file"]
-                    break
-            except queue.Empty:
-                yield "data: {\"type\":\"ping\"}\n\n"
+    messages = []
+    # 把 queue 裡所有訊息一次取出
+    while True:
+        try:
+            msg = job["queue"].get_nowait()
+            # 把 file buffer 存起來，不要放進 JSON
+            if msg.get("type") == "done" and msg.get("file"):
+                jobs[job_id]["result"] = msg.pop("file")
+            messages.append(msg)
+        except queue.Empty:
+            break
 
-    return Response(stream(), mimetype="text/event-stream",
-                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    done = any(m.get("type") in ("done", "error") for m in messages)
+    count = next((m.get("count", 0) for m in messages if m.get("type") == "done"), 0)
+
+    return jsonify({
+        "messages": messages,
+        "done": done,
+        "count": count,
+        "has_file": jobs[job_id].get("result") is not None
+    })
 
 
 @app.route("/api/stop/<job_id>", methods=["POST"])
