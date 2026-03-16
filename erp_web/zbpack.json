@@ -1,0 +1,4 @@
+{
+  "build_command": "pip install -r requirements.txt && playwright install chromium --with-deps",
+  "start_command": "python app.py"
+}
