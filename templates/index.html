@@ -65,9 +65,6 @@
         .login-section { max-width: 480px; margin: 0 auto; }
         .login-section.hidden { display: none; }
 
-        /* Public pricing below login — wider than login card */
-        .public-pricing { max-width: 960px; margin: 0 auto; }
-
         .help-box {
             margin-top: 24px; padding: 20px;
             background: linear-gradient(135deg, rgba(6,199,85,0.1), rgba(6,199,85,0.05));
@@ -333,6 +330,56 @@
                     </div>
                 </div>
 
+                <!-- ★ 計費重量說明（公開區）★ -->
+                <div class="card info-section">
+                    <div class="info-section-title">⚖️ 計費重量說明</div>
+                    <div class="info-card">
+                        <h4>📏 計費規則</h4>
+                        <ul>
+                            <li>最低出貨重量 <strong style="color:#f39c12;">1 kg</strong>，未滿 1 kg 以 1 kg 計價</li>
+                            <li>超過 1 kg 後，以 <strong style="color:#f39c12;">0.5 kg</strong> 為單位進位</li>
+                        </ul>
+                        <div class="info-note" style="margin-top: 12px;">
+                            💡 例：0.8 kg → 計費 <strong>1.0 kg</strong>　／　1.3 kg → 計費 <strong>1.5 kg</strong>　／　2.2 kg → 計費 <strong>2.5 kg</strong>
+                        </div>
+                    </div>
+                    <div class="info-card">
+                        <div class="collapse-toggle open" onclick="toggleCollapse(this)">
+                            <h4 style="margin-bottom:0;">📊 計費重量對照表</h4>
+                            <span class="arrow">▼</span>
+                        </div>
+                        <div class="collapse-body open">
+                            <table class="pricing-table">
+                                <thead>
+                                    <tr>
+                                        <th>實際重量</th>
+                                        <th>計費重量</th>
+                                        <th style="text-align:right">運費參考（1,250 日圓/kg）</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td>0 ~ 1.0 kg</td><td style="color:#f39c12;font-weight:700;">1.0 kg</td><td class="price-cell" style="text-align:right">¥1,250</td></tr>
+                                    <tr><td>1.1 ~ 1.5 kg</td><td style="color:#f39c12;font-weight:700;">1.5 kg</td><td class="price-cell" style="text-align:right">¥1,875</td></tr>
+                                    <tr><td>1.6 ~ 2.0 kg</td><td style="color:#f39c12;font-weight:700;">2.0 kg</td><td class="price-cell" style="text-align:right">¥2,500</td></tr>
+                                    <tr><td>2.1 ~ 2.5 kg</td><td style="color:#f39c12;font-weight:700;">2.5 kg</td><td class="price-cell" style="text-align:right">¥3,125</td></tr>
+                                    <tr><td>2.6 ~ 3.0 kg</td><td style="color:#f39c12;font-weight:700;">3.0 kg</td><td class="price-cell" style="text-align:right">¥3,750</td></tr>
+                                    <tr><td>3.1 ~ 3.5 kg</td><td style="color:#f39c12;font-weight:700;">3.5 kg</td><td class="price-cell" style="text-align:right">¥4,375</td></tr>
+                                    <tr><td>3.6 ~ 4.0 kg</td><td style="color:#f39c12;font-weight:700;">4.0 kg</td><td class="price-cell" style="text-align:right">¥5,000</td></tr>
+                                    <tr><td>4.1 ~ 4.5 kg</td><td style="color:#f39c12;font-weight:700;">4.5 kg</td><td class="price-cell" style="text-align:right">¥5,625</td></tr>
+                                    <tr><td>4.6 ~ 5.0 kg</td><td style="color:#f39c12;font-weight:700;">5.0 kg</td><td class="price-cell" style="text-align:right">¥6,250</td></tr>
+                                    <tr><td>5.1 ~ 5.5 kg</td><td style="color:#f39c12;font-weight:700;">5.5 kg</td><td class="price-cell" style="text-align:right">¥6,875</td></tr>
+                                    <tr><td>5.6 ~ 6.0 kg</td><td style="color:#f39c12;font-weight:700;">6.0 kg</td><td class="price-cell" style="text-align:right">¥7,500</td></tr>
+                                    <tr><td>6.1 ~ 7.0 kg</td><td style="color:#f39c12;font-weight:700;">7.0 kg</td><td class="price-cell" style="text-align:right">¥8,750</td></tr>
+                                    <tr><td>7.1 ~ 8.0 kg</td><td style="color:#f39c12;font-weight:700;">8.0 kg</td><td class="price-cell" style="text-align:right">¥10,000</td></tr>
+                                    <tr><td>8.1 ~ 9.0 kg</td><td style="color:#f39c12;font-weight:700;">9.0 kg</td><td class="price-cell" style="text-align:right">¥11,250</td></tr>
+                                    <tr><td>9.1 ~ 10.0 kg</td><td style="color:#f39c12;font-weight:700;">10.0 kg</td><td class="price-cell" style="text-align:right">¥12,500</td></tr>
+                                </tbody>
+                            </table>
+                            <p style="font-size:12px;color:#888;margin-top:10px;">※ 實際運費以您的會員設定費率為準，上表以每公斤 1,250 日圓為例</p>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 基本理貨費用 -->
                 <div class="card info-section">
                     <div class="info-section-title">💰 基本理貨費用</div>
@@ -490,6 +537,57 @@
                         <a href="https://line.me/R/ti/p/@544kaytb" target="_blank" style="color: #06C755; text-decoration: none; font-weight: 600;">官方 LINE：@544kaytb</a>
                     </p>
                 </div>
+
+                <!-- ★ 計費重量說明（登入後 tab-info）★ -->
+                <div class="card info-section">
+                    <div class="info-section-title">⚖️ 計費重量說明</div>
+                    <div class="info-card">
+                        <h4>📏 計費規則</h4>
+                        <ul>
+                            <li>最低出貨重量 <strong style="color:#f39c12;">1 kg</strong>，未滿 1 kg 以 1 kg 計價</li>
+                            <li>超過 1 kg 後，以 <strong style="color:#f39c12;">0.5 kg</strong> 為單位進位</li>
+                        </ul>
+                        <div class="info-note" style="margin-top: 12px;">
+                            💡 例：0.8 kg → 計費 <strong>1.0 kg</strong>　／　1.3 kg → 計費 <strong>1.5 kg</strong>　／　2.2 kg → 計費 <strong>2.5 kg</strong>
+                        </div>
+                    </div>
+                    <div class="info-card">
+                        <div class="collapse-toggle open" onclick="toggleCollapse(this)">
+                            <h4 style="margin-bottom:0;">📊 計費重量對照表</h4>
+                            <span class="arrow">▼</span>
+                        </div>
+                        <div class="collapse-body open">
+                            <table class="pricing-table">
+                                <thead>
+                                    <tr>
+                                        <th>實際重量</th>
+                                        <th>計費重量</th>
+                                        <th style="text-align:right">運費參考（1,250 日圓/kg）</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td>0 ~ 1.0 kg</td><td style="color:#f39c12;font-weight:700;">1.0 kg</td><td class="price-cell" style="text-align:right">¥1,250</td></tr>
+                                    <tr><td>1.1 ~ 1.5 kg</td><td style="color:#f39c12;font-weight:700;">1.5 kg</td><td class="price-cell" style="text-align:right">¥1,875</td></tr>
+                                    <tr><td>1.6 ~ 2.0 kg</td><td style="color:#f39c12;font-weight:700;">2.0 kg</td><td class="price-cell" style="text-align:right">¥2,500</td></tr>
+                                    <tr><td>2.1 ~ 2.5 kg</td><td style="color:#f39c12;font-weight:700;">2.5 kg</td><td class="price-cell" style="text-align:right">¥3,125</td></tr>
+                                    <tr><td>2.6 ~ 3.0 kg</td><td style="color:#f39c12;font-weight:700;">3.0 kg</td><td class="price-cell" style="text-align:right">¥3,750</td></tr>
+                                    <tr><td>3.1 ~ 3.5 kg</td><td style="color:#f39c12;font-weight:700;">3.5 kg</td><td class="price-cell" style="text-align:right">¥4,375</td></tr>
+                                    <tr><td>3.6 ~ 4.0 kg</td><td style="color:#f39c12;font-weight:700;">4.0 kg</td><td class="price-cell" style="text-align:right">¥5,000</td></tr>
+                                    <tr><td>4.1 ~ 4.5 kg</td><td style="color:#f39c12;font-weight:700;">4.5 kg</td><td class="price-cell" style="text-align:right">¥5,625</td></tr>
+                                    <tr><td>4.6 ~ 5.0 kg</td><td style="color:#f39c12;font-weight:700;">5.0 kg</td><td class="price-cell" style="text-align:right">¥6,250</td></tr>
+                                    <tr><td>5.1 ~ 5.5 kg</td><td style="color:#f39c12;font-weight:700;">5.5 kg</td><td class="price-cell" style="text-align:right">¥6,875</td></tr>
+                                    <tr><td>5.6 ~ 6.0 kg</td><td style="color:#f39c12;font-weight:700;">6.0 kg</td><td class="price-cell" style="text-align:right">¥7,500</td></tr>
+                                    <tr><td>6.1 ~ 7.0 kg</td><td style="color:#f39c12;font-weight:700;">7.0 kg</td><td class="price-cell" style="text-align:right">¥8,750</td></tr>
+                                    <tr><td>7.1 ~ 8.0 kg</td><td style="color:#f39c12;font-weight:700;">8.0 kg</td><td class="price-cell" style="text-align:right">¥10,000</td></tr>
+                                    <tr><td>8.1 ~ 9.0 kg</td><td style="color:#f39c12;font-weight:700;">9.0 kg</td><td class="price-cell" style="text-align:right">¥11,250</td></tr>
+                                    <tr><td>9.1 ~ 10.0 kg</td><td style="color:#f39c12;font-weight:700;">10.0 kg</td><td class="price-cell" style="text-align:right">¥12,500</td></tr>
+                                </tbody>
+                            </table>
+                            <p style="font-size:12px;color:#888;margin-top:10px;">※ 實際運費以您的會員設定費率為準，上表以每公斤 1,250 日圓為例</p>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="card info-section">
                     <div class="info-section-title">💰 基本理貨費用</div>
                     <div class="info-card"><h4>📦 訂單理貨費</h4><div class="price-highlight">首重 52 日圓/kg，續重 26 日圓/kg</div><div class="info-note">📐 體積重 = 長(cm) × 寬(cm) × 高(cm) ÷ 6000<br>體積重超過實際重量 2 倍時，超出部分產生運費</div></div>
