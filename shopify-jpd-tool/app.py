@@ -141,21 +141,22 @@ def get_shopify_orders():
                 return name and name.strip() not in invalid_names
             
             # 收件人姓名判斷（多重來源 fallback）
+            # 用 (... or "") 確保欄位值為 None 時不會讓 strip() 爆炸
             # 來源 1: shipping_address.name（Shopify 自動組合的完整名字）
-            shipping_name = shipping.get("name", "").strip()
+            shipping_name = (shipping.get("name") or "").strip()
             
             # 來源 2: shipping_address.last_name + first_name（自己拼接）
-            s_last = shipping.get("last_name", "").strip()
-            s_first = shipping.get("first_name", "").strip()
+            s_last  = (shipping.get("last_name")  or "").strip()
+            s_first = (shipping.get("first_name") or "").strip()
             shipping_combined = f"{s_last}{s_first}".strip()
             
             # 來源 3: customer 物件
-            c_last = customer_info.get("last_name", "").strip()
-            c_first = customer_info.get("first_name", "").strip()
+            c_last  = (customer_info.get("last_name")  or "").strip()
+            c_first = (customer_info.get("first_name") or "").strip()
             customer_combined = f"{c_last}{c_first}".strip()
             
             # 來源 4: billing_address.name
-            billing_name = billing.get("name", "").strip()
+            billing_name = (billing.get("name") or "").strip()
             
             # 優先順序判斷（台灣習慣：姓+名）
             # shipping.name 是 Shopify 自動組的「first last」西方順序，不直接用
@@ -336,7 +337,7 @@ def create_jpd_order():
             orig_order = order_detail["order"]
             orig_shipping = orig_order.get("shipping_address", {}) or {}
             orig_customer = orig_order.get("customer", {}) or {}
-            orig_billing = orig_order.get("billing_address", {}) or {}
+            orig_billing  = orig_order.get("billing_address", {}) or {}
             
             invalid_names = {"本人", "本人本人", "本人 本人", "同上", "同收件人", "test", "測試", ".", "-", ""}
             
@@ -344,16 +345,17 @@ def create_jpd_order():
                 return name and name.strip() not in invalid_names
             
             # 台灣習慣：姓(last_name) + 名(first_name)
-            s_last = orig_shipping.get("last_name", "").strip()
-            s_first = orig_shipping.get("first_name", "").strip()
+            # 用 (... or "") 確保欄位值為 None 時不會讓 strip() 爆炸
+            s_last  = (orig_shipping.get("last_name")  or "").strip()
+            s_first = (orig_shipping.get("first_name") or "").strip()
             shipping_combined = f"{s_last}{s_first}".strip()
             
-            c_last = orig_customer.get("last_name", "").strip()
-            c_first = orig_customer.get("first_name", "").strip()
+            c_last  = (orig_customer.get("last_name")  or "").strip()
+            c_first = (orig_customer.get("first_name") or "").strip()
             customer_combined = f"{c_last}{c_first}".strip()
             
-            b_last = orig_billing.get("last_name", "").strip()
-            b_first = orig_billing.get("first_name", "").strip()
+            b_last  = (orig_billing.get("last_name")  or "").strip()
+            b_first = (orig_billing.get("first_name") or "").strip()
             billing_combined = f"{b_last}{b_first}".strip()
             
             if is_valid_name(shipping_combined):
@@ -368,7 +370,7 @@ def create_jpd_order():
     order_data = {
         "customer_order_id": data["customer_order_id"],
         "deliv_id": JPD_DELIV_ID,
-        "recipient": data["recipient"],
+        "recipient": recipient,
         "id_issure": "",
         "area": 3,  # 台灣
         "addr1": data["address"],
