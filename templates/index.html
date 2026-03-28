@@ -839,12 +839,13 @@
                 if (result.success && result.packages && result.packages.length > 0) {
                     container.innerHTML = result.packages.map(pkg => `
                         <div class="package-item">
-                            <div><div class="label">包裹編號</div><div class="value">${pkg.client_pid || pkg.local_logis_num || '-'}</div></div>
+                            <div><div class="label">物流號碼</div><div class="value" style="font-size:13px;">${pkg.logis_num || '-'}</div></div>
                             <div><div class="label">商品</div><div class="value">${pkg.product_name || '-'}</div></div>
-                            <div><div class="label">重量</div><div class="value">${pkg.weight && pkg.weight !== '0' ? pkg.weight + ' kg' : '待秤重'}</div></div>
-                            <div><div class="label">狀態</div><div class="value"><span class="status-badge ${getStatusClass(pkg.status_id)}">${pkg.status || '待入庫'}</span></div></div>
-                            <div><div class="label">預報日期</div><div class="value">${pkg.create_date ? pkg.create_date.split(' ')[0] : '-'}</div></div>
+                            <div><div class="label">重量</div><div class="value">${pkg.weight ? pkg.weight + ' kg' : '待秤重'}</div></div>
+                            <div><div class="label">狀態</div><div class="value"><span class="status-badge ${getStatusClass(pkg.status)}">${pkg.status || '待入庫'}</span></div></div>
+                            <div><div class="label">到貨日期</div><div class="value">${pkg.in_date || '-'}</div></div>
                         </div>
+                        ${pkg.note ? `<div style="margin: -6px 0 10px 0; padding: 8px 14px; background:rgba(255,255,255,0.03); border-radius:8px; font-size:12px; color:#888;">📝 ${pkg.note}</div>` : ''}
                     `).join('');
                 } else { container.innerHTML = '<div class="empty-state"><div class="icon">📭</div><p>尚無包裹記錄</p></div>'; }
             } catch (e) { showToast('載入失敗', 'error'); }
@@ -870,9 +871,9 @@
             } catch (e) { showToast('載入失敗', 'error'); }
         }
 
-        function getStatusClass(statusId) {
-            if (statusId === '1') return 'status-arrived';
-            if (statusId === '2') return 'status-shipped';
+        function getStatusClass(statusText) {
+            if (statusText === '已到貨') return 'status-arrived';
+            if (statusText === '已出貨') return 'status-shipped';
             return 'status-waiting';
         }
 

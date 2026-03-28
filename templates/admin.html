@@ -3,399 +3,153 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin - 會員管理</title>
+    <title>Admin - 集運管理後台</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Noto Sans TC', -apple-system, BlinkMacSystemFont, sans-serif;
             background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
-            min-height: 100vh;
-            color: #fff;
+            min-height: 100vh; color: #fff;
         }
-        
-        .container {
-            max-width: 1100px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        
-        header {
-            text-align: center;
-            padding: 30px 0;
-            margin-bottom: 30px;
-        }
-        
-        header h1 {
-            font-size: 28px;
-            font-weight: 700;
-            color: #e74c3c;
-            margin-bottom: 8px;
-        }
-        
-        header p {
-            color: #666;
-            font-size: 14px;
-        }
-        
-        .card {
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 16px;
-            padding: 30px;
-            margin-bottom: 20px;
-        }
-        
-        .form-group {
-            margin-bottom: 20px;
-        }
-        
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            color: #888;
-            font-size: 13px;
-        }
-        
-        .form-control {
-            width: 100%;
-            padding: 14px 16px;
-            background: rgba(0,0,0,0.3);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 10px;
-            color: #fff;
-            font-size: 15px;
-            font-family: inherit;
-        }
-        
-        .form-control:focus {
-            outline: none;
-            border-color: #e74c3c;
-        }
-        
-        .btn {
-            padding: 14px 28px;
-            border: none;
-            border-radius: 10px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-            font-family: inherit;
-        }
-        
-        .btn-primary {
-            background: linear-gradient(135deg, #e74c3c, #c0392b);
-            color: #fff;
-        }
-        
-        .btn-block {
-            width: 100%;
-        }
-        
-        .btn-secondary {
-            background: rgba(255,255,255,0.08);
-            color: #fff;
-        }
-        
-        .btn-sm {
-            padding: 8px 16px;
-            font-size: 13px;
-            border-radius: 8px;
-        }
-        
-        .btn-save {
-            background: linear-gradient(135deg, #27ae60, #2ecc71);
-            color: #fff;
-        }
-        
-        .btn-save:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(39, 174, 96, 0.3);
-        }
-        
-        .btn-save:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-        
+        .container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+        header { text-align: center; padding: 30px 0; margin-bottom: 30px; }
+        header h1 { font-size: 28px; font-weight: 700; color: #e74c3c; margin-bottom: 8px; }
+        header p { color: #666; font-size: 14px; }
+
+        .card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 28px; margin-bottom: 20px; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; margin-bottom: 6px; color: #888; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+        .form-control { width: 100%; padding: 11px 14px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 9px; color: #fff; font-size: 14px; font-family: inherit; transition: border .2s; }
+        .form-control:focus { outline: none; border-color: #f39c12; }
+        select.form-control option { background: #1a1a2e; }
+
+        .btn { padding: 10px 22px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all .2s; font-family: inherit; }
+        .btn-primary { background: linear-gradient(135deg, #f39c12, #e67e22); color: #fff; }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(243,156,18,.3); }
+        .btn-danger-sm { padding: 5px 11px; background: rgba(231,76,60,.2); border: 1px solid rgba(231,76,60,.3); border-radius: 6px; color: #e74c3c; font-size: 12px; cursor: pointer; font-family: inherit; }
+        .btn-danger-sm:hover { background: rgba(231,76,60,.35); }
+        .btn-edit-sm { padding: 5px 11px; background: rgba(52,152,219,.2); border: 1px solid rgba(52,152,219,.3); border-radius: 6px; color: #3498db; font-size: 12px; cursor: pointer; font-family: inherit; }
+        .btn-edit-sm:hover { background: rgba(52,152,219,.35); }
+        .btn-block { width: 100%; }
+        .btn-red { background: linear-gradient(135deg, #e74c3c, #c0392b); color: #fff; }
+        .btn-green { background: linear-gradient(135deg, #27ae60, #2ecc71); color: #fff; }
+
         /* Login */
-        .login-section {
-            max-width: 400px;
-            margin: 100px auto;
-        }
-        
-        .login-section.hidden {
-            display: none;
-        }
-        
-        /* Main Content */
-        .main-content {
-            display: none;
-        }
-        
-        .main-content.active {
-            display: block;
-        }
-        
+        .login-section { max-width: 400px; margin: 100px auto; }
+        .login-section.hidden { display: none; }
+        .main-content { display: none; }
+        .main-content.active { display: block; }
+
+        /* Admin Tabs */
+        .admin-tabs { display: flex; gap: 8px; margin-bottom: 24px; background: rgba(255,255,255,0.03); border-radius: 12px; padding: 6px; }
+        .admin-tab { flex: 1; padding: 13px; background: transparent; border: none; border-radius: 8px; color: #888; font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer; transition: all .2s; text-align: center; }
+        .admin-tab:hover { color: #fff; background: rgba(255,255,255,.05); }
+        .admin-tab.active { background: linear-gradient(135deg, #f39c12, #e67e22); color: #fff; }
+        .admin-panel { display: none; }
+        .admin-panel.active { display: block; }
+
         /* Stats */
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        
-        .stat-card {
-            background: rgba(0,0,0,0.2);
-            border-radius: 12px;
-            padding: 20px;
-            text-align: center;
-        }
-        
-        .stat-card .number {
-            font-size: 36px;
-            font-weight: 700;
-            color: #f39c12;
-        }
-        
-        .stat-card .label {
-            color: #888;
-            font-size: 13px;
-            margin-top: 5px;
-        }
-        
-        .stat-card.highlight .number {
-            color: #27ae60;
-        }
-        
+        .stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 18px; margin-bottom: 28px; }
+        .stat-card { background: rgba(0,0,0,.2); border-radius: 12px; padding: 20px; text-align: center; }
+        .stat-card .number { font-size: 34px; font-weight: 700; color: #f39c12; }
+        .stat-card .label { color: #888; font-size: 12px; margin-top: 6px; }
+        .stat-card.highlight .number { color: #27ae60; }
+
         /* Table */
-        .table-container {
-            overflow-x: auto;
-        }
-        
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        
-        th, td {
-            padding: 14px 16px;
-            text-align: left;
-            border-bottom: 1px solid rgba(255,255,255,0.08);
-        }
-        
-        th {
-            background: rgba(0,0,0,0.2);
-            color: #888;
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-        
-        tr:hover {
-            background: rgba(255,255,255,0.03);
-        }
-        
-        .g-code {
-            font-weight: 700;
-            color: #f39c12;
-        }
-        
-        .copy-btn {
-            padding: 6px 12px;
-            background: rgba(243, 156, 18, 0.2);
-            border: none;
-            border-radius: 6px;
-            color: #f39c12;
-            font-size: 12px;
-            cursor: pointer;
-            font-family: inherit;
-        }
-        
-        .copy-btn:hover {
-            background: rgba(243, 156, 18, 0.3);
-        }
-        
-        /* Shipping Rate Input */
-        .rate-input-wrap {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        
-        .rate-input {
-            width: 80px;
-            padding: 8px 10px;
-            background: rgba(0,0,0,0.3);
-            border: 1px solid rgba(255,255,255,0.15);
-            border-radius: 8px;
-            color: #fff;
-            font-size: 14px;
-            font-family: inherit;
-            text-align: right;
-            transition: all 0.3s;
-        }
-        
-        .rate-input:focus {
-            outline: none;
-            border-color: #f39c12;
-            box-shadow: 0 0 0 2px rgba(243, 156, 18, 0.15);
-        }
-        
-        .rate-input.changed {
-            border-color: #f39c12;
-            background: rgba(243, 156, 18, 0.08);
-        }
-        
-        .rate-input.saving {
-            opacity: 0.5;
-        }
-        
-        .rate-input.saved {
-            border-color: #27ae60;
-            background: rgba(39, 174, 96, 0.08);
-        }
-        
-        .rate-unit {
-            color: #888;
-            font-size: 12px;
-            white-space: nowrap;
-        }
-        
-        .rate-save-btn {
-            padding: 6px 12px;
-            background: rgba(39, 174, 96, 0.2);
-            border: none;
-            border-radius: 6px;
-            color: #27ae60;
-            font-size: 12px;
-            cursor: pointer;
-            font-family: inherit;
-            white-space: nowrap;
-            transition: all 0.2s;
-            display: none;
-        }
-        
-        .rate-save-btn.visible {
-            display: inline-block;
-        }
-        
-        .rate-save-btn:hover {
-            background: rgba(39, 174, 96, 0.3);
-        }
-        
-        .rate-no-set {
-            color: #666;
-            font-size: 12px;
-            font-style: italic;
-        }
-        
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 11px 13px; text-align: left; border-bottom: 1px solid rgba(255,255,255,.06); font-size: 13px; }
+        th { background: rgba(0,0,0,.2); color: #888; font-size: 11px; font-weight: 600; text-transform: uppercase; white-space: nowrap; }
+        tr:hover { background: rgba(255,255,255,.02); }
+        .g-code { font-weight: 700; color: #f39c12; }
+        .copy-btn { padding: 5px 10px; background: rgba(243,156,18,.2); border: none; border-radius: 6px; color: #f39c12; font-size: 11px; cursor: pointer; font-family: inherit; }
+        .copy-btn:hover { background: rgba(243,156,18,.3); }
+
+        /* Rate input */
+        .rate-input-wrap { display: flex; align-items: center; gap: 6px; }
+        .rate-input { width: 80px; padding: 7px 10px; background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.15); border-radius: 8px; color: #fff; font-size: 13px; font-family: inherit; text-align: right; transition: all .2s; }
+        .rate-input:focus { outline: none; border-color: #f39c12; }
+        .rate-input.changed { border-color: #f39c12; background: rgba(243,156,18,.08); }
+        .rate-input.saving { opacity: .5; }
+        .rate-input.saved { border-color: #27ae60; background: rgba(39,174,96,.08); }
+        .rate-unit { color: #888; font-size: 11px; white-space: nowrap; }
+        .rate-save-btn { padding: 5px 10px; background: rgba(39,174,96,.2); border: none; border-radius: 6px; color: #27ae60; font-size: 11px; cursor: pointer; font-family: inherit; display: none; }
+        .rate-save-btn.visible { display: inline-block; }
+
         /* Toolbar */
-        .toolbar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-            gap: 12px;
-        }
-        
-        .toolbar h3 {
-            font-size: 18px;
-        }
-        
-        .toolbar-actions {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-        }
-        
-        .changes-badge {
-            display: none;
-            padding: 4px 12px;
-            background: rgba(243, 156, 18, 0.15);
-            border: 1px solid rgba(243, 156, 18, 0.3);
-            border-radius: 20px;
-            color: #f39c12;
-            font-size: 12px;
-            font-weight: 600;
-        }
-        
-        .changes-badge.visible {
-            display: inline-block;
-        }
-        
+        .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
+        .toolbar h3 { font-size: 16px; font-weight: 700; }
+        .toolbar-actions { display: flex; gap: 8px; align-items: center; }
+        .changes-badge { display: none; padding: 4px 12px; background: rgba(243,156,18,.15); border: 1px solid rgba(243,156,18,.3); border-radius: 20px; color: #f39c12; font-size: 12px; font-weight: 600; }
+        .changes-badge.visible { display: inline-block; }
+
+        /* Package form */
+        .pkg-form-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+
+        /* Status badge */
+        .status-tag { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
+        .status-已到貨 { background: rgba(39,174,96,.2); color: #2ecc71; }
+        .status-待入庫 { background: rgba(243,156,18,.2); color: #f39c12; }
+        .status-已出貨 { background: rgba(52,152,219,.2); color: #3498db; }
+
+        /* Filter bar */
+        .filter-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+        .filter-bar input { flex: 1; min-width: 160px; padding: 9px 14px; background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.1); border-radius: 8px; color: #fff; font-size: 13px; font-family: inherit; }
+        .filter-bar input:focus { outline: none; border-color: #f39c12; }
+        .pkg-count { font-size: 12px; color: #888; white-space: nowrap; }
+
+        /* Edit modal */
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.72); z-index: 1000; justify-content: center; align-items: center; }
+        .modal-overlay.show { display: flex; }
+        .modal-box { background: #1a1a2e; border: 1px solid rgba(255,255,255,.1); border-radius: 14px; padding: 28px; width: 90%; max-width: 500px; }
+        .modal-title { font-size: 16px; font-weight: 700; margin-bottom: 20px; color: #f39c12; }
+        .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+
         /* Toast */
-        .toast {
-            position: fixed;
-            bottom: 24px;
-            right: 24px;
-            padding: 16px 24px;
-            border-radius: 12px;
-            color: #fff;
-            font-weight: 500;
-            z-index: 1000;
-            animation: slideIn 0.3s ease;
-        }
-        
+        .toast { position: fixed; bottom: 24px; right: 24px; padding: 14px 22px; border-radius: 10px; color: #fff; font-weight: 500; z-index: 2000; animation: slideIn .3s ease; }
         .toast-success { background: linear-gradient(135deg, #27ae60, #2ecc71); }
         .toast-error { background: linear-gradient(135deg, #e74c3c, #c0392b); }
-        
-        @keyframes slideIn {
-            from { transform: translateX(100%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
-        }
-        
-        /* Responsive */
-        @media (max-width: 768px) {
-            .stats {
-                grid-template-columns: 1fr;
-            }
-            
-            th, td {
-                padding: 10px 8px;
-                font-size: 13px;
-            }
-            
-            .rate-input {
-                width: 65px;
-                padding: 6px 8px;
-                font-size: 13px;
-            }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        @media (max-width:700px) {
+            .stats { grid-template-columns: 1fr; }
+            .pkg-form-grid { grid-template-columns: 1fr 1fr; }
+            .admin-tab { font-size: 12px; padding: 10px 6px; }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🔧 Admin 管理後台</h1>
-            <p>會員編號 ＆ 運費管理</p>
-        </header>
-        
-        <!-- 登入區 -->
-        <div class="login-section" id="loginSection">
-            <div class="card">
-                <h3 style="margin-bottom: 20px; text-align: center;">🔐 管理員登入</h3>
-                <div class="form-group">
-                    <label>管理員密碼</label>
-                    <input type="password" id="adminPassword" class="form-control" placeholder="請輸入管理員密碼">
-                </div>
-                <button class="btn btn-primary btn-block" onclick="adminLogin()">登入</button>
+<div class="container">
+    <header>
+        <h1>🔧 Admin 管理後台</h1>
+        <p>會員管理 ＆ 到貨記錄</p>
+    </header>
+
+    <!-- 登入 -->
+    <div class="login-section" id="loginSection">
+        <div class="card">
+            <h3 style="margin-bottom:20px;text-align:center;">🔐 管理員登入</h3>
+            <div class="form-group">
+                <label>管理員密碼</label>
+                <input type="password" id="adminPassword" class="form-control" placeholder="請輸入管理員密碼">
             </div>
+            <button class="btn btn-red btn-block" onclick="adminLogin()">登入</button>
         </div>
-        
-        <!-- 主要內容 -->
-        <div class="main-content" id="mainContent">
+    </div>
+
+    <!-- 主要內容 -->
+    <div class="main-content" id="mainContent">
+
+        <div class="admin-tabs">
+            <button class="admin-tab active" onclick="switchAdminTab('members')">👥 會員管理</button>
+            <button class="admin-tab" onclick="switchAdminTab('arrivals')">📦 到貨管理</button>
+        </div>
+
+        <!-- 會員管理 -->
+        <div class="admin-panel active" id="panel-members">
             <div class="stats">
                 <div class="stat-card">
                     <div class="number" id="totalMembers">0</div>
@@ -410,303 +164,349 @@
                     <div class="label">下一個可用編號</div>
                 </div>
             </div>
-            
             <div class="card">
                 <div class="toolbar">
                     <h3>📋 會員列表</h3>
                     <div class="toolbar-actions">
                         <span class="changes-badge" id="changesBadge">0 項待儲存</span>
-                        <button class="btn btn-save btn-sm" id="saveAllBtn" onclick="saveAllChanges()" disabled>💾 全部儲存</button>
-                        <button class="btn btn-secondary btn-sm" onclick="loadMembers()">🔄 重新整理</button>
+                        <button class="btn btn-green" style="padding:8px 16px;font-size:13px;" id="saveAllBtn" onclick="saveAllChanges()" disabled>💾 全部儲存</button>
+                        <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadMembers()">🔄 整理</button>
                     </div>
                 </div>
-                
-                <div class="table-container">
+                <div class="table-wrap">
                     <table>
-                        <thead>
-                            <tr>
-                                <th>會員編號</th>
-                                <th>姓名</th>
-                                <th>Email</th>
-                                <th>手機（密碼）</th>
-                                <th>運費 (日圓/kg)</th>
-                                <th>操作</th>
-                            </tr>
-                        </thead>
+                        <thead><tr><th>會員編號</th><th>姓名</th><th>Email</th><th>手機（密碼）</th><th>運費 (日圓/kg)</th><th>操作</th></tr></thead>
                         <tbody id="membersTable">
-                            <tr>
-                                <td colspan="6" style="text-align: center; color: #666;">載入中...</td>
-                            </tr>
+                            <tr><td colspan="6" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr>
                         </tbody>
                     </table>
                 </div>
             </div>
         </div>
+
+        <!-- 到貨管理 -->
+        <div class="admin-panel" id="panel-arrivals">
+
+            <!-- 新增表單 -->
+            <div class="card">
+                <div class="toolbar" style="margin-bottom:16px;">
+                    <h3>➕ 新增到貨記錄</h3>
+                </div>
+                <div class="pkg-form-grid">
+                    <div class="form-group" style="margin:0;">
+                        <label>客戶編號 *</label>
+                        <input type="text" id="pkg-g-code" class="form-control" placeholder="G0001">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label>物流號碼</label>
+                        <input type="text" id="pkg-logis" class="form-control" placeholder="JP1234567890">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label>重量 (kg)</label>
+                        <input type="text" id="pkg-weight" class="form-control" placeholder="1.5">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label>商品名稱</label>
+                        <input type="text" id="pkg-name" class="form-control" placeholder="Nike 球鞋">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label>狀態</label>
+                        <select id="pkg-status" class="form-control">
+                            <option value="已到貨">✅ 已到貨</option>
+                            <option value="待入庫">⏳ 待入庫</option>
+                            <option value="已出貨">🚚 已出貨</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label>備註</label>
+                        <input type="text" id="pkg-note" class="form-control" placeholder="選填">
+                    </div>
+                </div>
+                <button class="btn btn-primary" onclick="addPackage()">✅ 新增到貨</button>
+            </div>
+
+            <!-- 記錄列表 -->
+            <div class="card">
+                <div class="toolbar">
+                    <h3>📋 到貨記錄</h3>
+                    <div class="toolbar-actions">
+                        <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadPackages()">🔄 重新整理</button>
+                    </div>
+                </div>
+                <div class="filter-bar">
+                    <input type="text" id="pkg-filter" placeholder="🔍 搜尋客戶編號、物流號或商品名稱..." oninput="filterPackages()">
+                    <span class="pkg-count" id="pkg-count"></span>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>客戶編號</th><th>物流號碼</th><th>商品名稱</th><th>重量</th><th>狀態</th><th>到貨日期</th><th>備註</th><th>操作</th></tr></thead>
+                        <tbody id="packagesTable">
+                            <tr><td colspan="8" style="text-align:center;color:#666;padding:30px;">切換至「到貨管理」頁籤以載入</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
     </div>
-    
-    <script>
-        let membersData = [];
-        let pendingChanges = {}; // { customer_gid: new_rate }
-        
-        async function adminLogin() {
-            const password = document.getElementById('adminPassword').value;
-            
-            if (!password) {
-                showToast('請輸入密碼', 'error');
-                return;
-            }
-            
-            try {
-                const res = await fetch('/api/admin/verify', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ password })
-                });
-                const result = await res.json();
-                
-                if (result.success) {
-                    document.getElementById('loginSection').classList.add('hidden');
-                    document.getElementById('mainContent').classList.add('active');
-                    loadMembers();
-                    showToast('登入成功', 'success');
-                } else {
-                    showToast(result.error || '密碼錯誤', 'error');
-                }
-            } catch (e) {
-                showToast('網路錯誤', 'error');
-            }
-        }
-        
-        async function loadMembers() {
-            // 清空 pending changes
-            pendingChanges = {};
-            updateChangesBadge();
-            
-            try {
-                const res = await fetch('/api/admin/members');
-                const result = await res.json();
-                
-                if (result.success) {
-                    membersData = result.members;
-                    
-                    document.getElementById('totalMembers').textContent = result.total;
-                    document.getElementById('maxNumber').textContent = result.max_number > 0 ? `G${String(result.max_number).padStart(4, '0')}` : '-';
-                    document.getElementById('nextCode').textContent = result.next_g_code;
-                    
-                    const tbody = document.getElementById('membersTable');
-                    
-                    if (result.members.length > 0) {
-                        tbody.innerHTML = result.members.map((m, idx) => {
-                            const rate = m.shipping_rate || '';
-                            const rateDisplay = rate ? rate : '';
-                            const placeholder = result.default_shipping_rate > 0 ? result.default_shipping_rate : '未設定';
-                            
-                            return `
-                            <tr>
-                                <td><span class="g-code">${m.g_code}</span></td>
-                                <td>${m.name || '-'}</td>
-                                <td>${m.email || '-'}</td>
-                                <td>${m.phone || '-'}</td>
-                                <td>
-                                    <div class="rate-input-wrap">
-                                        <input type="number" 
-                                               class="rate-input" 
-                                               id="rate-${idx}"
-                                               value="${rateDisplay}" 
-                                               placeholder="${placeholder}"
-                                               min="0"
-                                               data-gid="${m.gid}"
-                                               data-original="${rateDisplay}"
-                                               data-idx="${idx}"
-                                               oninput="onRateChange(${idx})"
-                                               onkeydown="onRateKeydown(event, ${idx})"
-                                        >
-                                        <span class="rate-unit">日圓/kg</span>
-                                        <button class="rate-save-btn" id="save-${idx}" onclick="saveSingleRate(${idx})">儲存</button>
-                                    </div>
-                                </td>
-                                <td>
-                                    <button class="copy-btn" onclick="copyInfo('${m.g_code}', '${m.phone}')">
-                                        📋 複製
-                                    </button>
-                                </td>
-                            </tr>
-                        `}).join('');
-                    } else {
-                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #666;">尚無會員</td></tr>';
-                    }
-                } else {
-                    showToast(result.error || '載入失敗', 'error');
-                }
-            } catch (e) {
-                showToast('載入失敗', 'error');
-            }
-        }
-        
-        function onRateChange(idx) {
-            const input = document.getElementById(`rate-${idx}`);
-            const saveBtn = document.getElementById(`save-${idx}`);
-            const original = input.dataset.original;
-            const current = input.value;
-            const gid = input.dataset.gid;
-            
-            if (current !== original) {
-                input.classList.add('changed');
-                input.classList.remove('saved');
-                saveBtn.classList.add('visible');
-                pendingChanges[gid] = { idx, rate: current };
-            } else {
-                input.classList.remove('changed');
-                saveBtn.classList.remove('visible');
-                delete pendingChanges[gid];
-            }
-            
-            updateChangesBadge();
-        }
-        
-        function onRateKeydown(event, idx) {
-            if (event.key === 'Enter') {
-                saveSingleRate(idx);
-            }
-        }
-        
-        function updateChangesBadge() {
-            const count = Object.keys(pendingChanges).length;
-            const badge = document.getElementById('changesBadge');
-            const saveAllBtn = document.getElementById('saveAllBtn');
-            
-            if (count > 0) {
-                badge.textContent = `${count} 項待儲存`;
-                badge.classList.add('visible');
-                saveAllBtn.disabled = false;
-            } else {
-                badge.classList.remove('visible');
-                saveAllBtn.disabled = true;
-            }
-        }
-        
-        async function saveSingleRate(idx) {
-            const input = document.getElementById(`rate-${idx}`);
-            const saveBtn = document.getElementById(`save-${idx}`);
-            const gid = input.dataset.gid;
-            const rate = input.value;
-            
-            if (rate === '' || rate === null) {
-                showToast('請輸入運費', 'error');
-                return;
-            }
-            
-            input.classList.add('saving');
-            saveBtn.textContent = '⏳';
-            
-            try {
-                const res = await fetch('/api/admin/shipping_rate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        customer_gid: gid,
-                        shipping_rate: rate
-                    })
-                });
-                const result = await res.json();
-                
-                if (result.success) {
-                    input.classList.remove('saving', 'changed');
-                    input.classList.add('saved');
-                    input.dataset.original = rate;
-                    saveBtn.classList.remove('visible');
-                    delete pendingChanges[gid];
-                    updateChangesBadge();
-                    
-                    // 短暫閃綠後恢復
-                    setTimeout(() => input.classList.remove('saved'), 2000);
-                    
-                    showToast(`${membersData[idx].g_code} 運費已更新為 ${rate} 日圓/kg`, 'success');
-                } else {
-                    input.classList.remove('saving');
-                    saveBtn.textContent = '儲存';
-                    showToast(result.error || '儲存失敗', 'error');
-                }
-            } catch (e) {
-                input.classList.remove('saving');
-                saveBtn.textContent = '儲存';
-                showToast('網路錯誤', 'error');
-            }
-        }
-        
-        async function saveAllChanges() {
-            const entries = Object.entries(pendingChanges);
-            if (entries.length === 0) return;
-            
-            const saveAllBtn = document.getElementById('saveAllBtn');
-            saveAllBtn.disabled = true;
-            saveAllBtn.textContent = '⏳ 儲存中...';
-            
-            let successCount = 0;
-            let failCount = 0;
-            
-            for (const [gid, { idx, rate }] of entries) {
-                const input = document.getElementById(`rate-${idx}`);
-                const saveBtn = document.getElementById(`save-${idx}`);
-                input.classList.add('saving');
-                
-                try {
-                    const res = await fetch('/api/admin/shipping_rate', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            customer_gid: gid,
-                            shipping_rate: rate
-                        })
-                    });
-                    const result = await res.json();
-                    
-                    if (result.success) {
-                        input.classList.remove('saving', 'changed');
-                        input.classList.add('saved');
-                        input.dataset.original = rate;
-                        saveBtn.classList.remove('visible');
-                        delete pendingChanges[gid];
-                        successCount++;
-                        setTimeout(() => input.classList.remove('saved'), 2000);
-                    } else {
-                        input.classList.remove('saving');
-                        failCount++;
-                    }
-                } catch (e) {
-                    input.classList.remove('saving');
-                    failCount++;
-                }
-            }
-            
-            updateChangesBadge();
-            saveAllBtn.textContent = '💾 全部儲存';
-            
-            if (failCount === 0) {
-                showToast(`✅ 已成功更新 ${successCount} 位會員的運費`, 'success');
-            } else {
-                showToast(`${successCount} 筆成功，${failCount} 筆失敗`, 'error');
-            }
-        }
-        
-        function copyInfo(gCode, phone) {
-            const text = `會員編號：${gCode}\n密碼：${phone}`;
-            navigator.clipboard.writeText(text).then(() => {
-                showToast('已複製到剪貼簿', 'success');
-            });
-        }
-        
-        function showToast(message, type = 'success') {
-            const toast = document.createElement('div');
-            toast.className = `toast toast-${type}`;
-            toast.textContent = message;
-            document.body.appendChild(toast);
-            setTimeout(() => toast.remove(), 3000);
-        }
-        
-        document.getElementById('adminPassword').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') adminLogin();
-        });
-    </script>
+</div>
+
+<!-- 編輯 Modal -->
+<div class="modal-overlay" id="editModal">
+    <div class="modal-box">
+        <div class="modal-title">✏️ 編輯到貨記錄</div>
+        <input type="hidden" id="edit-pkg-id">
+        <div class="pkg-form-grid" style="grid-template-columns:1fr 1fr;">
+            <div class="form-group" style="margin:0;"><label>客戶編號</label><input type="text" id="edit-g-code" class="form-control"></div>
+            <div class="form-group" style="margin:0;"><label>物流號碼</label><input type="text" id="edit-logis" class="form-control"></div>
+            <div class="form-group" style="margin:0;"><label>商品名稱</label><input type="text" id="edit-name" class="form-control"></div>
+            <div class="form-group" style="margin:0;"><label>重量 (kg)</label><input type="text" id="edit-weight" class="form-control"></div>
+            <div class="form-group" style="margin:0;"><label>狀態</label>
+                <select id="edit-status" class="form-control">
+                    <option value="已到貨">✅ 已到貨</option>
+                    <option value="待入庫">⏳ 待入庫</option>
+                    <option value="已出貨">🚚 已出貨</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin:0;"><label>備註</label><input type="text" id="edit-note" class="form-control"></div>
+        </div>
+        <div class="modal-actions">
+            <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;" onclick="closeEditModal()">取消</button>
+            <button class="btn btn-primary" onclick="saveEdit()">💾 儲存</button>
+        </div>
+    </div>
+</div>
+
+<script>
+let membersData = [];
+let pendingChanges = {};
+let allPackages = [];
+
+async function adminLogin() {
+    const password = document.getElementById('adminPassword').value;
+    if (!password) { showToast('請輸入密碼', 'error'); return; }
+    const res = await fetch('/api/admin/verify', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({password}) });
+    const result = await res.json();
+    if (result.success) {
+        document.getElementById('loginSection').classList.add('hidden');
+        document.getElementById('mainContent').classList.add('active');
+        loadMembers();
+        showToast('登入成功', 'success');
+    } else {
+        showToast(result.error || '密碼錯誤', 'error');
+    }
+}
+document.getElementById('adminPassword').addEventListener('keypress', e => { if (e.key === 'Enter') adminLogin(); });
+
+function switchAdminTab(tab) {
+    document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.admin-panel').forEach(p => p.classList.remove('active'));
+    document.querySelector(`.admin-tab[onclick="switchAdminTab('${tab}')"]`).classList.add('active');
+    document.getElementById(`panel-${tab}`).classList.add('active');
+    if (tab === 'arrivals') loadPackages();
+}
+
+// ── 會員管理 ──
+async function loadMembers() {
+    pendingChanges = {}; updateChangesBadge();
+    const res = await fetch('/api/admin/members');
+    const result = await res.json();
+    if (!result.success) { showToast(result.error || '載入失敗', 'error'); return; }
+    membersData = result.members;
+    document.getElementById('totalMembers').textContent = result.total;
+    document.getElementById('maxNumber').textContent = result.max_number > 0 ? `G${String(result.max_number).padStart(4,'0')}` : '-';
+    document.getElementById('nextCode').textContent = result.next_g_code;
+    const tbody = document.getElementById('membersTable');
+    if (!result.members.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#666;padding:30px;">尚無會員</td></tr>'; return; }
+    tbody.innerHTML = result.members.map((m, idx) => {
+        const rateDisplay = m.shipping_rate || '';
+        const ph = result.default_shipping_rate > 0 ? result.default_shipping_rate : '未設定';
+        return `<tr>
+            <td><span class="g-code">${m.g_code}</span></td>
+            <td>${m.name||'-'}</td>
+            <td style="font-size:12px;">${m.email||'-'}</td>
+            <td>${m.phone||'-'}</td>
+            <td><div class="rate-input-wrap">
+                <input type="number" class="rate-input" id="rate-${idx}" value="${rateDisplay}" placeholder="${ph}" min="0"
+                    data-gid="${m.gid}" data-original="${rateDisplay}" data-idx="${idx}"
+                    oninput="onRateChange(${idx})" onkeydown="if(event.key==='Enter')saveSingleRate(${idx})">
+                <span class="rate-unit">日圓/kg</span>
+                <button class="rate-save-btn" id="save-${idx}" onclick="saveSingleRate(${idx})">儲存</button>
+            </div></td>
+            <td><button class="copy-btn" onclick="copyInfo('${m.g_code}','${m.phone}')">📋 複製</button></td>
+        </tr>`;
+    }).join('');
+}
+
+function onRateChange(idx) {
+    const input = document.getElementById(`rate-${idx}`);
+    const saveBtn = document.getElementById(`save-${idx}`);
+    const gid = input.dataset.gid;
+    if (input.value !== input.dataset.original) {
+        input.classList.add('changed'); input.classList.remove('saved');
+        saveBtn.classList.add('visible');
+        pendingChanges[gid] = { idx, rate: input.value };
+    } else {
+        input.classList.remove('changed'); saveBtn.classList.remove('visible');
+        delete pendingChanges[gid];
+    }
+    updateChangesBadge();
+}
+
+function updateChangesBadge() {
+    const count = Object.keys(pendingChanges).length;
+    const badge = document.getElementById('changesBadge');
+    const btn = document.getElementById('saveAllBtn');
+    if (count > 0) { badge.textContent = `${count} 項待儲存`; badge.classList.add('visible'); btn.disabled = false; }
+    else { badge.classList.remove('visible'); btn.disabled = true; }
+}
+
+async function saveSingleRate(idx) {
+    const input = document.getElementById(`rate-${idx}`);
+    const saveBtn = document.getElementById(`save-${idx}`);
+    const gid = input.dataset.gid;
+    const rate = input.value;
+    if (!rate) { showToast('請輸入運費', 'error'); return; }
+    input.classList.add('saving'); saveBtn.textContent = '⏳';
+    const res = await fetch('/api/admin/shipping_rate', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({customer_gid:gid, shipping_rate:rate}) });
+    const result = await res.json();
+    if (result.success) {
+        input.classList.remove('saving','changed'); input.classList.add('saved');
+        input.dataset.original = rate; saveBtn.classList.remove('visible');
+        delete pendingChanges[gid]; updateChangesBadge();
+        setTimeout(() => input.classList.remove('saved'), 2000);
+        showToast(`${membersData[idx].g_code} 運費已更新`, 'success');
+    } else {
+        input.classList.remove('saving'); saveBtn.textContent = '儲存';
+        showToast(result.error || '儲存失敗', 'error');
+    }
+}
+
+async function saveAllChanges() {
+    const btn = document.getElementById('saveAllBtn');
+    btn.disabled = true; btn.textContent = '⏳ 儲存中...';
+    let ok = 0, fail = 0;
+    for (const [gid, {idx, rate}] of Object.entries(pendingChanges)) {
+        const input = document.getElementById(`rate-${idx}`);
+        input.classList.add('saving');
+        const res = await fetch('/api/admin/shipping_rate', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({customer_gid:gid, shipping_rate:rate}) });
+        const result = await res.json();
+        if (result.success) {
+            input.classList.remove('saving','changed'); input.classList.add('saved');
+            input.dataset.original = rate; document.getElementById(`save-${idx}`).classList.remove('visible');
+            delete pendingChanges[gid]; ok++; setTimeout(() => input.classList.remove('saved'), 2000);
+        } else { input.classList.remove('saving'); fail++; }
+    }
+    updateChangesBadge(); btn.textContent = '💾 全部儲存';
+    showToast(fail === 0 ? `✅ 已更新 ${ok} 位會員運費` : `${ok} 筆成功，${fail} 筆失敗`, fail === 0 ? 'success' : 'error');
+}
+
+function copyInfo(gCode, phone) {
+    navigator.clipboard.writeText(`會員編號：${gCode}\n密碼：${phone}`).then(() => showToast('已複製', 'success'));
+}
+
+// ── 到貨管理 ──
+async function loadPackages() {
+    const res = await fetch('/api/admin/packages');
+    const result = await res.json();
+    if (!result.success) { showToast('載入失敗', 'error'); return; }
+    allPackages = result.packages;
+    renderPackages(allPackages);
+}
+
+function filterPackages() {
+    const q = document.getElementById('pkg-filter').value.trim().toUpperCase();
+    if (!q) { renderPackages(allPackages); return; }
+    renderPackages(allPackages.filter(p =>
+        p.g_code.includes(q) || (p.logis_num||'').toUpperCase().includes(q) || (p.product_name||'').toUpperCase().includes(q)
+    ));
+}
+
+function renderPackages(list) {
+    document.getElementById('pkg-count').textContent = `共 ${list.length} 筆`;
+    const tbody = document.getElementById('packagesTable');
+    if (!list.length) { tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#666;padding:30px;">暫無記錄</td></tr>'; return; }
+    tbody.innerHTML = list.map(p => `<tr>
+        <td><span class="g-code">${p.g_code}</span></td>
+        <td style="font-size:12px;">${p.logis_num||'-'}</td>
+        <td>${p.product_name||'-'}</td>
+        <td>${p.weight ? p.weight+' kg' : '-'}</td>
+        <td><span class="status-tag status-${p.status}">${p.status}</span></td>
+        <td style="font-size:12px;">${p.in_date||'-'}</td>
+        <td style="font-size:12px;color:#888;">${p.note||'-'}</td>
+        <td style="white-space:nowrap;">
+            <button class="btn-edit-sm" onclick="openEdit(${p.id})">✏️</button>
+            <button class="btn-danger-sm" onclick="deletePackage(${p.id})" style="margin-left:4px;">🗑️</button>
+        </td>
+    </tr>`).join('');
+}
+
+async function addPackage() {
+    const g_code       = document.getElementById('pkg-g-code').value.trim();
+    const logis_num    = document.getElementById('pkg-logis').value.trim();
+    const weight       = document.getElementById('pkg-weight').value.trim();
+    const product_name = document.getElementById('pkg-name').value.trim();
+    const status       = document.getElementById('pkg-status').value;
+    const note         = document.getElementById('pkg-note').value.trim();
+    if (!g_code) { showToast('請輸入客戶編號', 'error'); return; }
+    const res = await fetch('/api/admin/packages', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({g_code, logis_num, weight, product_name, status, note}) });
+    const result = await res.json();
+    if (result.success) {
+        showToast('✅ 新增成功', 'success');
+        ['pkg-g-code','pkg-logis','pkg-weight','pkg-name','pkg-note'].forEach(id => document.getElementById(id).value = '');
+        document.getElementById('pkg-status').value = '已到貨';
+        loadPackages();
+    } else {
+        showToast(result.error || '新增失敗', 'error');
+    }
+}
+
+function openEdit(id) {
+    const p = allPackages.find(x => x.id === id);
+    if (!p) return;
+    document.getElementById('edit-pkg-id').value  = p.id;
+    document.getElementById('edit-g-code').value  = p.g_code;
+    document.getElementById('edit-logis').value   = p.logis_num||'';
+    document.getElementById('edit-name').value    = p.product_name||'';
+    document.getElementById('edit-weight').value  = p.weight||'';
+    document.getElementById('edit-status').value  = p.status;
+    document.getElementById('edit-note').value    = p.note||'';
+    document.getElementById('editModal').classList.add('show');
+}
+
+function closeEditModal() { document.getElementById('editModal').classList.remove('show'); }
+
+async function saveEdit() {
+    const id = document.getElementById('edit-pkg-id').value;
+    const data = {
+        g_code:       document.getElementById('edit-g-code').value.trim(),
+        logis_num:    document.getElementById('edit-logis').value.trim(),
+        product_name: document.getElementById('edit-name').value.trim(),
+        weight:       document.getElementById('edit-weight').value.trim(),
+        status:       document.getElementById('edit-status').value,
+        note:         document.getElementById('edit-note').value.trim(),
+    };
+    const res = await fetch(`/api/admin/packages/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
+    const result = await res.json();
+    if (result.success) { showToast('✅ 已更新', 'success'); closeEditModal(); loadPackages(); }
+    else { showToast(result.error||'更新失敗', 'error'); }
+}
+
+async function deletePackage(id) {
+    if (!confirm('確定要刪除這筆記錄？')) return;
+    const res = await fetch(`/api/admin/packages/${id}`, { method:'DELETE' });
+    const result = await res.json();
+    if (result.success) { showToast('已刪除', 'success'); loadPackages(); }
+    else { showToast('刪除失敗', 'error'); }
+}
+
+function showToast(message, type='success') {
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+}
+</script>
 </body>
 </html>
