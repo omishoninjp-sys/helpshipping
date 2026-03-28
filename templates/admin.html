@@ -94,6 +94,7 @@
         .status-已到貨 { background: rgba(39,174,96,.2); color: #2ecc71; }
         .status-待入庫 { background: rgba(243,156,18,.2); color: #f39c12; }
         .status-已出貨 { background: rgba(52,152,219,.2); color: #3498db; }
+        .status-已入庫 { background: rgba(155,89,182,.2); color: #9b59b6; }
 
         /* Filter bar */
         .filter-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
@@ -213,6 +214,7 @@
                         <label>狀態</label>
                         <select id="pkg-status" class="form-control">
                             <option value="已到貨">✅ 已到貨</option>
+                            <option value="已入庫">📥 已入庫</option>
                             <option value="待入庫">⏳ 待入庫</option>
                             <option value="已出貨">🚚 已出貨</option>
                         </select>
@@ -264,6 +266,7 @@
             <div class="form-group" style="margin:0;"><label>狀態</label>
                 <select id="edit-status" class="form-control">
                     <option value="已到貨">✅ 已到貨</option>
+                    <option value="已入庫">📥 已入庫</option>
                     <option value="待入庫">⏳ 待入庫</option>
                     <option value="已出貨">🚚 已出貨</option>
                 </select>
