@@ -840,7 +840,7 @@
                     container.innerHTML = result.packages.map(pkg => `
                         <div class="package-item">
                             <div><div class="label">物流號碼</div><div class="value" style="font-size:13px;">${pkg.logis_num || '-'}</div></div>
-                            <div><div class="label">商品</div><div class="value">${pkg.product_name || '-'}</div></div>
+                            <div><div class="label">商店名稱</div><div class="value">${pkg.product_name || '-'}</div></div>
                             <div><div class="label">重量</div><div class="value">${pkg.weight ? pkg.weight + ' kg' : '待秤重'}</div></div>
                             <div><div class="label">狀態</div><div class="value"><span class="status-badge ${getStatusClass(pkg.status)}">${pkg.status || '待入庫'}</span></div></div>
                             <div><div class="label">到貨日期</div><div class="value">${pkg.in_date || '-'}</div></div>
