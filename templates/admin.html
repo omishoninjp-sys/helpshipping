@@ -207,7 +207,7 @@
                         <input type="text" id="pkg-weight" class="form-control" placeholder="1.5">
                     </div>
                     <div class="form-group" style="margin:0;">
-                        <label>商品名稱</label>
+                        <label>商店名稱</label>
                         <input type="text" id="pkg-name" class="form-control" placeholder="Nike 球鞋">
                     </div>
                     <div class="form-group" style="margin:0;">
@@ -236,12 +236,12 @@
                     </div>
                 </div>
                 <div class="filter-bar">
-                    <input type="text" id="pkg-filter" placeholder="🔍 搜尋客戶編號、物流號或商品名稱..." oninput="filterPackages()">
+                    <input type="text" id="pkg-filter" placeholder="🔍 搜尋客戶編號、物流號或商店名稱..." oninput="filterPackages()">
                     <span class="pkg-count" id="pkg-count"></span>
                 </div>
                 <div class="table-wrap">
                     <table>
-                        <thead><tr><th>客戶編號</th><th>物流號碼</th><th>商品名稱</th><th>重量</th><th>狀態</th><th>到貨日期</th><th>備註</th><th>操作</th></tr></thead>
+                        <thead><tr><th>客戶編號</th><th>物流號碼</th><th>商店名稱</th><th>重量</th><th>狀態</th><th>到貨日期</th><th>備註</th><th>操作</th></tr></thead>
                         <tbody id="packagesTable">
                             <tr><td colspan="8" style="text-align:center;color:#666;padding:30px;">切換至「到貨管理」頁籤以載入</td></tr>
                         </tbody>
@@ -261,7 +261,7 @@
         <div class="pkg-form-grid" style="grid-template-columns:1fr 1fr;">
             <div class="form-group" style="margin:0;"><label>客戶編號</label><input type="text" id="edit-g-code" class="form-control"></div>
             <div class="form-group" style="margin:0;"><label>物流號碼</label><input type="text" id="edit-logis" class="form-control"></div>
-            <div class="form-group" style="margin:0;"><label>商品名稱</label><input type="text" id="edit-name" class="form-control"></div>
+            <div class="form-group" style="margin:0;"><label>商店名稱</label><input type="text" id="edit-name" class="form-control"></div>
             <div class="form-group" style="margin:0;"><label>重量 (kg)</label><input type="text" id="edit-weight" class="form-control"></div>
             <div class="form-group" style="margin:0;"><label>狀態</label>
                 <select id="edit-status" class="form-control">
