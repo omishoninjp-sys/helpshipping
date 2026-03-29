@@ -367,6 +367,23 @@ def admin_update_package(pkg_id):
     return jsonify({"success": True})
 
 
+@app.route("/api/admin/packages/bulk_ship", methods=["POST"])
+def admin_bulk_ship():
+    """批量標記為已出貨"""
+    data = request.json
+    ids = data.get("ids", [])
+    if not ids:
+        return jsonify({"success": False, "error": "沒有選取任何包裹"})
+    conn = get_db()
+    conn.execute(
+        f"UPDATE packages SET status='已出貨' WHERE id IN ({','.join(['?']*len(ids))})",
+        ids
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "updated": len(ids)})
+
+
 @app.route("/api/admin/packages/<int:pkg_id>", methods=["DELETE"])
 def admin_delete_package(pkg_id):
     """刪除包裹記錄"""
