@@ -95,6 +95,7 @@
         .status-待入庫 { background: rgba(243,156,18,.2); color: #f39c12; }
         .status-已出貨 { background: rgba(52,152,219,.2); color: #3498db; }
         .status-已入庫 { background: rgba(155,89,182,.2); color: #9b59b6; }
+        .row-shipped td { opacity: 0.5; }
 
         /* Filter bar */
         .filter-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
@@ -207,7 +208,7 @@
                         <input type="text" id="pkg-weight" class="form-control" placeholder="1.5">
                     </div>
                     <div class="form-group" style="margin:0;">
-                        <label>商店名稱</label>
+                        <label>商品名稱</label>
                         <input type="text" id="pkg-name" class="form-control" placeholder="Nike 球鞋">
                     </div>
                     <div class="form-group" style="margin:0;">
@@ -232,18 +233,19 @@
                 <div class="toolbar">
                     <h3>📋 到貨記錄</h3>
                     <div class="toolbar-actions">
+                        <button class="btn btn-primary" id="ship-btn" onclick="shipSelected()" style="display:none;padding:8px 18px;font-size:13px;">🚚 出貨選取項目 (<span id="ship-count">0</span>)</button>
                         <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadPackages()">🔄 重新整理</button>
                     </div>
                 </div>
                 <div class="filter-bar">
-                    <input type="text" id="pkg-filter" placeholder="🔍 搜尋客戶編號、物流號或商店名稱..." oninput="filterPackages()">
+                    <input type="text" id="pkg-filter" placeholder="🔍 搜尋客戶編號、物流號或商品名稱..." oninput="filterPackages()">
                     <span class="pkg-count" id="pkg-count"></span>
                 </div>
                 <div class="table-wrap">
                     <table>
-                        <thead><tr><th>客戶編號</th><th>物流號碼</th><th>商店名稱</th><th>重量</th><th>狀態</th><th>到貨日期</th><th>備註</th><th>操作</th></tr></thead>
+                        <thead><tr><th style="width:36px;"><input type="checkbox" id="chk-all" onchange="toggleAll(this)" style="accent-color:#f39c12;cursor:pointer;width:15px;height:15px;"></th><th>客戶編號</th><th>物流號碼</th><th>商品名稱</th><th>重量</th><th>狀態</th><th>到貨日期</th><th>備註</th><th>操作</th></tr></thead>
                         <tbody id="packagesTable">
-                            <tr><td colspan="8" style="text-align:center;color:#666;padding:30px;">切換至「到貨管理」頁籤以載入</td></tr>
+                            <tr><td colspan="9" style="text-align:center;color:#666;padding:30px;">切換至「到貨管理」頁籤以載入</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -261,7 +263,7 @@
         <div class="pkg-form-grid" style="grid-template-columns:1fr 1fr;">
             <div class="form-group" style="margin:0;"><label>客戶編號</label><input type="text" id="edit-g-code" class="form-control"></div>
             <div class="form-group" style="margin:0;"><label>物流號碼</label><input type="text" id="edit-logis" class="form-control"></div>
-            <div class="form-group" style="margin:0;"><label>商店名稱</label><input type="text" id="edit-name" class="form-control"></div>
+            <div class="form-group" style="margin:0;"><label>商品名稱</label><input type="text" id="edit-name" class="form-control"></div>
             <div class="form-group" style="margin:0;"><label>重量 (kg)</label><input type="text" id="edit-weight" class="form-control"></div>
             <div class="form-group" style="margin:0;"><label>狀態</label>
                 <select id="edit-status" class="form-control">
@@ -410,6 +412,9 @@ function copyInfo(gCode, phone) {
 
 // ── 到貨管理 ──
 async function loadPackages() {
+    const chkAll = document.getElementById('chk-all');
+    if (chkAll) chkAll.checked = false;
+    document.getElementById('ship-btn').style.display = 'none';
     const res = await fetch('/api/admin/packages');
     const result = await res.json();
     if (!result.success) { showToast('載入失敗', 'error'); return; }
@@ -428,8 +433,9 @@ function filterPackages() {
 function renderPackages(list) {
     document.getElementById('pkg-count').textContent = `共 ${list.length} 筆`;
     const tbody = document.getElementById('packagesTable');
-    if (!list.length) { tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#666;padding:30px;">暫無記錄</td></tr>'; return; }
-    tbody.innerHTML = list.map(p => `<tr>
+    if (!list.length) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#666;padding:30px;">暫無記錄</td></tr>'; return; }
+    tbody.innerHTML = list.map(p => `<tr id="row-${p.id}" class="${p.status === '已出貨' ? 'row-shipped' : ''}">
+        <td><input type="checkbox" class="pkg-chk" value="${p.id}" onchange="updateShipBtn()" style="accent-color:#f39c12;cursor:pointer;width:15px;height:15px;" ${p.status === '已出貨' ? 'disabled' : ''}></td>
         <td><span class="g-code">${p.g_code}</span></td>
         <td style="font-size:12px;">${p.logis_num||'-'}</td>
         <td>${p.product_name||'-'}</td>
@@ -501,6 +507,41 @@ async function deletePackage(id) {
     const result = await res.json();
     if (result.success) { showToast('已刪除', 'success'); loadPackages(); }
     else { showToast('刪除失敗', 'error'); }
+}
+
+function toggleAll(chk) {
+    document.querySelectorAll('.pkg-chk:not([disabled])').forEach(c => c.checked = chk.checked);
+    updateShipBtn();
+}
+
+function updateShipBtn() {
+    const checked = document.querySelectorAll('.pkg-chk:checked');
+    const btn = document.getElementById('ship-btn');
+    document.getElementById('ship-count').textContent = checked.length;
+    btn.style.display = checked.length > 0 ? 'inline-flex' : 'none';
+    // sync select-all checkbox
+    const all = document.querySelectorAll('.pkg-chk:not([disabled])');
+    const chkAll = document.getElementById('chk-all');
+    if (chkAll) chkAll.checked = all.length > 0 && [...all].every(c => c.checked);
+}
+
+async function shipSelected() {
+    const checked = [...document.querySelectorAll('.pkg-chk:checked')];
+    if (!checked.length) return;
+    const ids = checked.map(c => parseInt(c.value));
+    if (!confirm(`確定將 ${ids.length} 筆包裹標記為「已出貨」？`)) return;
+    const res = await fetch('/api/admin/packages/bulk_ship', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ ids })
+    });
+    const result = await res.json();
+    if (result.success) {
+        showToast(`✅ 已將 ${ids.length} 筆標記為出貨`, 'success');
+        loadPackages();
+    } else {
+        showToast(result.error || '出貨失敗', 'error');
+    }
 }
 
 function showToast(message, type='success') {
