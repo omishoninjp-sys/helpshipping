@@ -183,7 +183,7 @@ def get_shopify_orders():
                 "order_number": order["order_number"],
                 "name": order["name"],
                 "created_at": order["created_at"],
-                "total_price": order["total_price"],
+                "total_price": order.get("current_total_price", order["total_price"]),
                 "currency": order["currency"],
                 "fulfillment_status": order["fulfillment_status"] or "unfulfilled",
                 "customer_name": customer_name,
