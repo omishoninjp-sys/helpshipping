@@ -44,7 +44,6 @@ def shopify_request(endpoint: str, method: str = "GET", data: dict = None) -> di
         
         return response.json()
     except requests.exceptions.SSLError:
-        # SSL 錯誤時嘗試不驗證（僅限本地開發使用）
         import urllib3
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         try:
@@ -71,7 +70,6 @@ def jpd_request(operation: str, data: dict) -> dict:
         "data": data
     }
     
-    # 除錯：輸出請求內容
     print(f"\n{'='*50}")
     print(f"📤 JPD API 請求: {operation}")
     print(f"Data: {json.dumps(data, ensure_ascii=False, indent=2)}")
@@ -106,15 +104,14 @@ def health():
 @app.route("/api/shopify/orders")
 def get_shopify_orders():
     """取得 Shopify 訂單列表"""
-    status = request.args.get("status", "unfulfilled")  # unfulfilled, any, fulfilled
+    status = request.args.get("status", "unfulfilled")
     limit = request.args.get("limit", 50)
     
     result = shopify_request(f"orders.json?status=any&fulfillment_status={status}&limit={limit}")
     
-    # 除錯：輸出 Shopify 回應
     print(f"\n{'='*50}")
     print(f"📦 Shopify API 回應:")
-    print(json.dumps(result, ensure_ascii=False, indent=2)[:1000])  # 只印前1000字元
+    print(json.dumps(result, ensure_ascii=False, indent=2)[:1000])
     
     if "orders" in result:
         orders = []
@@ -123,7 +120,6 @@ def get_shopify_orders():
             customer_info = order.get("customer", {}) or {}
             billing = order.get("billing_address", {}) or {}
             
-            # ===== 除錯：印出所有姓名來源 =====
             print(f"\n--- 訂單 {order.get('name', '?')} 姓名來源 ---")
             print(f"  shipping.name        = '{shipping.get('name', '')}'")
             print(f"  shipping.first_name  = '{shipping.get('first_name', '')}'")
@@ -132,41 +128,29 @@ def get_shopify_orders():
             print(f"  customer.last_name   = '{customer_info.get('last_name', '')}'")
             print(f"  billing.name         = '{billing.get('name', '')}'")
             print(f"  order.contact_email  = '{order.get('contact_email', '')}'")
-            # ===================================
             
-            # 無效姓名（結帳時常見的佔位字）
             invalid_names = {"本人", "本人本人", "本人 本人", "同上", "同收件人", "test", "測試", ".", "-", ""}
             
             def is_valid(name):
                 return name and name.strip() not in invalid_names
             
-            # 收件人姓名判斷（多重來源 fallback）
-            # 用 (... or "") 確保欄位值為 None 時不會讓 strip() 爆炸
-            # 來源 1: shipping_address.name（Shopify 自動組合的完整名字）
             shipping_name = (shipping.get("name") or "").strip()
             
-            # 來源 2: shipping_address.last_name + first_name（自己拼接）
             s_last  = (shipping.get("last_name")  or "").strip()
             s_first = (shipping.get("first_name") or "").strip()
             shipping_combined = f"{s_last}{s_first}".strip()
             
-            # 來源 3: customer 物件
             c_last  = (customer_info.get("last_name")  or "").strip()
             c_first = (customer_info.get("first_name") or "").strip()
             customer_combined = f"{c_last}{c_first}".strip()
             
-            # 來源 4: billing_address.name
             billing_name = (billing.get("name") or "").strip()
             
-            # 優先順序判斷（台灣習慣：姓+名）
-            # shipping.name 是 Shopify 自動組的「first last」西方順序，不直接用
-            # 優先用 last_name + first_name 自己拼
             if is_valid(shipping_combined):
                 customer_name = shipping_combined
             elif is_valid(customer_combined):
                 customer_name = customer_combined
             elif is_valid(shipping_name):
-                # shipping.name 是西方順序，但至少有名字
                 customer_name = shipping_name
             elif is_valid(billing_name):
                 customer_name = billing_name
@@ -174,11 +158,30 @@ def get_shopify_orders():
                 customer_name = shipping_name or shipping_combined or customer_combined or "N/A"
             
             print(f"  ➡️ 最終使用: '{customer_name}'")
-            
+
+            # ===== 過濾已取消/已退款品項（fulfillable_quantity = 0）=====
+            active_items = [
+                {
+                    "title": item["title"],
+                    "variant_title": item.get("variant_title", ""),
+                    "quantity": item.get("fulfillable_quantity", item["quantity"]),
+                    "price": item["price"],
+                    "sku": item.get("sku", "")
+                }
+                for item in order["line_items"]
+                if item.get("fulfillable_quantity", item["quantity"]) > 0
+            ]
+
+            # 所有品項都已取消 → 跳過此訂單
+            if not active_items:
+                print(f"  ⚠️ 訂單 {order.get('name')} 所有品項已取消，略過")
+                continue
+            # =============================================================
+
             orders.append({
                 "id": order["id"],
                 "order_number": order["order_number"],
-                "name": order["name"],  # #1001 格式
+                "name": order["name"],
                 "created_at": order["created_at"],
                 "total_price": order["total_price"],
                 "currency": order["currency"],
@@ -191,20 +194,10 @@ def get_shopify_orders():
                     shipping.get("address1", ""),
                     shipping.get("address2", "")
                 ])).strip(),
-                "line_items": [
-                    {
-                        "title": item["title"],
-                        "variant_title": item.get("variant_title", ""),
-                        "quantity": item["quantity"],
-                        "price": item["price"],
-                        "sku": item.get("sku", "")
-                    }
-                    for item in order["line_items"]
-                ]
+                "line_items": active_items
             })
         return jsonify({"success": True, "orders": orders})
     
-    # 回傳更詳細的錯誤資訊
     error_msg = result.get("error") or result.get("errors") or str(result)
     return jsonify({"success": False, "error": error_msg})
 
@@ -223,7 +216,6 @@ def get_shopify_order(order_id):
 @app.route("/api/jpd/packages")
 def get_jpd_packages():
     """取得 JPD 倉庫的包裹列表"""
-    # 查詢最近入庫的包裹
     result = jpd_request("TSearchPackages", {
         "stock_date_from": (datetime.now().replace(day=1)).strftime("%Y-%m-%d 00:00:00")
     })
@@ -264,7 +256,6 @@ def create_jpd_order():
     data = request.json
     mode = data.get("mode", "self")
     
-    # 組裝申報列表
     declare_list = []
     for item in data.get("declare_list", []):
         declare_list.append({
@@ -274,19 +265,16 @@ def create_jpd_order():
             "product_price": int(item.get("product_price", 100))
         })
     
-    # 計算總數量和總價
     total_num = sum(int(item.get("product_num", 1)) for item in data.get("declare_list", []))
     total_price = sum(int(item.get("product_price", 0)) * int(item.get("product_num", 1)) for item in data.get("declare_list", []))
     
     package_ids = []
     
     if mode == "warehouse":
-        # 倉庫代發：使用已入庫的包裹
         if not data.get("package_ids"):
             return jsonify({"success": False, "error": "倉庫代發模式需要選擇已入庫的包裹"})
         package_ids = data["package_ids"]
     else:
-        # 自出貨：先預報包裹
         forecast_data = {
             "packages": [{
                 "local_logis_num": data["customer_order_id"],
@@ -308,7 +296,6 @@ def create_jpd_order():
             if op_result["Request"]["IsValid"] == "True":
                 result_data = op_result.get("Result", {})
                 if result_data.get("Result") == "SUCCESS":
-                    # 取得預報成功的 package_id
                     packages_data = result_data.get("Data", [])
                     for pkg in packages_data:
                         if pkg.get("package_id"):
@@ -327,8 +314,6 @@ def create_jpd_order():
         if not package_ids:
             return jsonify({"success": False, "error": "預報包裹失敗：未取得 package_id"})
     
-    # 組裝運單資料
-    # 收件人姓名處理：從 Shopify 原始訂單重新取得正確姓名（姓+名）
     recipient = data["recipient"]
     shopify_order_id = data.get("shopify_order_id")
     if shopify_order_id:
@@ -344,8 +329,6 @@ def create_jpd_order():
             def is_valid_name(name):
                 return name and name.strip() not in invalid_names
             
-            # 台灣習慣：姓(last_name) + 名(first_name)
-            # 用 (... or "") 確保欄位值為 None 時不會讓 strip() 爆炸
             s_last  = (orig_shipping.get("last_name")  or "").strip()
             s_first = (orig_shipping.get("first_name") or "").strip()
             shipping_combined = f"{s_last}{s_first}".strip()
@@ -372,7 +355,7 @@ def create_jpd_order():
         "deliv_id": JPD_DELIV_ID,
         "recipient": recipient,
         "id_issure": "",
-        "area": 3,  # 台灣
+        "area": 3,
         "addr1": data["address"],
         "addr2": "",
         "addr3": "",
@@ -386,7 +369,6 @@ def create_jpd_order():
         "packages": [{"package_id": int(pid), "declare_list": declare_list} for pid in package_ids]
     }
     
-    # 呼叫 JPD API 創建運單
     result = jpd_request("TCreateOrder", order_data)
     
     if "OperationResult" in result:
@@ -407,7 +389,6 @@ def create_jpd_order():
                     "error": result_data.get("Data", {}).get("msg", "創建失敗")
                 })
         else:
-            # 檢查是否是「已存在」的錯誤
             errors = op_result["Request"].get("Errors", {})
             error_list = errors.get("Error", [])
             if isinstance(error_list, dict):
@@ -416,7 +397,6 @@ def create_jpd_order():
             is_duplicate = any("已存在" in str(e.get("Message", "")) for e in error_list)
             
             if is_duplicate:
-                # 運單已存在，視為成功（可能是重複提交）
                 search_result = jpd_request("TSearchOrders", {
                     "customer_order_id": data["customer_order_id"]
                 })
@@ -492,17 +472,14 @@ def fulfill_shopify_order():
     print(f"📝 回寫 Shopify 訂單: {order_id}")
     print(f"📦 追蹤號: {tracking_number}")
     
-    # 取得該訂單的 fulfillment orders
     fo_result = shopify_request(f"orders/{order_id}/fulfillment_orders.json")
     print(f"📥 Fulfillment Orders: {json.dumps(fo_result, ensure_ascii=False)[:500]}")
     
     if "fulfillment_orders" not in fo_result:
         return jsonify({"success": False, "error": "無法取得訂單資訊"})
     
-    # 找到狀態為 open 或 in_progress 的 fulfillment order
     for fo in fo_result["fulfillment_orders"]:
         if fo["status"] in ["open", "in_progress"]:
-            # 組裝 fulfillment 請求
             fulfill_data = {
                 "fulfillment": {
                     "line_items_by_fulfillment_order": [
