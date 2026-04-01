@@ -1,6 +1,6 @@
 """
 客人集運預報系統
-御用達 × JPD 雲倉
+GOYOUTATI x OMISHONIN 雲倉
 """
 
 from flask import Flask, request, jsonify, render_template
@@ -21,7 +21,11 @@ JPD_WAREHOUSE_ID = int(os.environ.get("JPD_WAREHOUSE_ID", "1"))
 SHOPIFY_STORE = os.environ.get("SHOPIFY_STORE", "")
 SHOPIFY_ACCESS_TOKEN = os.environ.get("SHOPIFY_ACCESS_TOKEN", "")
 
+# 預設運費（台幣/kg），0 表示未設定
 DEFAULT_SHIPPING_RATE = int(os.environ.get("DEFAULT_SHIPPING_RATE", "0"))
+
+# 台幣 → 日圓匯率（可透過環境變數調整）
+TWD_TO_JPY_RATE = float(os.environ.get("TWD_TO_JPY_RATE", "5.0"))
 
 DB_PATH = os.environ.get("DB_PATH", "packages.db")
 # ================================
@@ -65,6 +69,11 @@ def normalize_phone(phone_raw):
     elif phone.startswith("+81"):
         phone = "0" + phone[3:]
     return phone
+
+
+def twd_to_jpy(twd_rate):
+    """台幣運費 → 日圓運費（四捨五入至整數）"""
+    return round(twd_rate * TWD_TO_JPY_RATE)
 
 
 def jpd_request(operation, data):
@@ -177,7 +186,8 @@ def get_all_goyoutati_customers():
                 phone_raw = default_address.get("phone") or owner.get("phone") or ""
                 phone = normalize_phone(phone_raw)
                 rate_mf = owner.get("shippingRate")
-                shipping_rate = rate_mf["value"] if rate_mf and rate_mf.get("value") else ""
+                # shipping_rate 現在儲存台幣值
+                shipping_rate_twd = rate_mf["value"] if rate_mf and rate_mf.get("value") else ""
                 customers.append({
                     "g_code": g_code,
                     "customer_id": customer_id,
@@ -186,7 +196,7 @@ def get_all_goyoutati_customers():
                     "email": owner.get("email", ""),
                     "phone": phone,
                     "phone_raw": phone_raw,
-                    "shipping_rate": shipping_rate,
+                    "shipping_rate": shipping_rate_twd,  # 台幣
                     "created_at": owner.get("createdAt", "")
                 })
     return customers
@@ -202,6 +212,14 @@ def admin_page():
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/api/config")
+def get_config():
+    """回傳前端所需設定（匯率等）"""
+    return jsonify({
+        "twd_to_jpy_rate": TWD_TO_JPY_RATE
+    })
 
 
 @app.route("/api/admin/verify", methods=["POST"])
@@ -237,7 +255,8 @@ def get_all_members():
             "total": len(members),
             "max_number": max_number,
             "next_g_code": next_g_code,
-            "default_shipping_rate": DEFAULT_SHIPPING_RATE
+            "default_shipping_rate": DEFAULT_SHIPPING_RATE,  # 台幣
+            "twd_to_jpy_rate": TWD_TO_JPY_RATE
         })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
@@ -247,7 +266,7 @@ def get_all_members():
 def set_shipping_rate():
     data = request.json
     customer_gid = data.get("customer_gid", "")
-    shipping_rate = data.get("shipping_rate", "")
+    shipping_rate = data.get("shipping_rate", "")  # 台幣
     if not customer_gid:
         return jsonify({"success": False, "error": "缺少客戶 ID"})
     if shipping_rate == "" or shipping_rate is None:
@@ -273,7 +292,7 @@ def set_shipping_rate():
             "namespace": "custom",
             "key": "shipping_rate",
             "type": "single_line_text_field",
-            "value": str(rate_val)
+            "value": str(rate_val)  # 儲存台幣值
         }]
     }
     try:
@@ -284,7 +303,11 @@ def set_shipping_rate():
             if user_errors:
                 return jsonify({"success": False, "error": "; ".join([e["message"] for e in user_errors])})
             if mutation_result.get("metafields"):
-                return jsonify({"success": True, "shipping_rate": rate_val})
+                return jsonify({
+                    "success": True,
+                    "shipping_rate_twd": rate_val,
+                    "shipping_rate_jpy": twd_to_jpy(rate_val)
+                })
         if "errors" in result:
             return jsonify({"success": False, "error": str(result["errors"])})
         return jsonify({"success": False, "error": "設定失敗，請重試"})
@@ -296,7 +319,6 @@ def set_shipping_rate():
 
 @app.route("/api/admin/packages", methods=["GET"])
 def admin_list_packages():
-    """列出所有包裹（管理員用）"""
     g_code = request.args.get("g_code", "")
     conn = get_db()
     if g_code:
@@ -313,7 +335,6 @@ def admin_list_packages():
 
 @app.route("/api/admin/packages", methods=["POST"])
 def admin_add_package():
-    """新增到貨包裹"""
     data = request.json
     g_code      = (data.get("g_code") or "").strip().upper()
     logis_num   = (data.get("logis_num") or "").strip()
@@ -344,7 +365,6 @@ def admin_add_package():
 
 @app.route("/api/admin/packages/<int:pkg_id>", methods=["PUT"])
 def admin_update_package(pkg_id):
-    """編輯包裹資訊"""
     data = request.json
     fields = []
     values = []
@@ -369,7 +389,6 @@ def admin_update_package(pkg_id):
 
 @app.route("/api/admin/packages/bulk_ship", methods=["POST"])
 def admin_bulk_ship():
-    """批量標記為已出貨"""
     data = request.json
     ids = data.get("ids", [])
     if not ids:
@@ -386,7 +405,6 @@ def admin_bulk_ship():
 
 @app.route("/api/admin/packages/<int:pkg_id>", methods=["DELETE"])
 def admin_delete_package(pkg_id):
-    """刪除包裹記錄"""
     conn = get_db()
     conn.execute("DELETE FROM packages WHERE id=?", (pkg_id,))
     conn.commit()
@@ -414,10 +432,12 @@ def verify_customer():
         for c in customers:
             if c["g_code"] == g_code:
                 if c["phone"] and c["phone"] == password_clean:
+                    # shipping_rate 現為台幣
                     try:
-                        shipping_rate = int(c["shipping_rate"]) if c["shipping_rate"] else DEFAULT_SHIPPING_RATE
+                        rate_twd = int(c["shipping_rate"]) if c["shipping_rate"] else DEFAULT_SHIPPING_RATE
                     except (ValueError, TypeError):
-                        shipping_rate = DEFAULT_SHIPPING_RATE
+                        rate_twd = DEFAULT_SHIPPING_RATE
+                    rate_jpy = twd_to_jpy(rate_twd) if rate_twd else 0
                     return jsonify({
                         "success": True,
                         "customer": {
@@ -426,7 +446,8 @@ def verify_customer():
                             "name": c["name"] or "會員",
                             "email": c["email"],
                             "phone": c["phone"],
-                            "shipping_rate": shipping_rate
+                            "shipping_rate_twd": rate_twd,
+                            "shipping_rate_jpy": rate_jpy
                         }
                     })
                 else:
@@ -497,7 +518,6 @@ def create_forecast():
 
 @app.route("/api/packages", methods=["GET"])
 def get_packages():
-    """查詢客戶的包裹列表（從本地 DB）"""
     g_code = request.args.get("g_code") or request.args.get("customer_id")
     if not g_code:
         return jsonify({"success": False, "error": "缺少會員編號"})
@@ -563,5 +583,6 @@ if __name__ == "__main__":
     ║       御用達 × JPD 雲倉                                     ║
     ╚═══════════════════════════════════════════════════════════╝
     🌐 服務啟動於 Port: {port}
+    💱 TWD → JPY 匯率: {TWD_TO_JPY_RATE}
     """)
     app.run(host="0.0.0.0", port=port, debug=debug)
