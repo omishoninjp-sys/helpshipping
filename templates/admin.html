@@ -69,13 +69,14 @@
         .copy-btn:hover { background: rgba(243,156,18,.3); }
 
         /* Rate input */
-        .rate-input-wrap { display: flex; align-items: center; gap: 6px; }
-        .rate-input { width: 80px; padding: 7px 10px; background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.15); border-radius: 8px; color: #fff; font-size: 13px; font-family: inherit; text-align: right; transition: all .2s; }
+        .rate-input-wrap { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .rate-input { width: 72px; padding: 7px 10px; background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.15); border-radius: 8px; color: #fff; font-size: 13px; font-family: inherit; text-align: right; transition: all .2s; }
         .rate-input:focus { outline: none; border-color: #f39c12; }
         .rate-input.changed { border-color: #f39c12; background: rgba(243,156,18,.08); }
         .rate-input.saving { opacity: .5; }
         .rate-input.saved { border-color: #27ae60; background: rgba(39,174,96,.08); }
-        .rate-unit { color: #888; font-size: 11px; white-space: nowrap; }
+        .rate-unit { color: #ccc; font-size: 11px; white-space: nowrap; font-weight: 600; }
+        .rate-jpy-preview { font-size: 11px; color: #666; white-space: nowrap; }
         .rate-save-btn { padding: 5px 10px; background: rgba(39,174,96,.2); border: none; border-radius: 6px; color: #27ae60; font-size: 11px; cursor: pointer; font-family: inherit; display: none; }
         .rate-save-btn.visible { display: inline-block; }
 
@@ -177,7 +178,16 @@
                 </div>
                 <div class="table-wrap">
                     <table>
-                        <thead><tr><th>會員編號</th><th>姓名</th><th>Email</th><th>手機（密碼）</th><th>運費 (日圓/kg)</th><th>操作</th></tr></thead>
+                        <thead>
+                            <tr>
+                                <th>會員編號</th>
+                                <th>姓名</th>
+                                <th>Email</th>
+                                <th>手機（密碼）</th>
+                                <th>運費 (台幣/kg)</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
                         <tbody id="membersTable">
                             <tr><td colspan="6" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr>
                         </tbody>
@@ -243,7 +253,13 @@
                 </div>
                 <div class="table-wrap">
                     <table>
-                        <thead><tr><th style="width:36px;"><input type="checkbox" id="chk-all" onchange="toggleAll(this)" style="accent-color:#f39c12;cursor:pointer;width:15px;height:15px;"></th><th>客戶編號</th><th>物流號碼</th><th>商品名稱</th><th>重量</th><th>狀態</th><th>到貨日期</th><th>備註</th><th>操作</th></tr></thead>
+                        <thead>
+                            <tr>
+                                <th style="width:36px;"><input type="checkbox" id="chk-all" onchange="toggleAll(this)" style="accent-color:#f39c12;cursor:pointer;width:15px;height:15px;"></th>
+                                <th>客戶編號</th><th>物流號碼</th><th>商品名稱</th><th>重量</th>
+                                <th>狀態</th><th>到貨日期</th><th>備註</th><th>操作</th>
+                            </tr>
+                        </thead>
                         <tbody id="packagesTable">
                             <tr><td colspan="9" style="text-align:center;color:#666;padding:30px;">切換至「到貨管理」頁籤以載入</td></tr>
                         </tbody>
@@ -286,6 +302,12 @@
 let membersData = [];
 let pendingChanges = {};
 let allPackages = [];
+let twd_to_jpy_rate = 5.0;  // 預設匯率，登入後從 /api/config 取得
+
+function jpyPreview(twd) {
+    if (!twd || isNaN(twd)) return '';
+    return `≈ ¥${Math.round(parseFloat(twd) * twd_to_jpy_rate).toLocaleString()}`;
+}
 
 async function adminLogin() {
     const password = document.getElementById('adminPassword').value;
@@ -295,6 +317,10 @@ async function adminLogin() {
     if (result.success) {
         document.getElementById('loginSection').classList.add('hidden');
         document.getElementById('mainContent').classList.add('active');
+        // 取得匯率設定
+        fetch('/api/config').then(r => r.json()).then(cfg => {
+            twd_to_jpy_rate = cfg.twd_to_jpy_rate || 5.0;
+        });
         loadMembers();
         showToast('登入成功', 'success');
     } else {
@@ -318,26 +344,33 @@ async function loadMembers() {
     const result = await res.json();
     if (!result.success) { showToast(result.error || '載入失敗', 'error'); return; }
     membersData = result.members;
+    // 更新匯率（從 API 回傳同步）
+    if (result.twd_to_jpy_rate) twd_to_jpy_rate = result.twd_to_jpy_rate;
     document.getElementById('totalMembers').textContent = result.total;
     document.getElementById('maxNumber').textContent = result.max_number > 0 ? `G${String(result.max_number).padStart(4,'0')}` : '-';
     document.getElementById('nextCode').textContent = result.next_g_code;
     const tbody = document.getElementById('membersTable');
     if (!result.members.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#666;padding:30px;">尚無會員</td></tr>'; return; }
+    const ph = result.default_shipping_rate > 0 ? result.default_shipping_rate : '未設定';
     tbody.innerHTML = result.members.map((m, idx) => {
         const rateDisplay = m.shipping_rate || '';
-        const ph = result.default_shipping_rate > 0 ? result.default_shipping_rate : '未設定';
         return `<tr>
             <td><span class="g-code">${m.g_code}</span></td>
             <td>${m.name||'-'}</td>
             <td style="font-size:12px;">${m.email||'-'}</td>
             <td>${m.phone||'-'}</td>
-            <td><div class="rate-input-wrap">
-                <input type="number" class="rate-input" id="rate-${idx}" value="${rateDisplay}" placeholder="${ph}" min="0"
-                    data-gid="${m.gid}" data-original="${rateDisplay}" data-idx="${idx}"
-                    oninput="onRateChange(${idx})" onkeydown="if(event.key==='Enter')saveSingleRate(${idx})">
-                <span class="rate-unit">日圓/kg</span>
-                <button class="rate-save-btn" id="save-${idx}" onclick="saveSingleRate(${idx})">儲存</button>
-            </div></td>
+            <td>
+                <div class="rate-input-wrap">
+                    <input type="number" class="rate-input" id="rate-${idx}" value="${rateDisplay}"
+                        placeholder="${ph}" min="0"
+                        data-gid="${m.gid}" data-original="${rateDisplay}" data-idx="${idx}"
+                        oninput="onRateChange(${idx})"
+                        onkeydown="if(event.key==='Enter')saveSingleRate(${idx})">
+                    <span class="rate-unit">台幣/kg</span>
+                    <span class="rate-jpy-preview" id="jpy-${idx}">${rateDisplay ? jpyPreview(rateDisplay) : ''}</span>
+                    <button class="rate-save-btn" id="save-${idx}" onclick="saveSingleRate(${idx})">儲存</button>
+                </div>
+            </td>
             <td><button class="copy-btn" onclick="copyInfo('${m.g_code}','${m.phone}')">📋 複製</button></td>
         </tr>`;
     }).join('');
@@ -346,7 +379,10 @@ async function loadMembers() {
 function onRateChange(idx) {
     const input = document.getElementById(`rate-${idx}`);
     const saveBtn = document.getElementById(`save-${idx}`);
+    const jpyEl = document.getElementById(`jpy-${idx}`);
     const gid = input.dataset.gid;
+    // 即時更新日圓預覽
+    if (jpyEl) jpyEl.textContent = input.value ? jpyPreview(input.value) : '';
     if (input.value !== input.dataset.original) {
         input.classList.add('changed'); input.classList.remove('saved');
         saveBtn.classList.add('visible');
@@ -373,14 +409,17 @@ async function saveSingleRate(idx) {
     const rate = input.value;
     if (!rate) { showToast('請輸入運費', 'error'); return; }
     input.classList.add('saving'); saveBtn.textContent = '⏳';
-    const res = await fetch('/api/admin/shipping_rate', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({customer_gid:gid, shipping_rate:rate}) });
+    const res = await fetch('/api/admin/shipping_rate', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({customer_gid:gid, shipping_rate:rate})
+    });
     const result = await res.json();
     if (result.success) {
         input.classList.remove('saving','changed'); input.classList.add('saved');
-        input.dataset.original = rate; saveBtn.classList.remove('visible');
+        input.dataset.original = rate; saveBtn.classList.remove('visible'); saveBtn.textContent = '儲存';
         delete pendingChanges[gid]; updateChangesBadge();
         setTimeout(() => input.classList.remove('saved'), 2000);
-        showToast(`${membersData[idx].g_code} 運費已更新`, 'success');
+        showToast(`${membersData[idx].g_code} 運費已更新：${rate} 台幣 (${jpyPreview(rate)})`, 'success');
     } else {
         input.classList.remove('saving'); saveBtn.textContent = '儲存';
         showToast(result.error || '儲存失敗', 'error');
@@ -394,12 +433,17 @@ async function saveAllChanges() {
     for (const [gid, {idx, rate}] of Object.entries(pendingChanges)) {
         const input = document.getElementById(`rate-${idx}`);
         input.classList.add('saving');
-        const res = await fetch('/api/admin/shipping_rate', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({customer_gid:gid, shipping_rate:rate}) });
+        const res = await fetch('/api/admin/shipping_rate', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({customer_gid:gid, shipping_rate:rate})
+        });
         const result = await res.json();
         if (result.success) {
             input.classList.remove('saving','changed'); input.classList.add('saved');
-            input.dataset.original = rate; document.getElementById(`save-${idx}`).classList.remove('visible');
-            delete pendingChanges[gid]; ok++; setTimeout(() => input.classList.remove('saved'), 2000);
+            input.dataset.original = rate;
+            document.getElementById(`save-${idx}`).classList.remove('visible');
+            delete pendingChanges[gid]; ok++;
+            setTimeout(() => input.classList.remove('saved'), 2000);
         } else { input.classList.remove('saving'); fail++; }
     }
     updateChangesBadge(); btn.textContent = '💾 全部儲存';
@@ -519,7 +563,6 @@ function updateShipBtn() {
     const btn = document.getElementById('ship-btn');
     document.getElementById('ship-count').textContent = checked.length;
     btn.style.display = checked.length > 0 ? 'inline-flex' : 'none';
-    // sync select-all checkbox
     const all = document.querySelectorAll('.pkg-chk:not([disabled])');
     const chkAll = document.getElementById('chk-all');
     if (chkAll) chkAll.checked = all.length > 0 && [...all].every(c => c.checked);
