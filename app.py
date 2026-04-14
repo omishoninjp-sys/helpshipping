@@ -3,12 +3,14 @@
 GOYOUTATI x OMISHONIN 雲倉
 """
 
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, make_response
 from datetime import datetime
 import requests
 import json
 import os
 import sqlite3
+import csv
+import io
 
 app = Flask(__name__)
 
@@ -66,6 +68,17 @@ def init_db():
             admin_note  TEXT    DEFAULT '',
             created_at  TEXT    NOT NULL,
             updated_at  TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS forecasts (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            g_code      TEXT    NOT NULL,
+            customer_name TEXT  DEFAULT '',
+            items_json  TEXT    NOT NULL,
+            status      TEXT    DEFAULT '待處理',
+            note        TEXT    DEFAULT '',
+            created_at  TEXT    NOT NULL
         )
     """)
     conn.commit()
@@ -704,6 +717,155 @@ def admin_update_shipment_request(req_id):
     conn.commit()
     conn.close()
     return jsonify({"success": True})
+
+
+# ============ 預報包裹 API（本地存檔，不連 JPD）============
+
+@app.route("/api/forecast_simple", methods=["POST"])
+def create_forecast_simple():
+    """客戶提交預報（存到本地 DB）"""
+    data = request.json
+    g_code = (data.get("g_code") or "").strip().upper()
+    customer_name = data.get("customer_name", "")
+    items = data.get("items", [])
+    note = (data.get("note") or "").strip()
+
+    if not g_code:
+        return jsonify({"success": False, "error": "缺少會員編號"})
+    if not items:
+        return jsonify({"success": False, "error": "請至少填寫一個商品"})
+
+    # 過濾空的
+    valid_items = [i for i in items if (i.get("name") or "").strip()]
+    if not valid_items:
+        return jsonify({"success": False, "error": "請至少填寫一個商品名稱"})
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_db()
+    conn.execute(
+        """INSERT INTO forecasts (g_code, customer_name, items_json, status, note, created_at)
+           VALUES (?, ?, ?, '待處理', ?, ?)""",
+        (g_code, customer_name, json.dumps(valid_items, ensure_ascii=False), note, now)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "message": "預報已送出！我們收到後會盡快處理。"})
+
+
+@app.route("/api/my_forecasts", methods=["GET"])
+def get_my_forecasts():
+    """客戶查看自己的預報"""
+    g_code = request.args.get("g_code", "").upper()
+    if not g_code:
+        return jsonify({"success": False, "error": "缺少會員編號"})
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM forecasts WHERE g_code=? ORDER BY id DESC LIMIT 20", (g_code,)
+    ).fetchall()
+    conn.close()
+    results = []
+    for r in rows:
+        row = dict(r)
+        try:
+            row["items"] = json.loads(row.get("items_json") or "[]")
+        except:
+            row["items"] = []
+        results.append(row)
+    return jsonify({"success": True, "forecasts": results})
+
+
+@app.route("/api/admin/forecasts", methods=["GET"])
+def admin_get_forecasts():
+    """管理員查看所有預報"""
+    status = request.args.get("status", "")
+    conn = get_db()
+    if status:
+        rows = conn.execute(
+            "SELECT * FROM forecasts WHERE status=? ORDER BY id DESC", (status,)
+        ).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM forecasts ORDER BY id DESC").fetchall()
+    conn.close()
+    results = []
+    for r in rows:
+        row = dict(r)
+        try:
+            row["items"] = json.loads(row.get("items_json") or "[]")
+        except:
+            row["items"] = []
+        results.append(row)
+    return jsonify({"success": True, "forecasts": results})
+
+
+@app.route("/api/admin/forecasts/<int:fc_id>", methods=["PUT"])
+def admin_update_forecast(fc_id):
+    """管理員更新預報狀態"""
+    data = request.json
+    status = data.get("status", "")
+    conn = get_db()
+    conn.execute("UPDATE forecasts SET status=? WHERE id=?", (status, fc_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route("/api/admin/forecasts/<int:fc_id>/csv")
+def admin_download_forecast_csv(fc_id):
+    """下載單筆預報的 JPD CSV"""
+    conn = get_db()
+    row = conn.execute("SELECT * FROM forecasts WHERE id=?", (fc_id,)).fetchone()
+    conn.close()
+    if not row:
+        return "Not found", 404
+    row = dict(row)
+    try:
+        items = json.loads(row.get("items_json") or "[]")
+    except:
+        items = []
+
+    g_code = row["g_code"]
+    today_str = datetime.now().strftime("%m%d")
+    customer_order_id = f"{g_code}-{today_str}"
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    # JPD CSV 標頭
+    writer.writerow([
+        "客戶運單號", "JpD包裹ID", "運單ID", "包裹特殊服務",
+        "收件人", "收件人身份證ID", "收件人詳細地址", "收件人电话号码",
+        "備註", "特殊服务", "渠道ID",
+        "申報人", "申報人身份證ID", "申報人詳細地址", "申報人电话号码",
+        "品名", "数量", "金额", "材質", "產地", "URL/JanCode"
+    ])
+    for item in items:
+        writer.writerow([
+            customer_order_id,  # 客戶運單號
+            "",  # JpD包裹ID（手動填）
+            "",  # 運單ID
+            "",  # 包裹特殊服務
+            "",  # 收件人（手動填）
+            "",  # 身份證
+            "",  # 地址（手動填）
+            "",  # 電話（手動填）
+            row.get("note", ""),  # 備註
+            "",  # 特殊服务
+            "40",  # 渠道ID
+            "",  # 申報人
+            "",  # 申報人身份證
+            "",  # 申報人地址
+            "",  # 申報人電話
+            item.get("name", ""),  # 品名
+            item.get("quantity", 1),  # 数量
+            item.get("price", 0),  # 金额
+            "",  # 材質
+            "Japan",  # 產地
+            item.get("url", ""),  # URL
+        ])
+
+    resp = make_response(output.getvalue())
+    resp.headers["Content-Type"] = "text/csv; charset=utf-8-sig"
+    resp.headers["Content-Disposition"] = f"attachment; filename={g_code}_{today_str}_forecast.csv"
+    return resp
 
 
 if __name__ == "__main__":

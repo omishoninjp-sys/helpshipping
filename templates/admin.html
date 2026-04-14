@@ -162,6 +162,7 @@
             <button class="admin-tab active" onclick="switchAdminTab('members')">👥 會員管理</button>
             <button class="admin-tab" onclick="switchAdminTab('arrivals')">📦 到貨管理</button>
             <button class="admin-tab" onclick="switchAdminTab('shipreqs')">🚚 出貨申請 <span id="shipreq-badge" style="display:none;background:#e74c3c;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:4px;">0</span></button>
+            <button class="admin-tab" onclick="switchAdminTab('forecasts')">📝 預報管理 <span id="forecast-badge" style="display:none;background:#e74c3c;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:4px;">0</span></button>
         </div>
 
         <!-- 會員管理 -->
@@ -325,6 +326,41 @@
             </div>
         </div>
 
+        <!-- 預報管理 -->
+        <div class="admin-panel" id="panel-forecasts">
+            <div class="card">
+                <div class="toolbar">
+                    <h3>📝 客戶預報列表</h3>
+                    <div class="toolbar-actions">
+                        <select id="forecast-filter" class="form-control" style="width:auto;padding:6px 12px;font-size:13px;" onchange="loadForecasts()">
+                            <option value="">全部</option>
+                            <option value="待處理" selected>待處理</option>
+                            <option value="已處理">已處理</option>
+                        </select>
+                        <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadForecasts()">🔄 重新整理</button>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>會員</th>
+                                <th>姓名</th>
+                                <th>商品明細</th>
+                                <th>備註</th>
+                                <th>提交時間</th>
+                                <th>狀態</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="forecastTable">
+                            <tr><td colspan="7" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
     </div>
 </div>
 
@@ -385,6 +421,7 @@ async function adminLogin() {
         });
         loadMembers();
         loadShipReqBadge();
+        loadForecastBadge();
         document.getElementById('member-search').value = '';
         showToast('登入成功', 'success');
     } else {
@@ -400,6 +437,7 @@ function switchAdminTab(tab) {
     document.getElementById(`panel-${tab}`).classList.add('active');
     if (tab === 'arrivals') loadPackages();
     if (tab === 'shipreqs') loadShipReqs();
+    if (tab === 'forecasts') loadForecasts();
 }
 
 // ── 會員管理 ──
@@ -827,6 +865,84 @@ async function updateShipReq(id, status) {
 
 // 每 30 秒自動刷新待處理數量
 setInterval(loadShipReqBadge, 30000);
+setInterval(loadForecastBadge, 30000);
+
+// ── 預報管理 ──
+async function loadForecastBadge() {
+    try {
+        const res = await fetch('/api/admin/forecasts?status=待處理');
+        const result = await res.json();
+        const badge = document.getElementById('forecast-badge');
+        if (result.success && result.forecasts.length > 0) {
+            badge.textContent = result.forecasts.length;
+            badge.style.display = 'inline';
+        } else {
+            badge.style.display = 'none';
+        }
+    } catch(e) {}
+}
+
+async function loadForecasts() {
+    const status = document.getElementById('forecast-filter').value;
+    try {
+        const res = await fetch('/api/admin/forecasts' + (status ? '?status=' + encodeURIComponent(status) : ''));
+        const result = await res.json();
+        const tbody = document.getElementById('forecastTable');
+        if (!result.success || !result.forecasts.length) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#666;padding:30px;">無預報記錄</td></tr>';
+            return;
+        }
+        tbody.innerHTML = result.forecasts.map(function(fc) {
+            var statusColors = {'待處理':'#f39c12','已處理':'#27ae60'};
+            var c = statusColors[fc.status] || '#888';
+            var items = fc.items || [];
+            var itemsHtml = items.map(function(i) {
+                return '<div style="padding:2px 0;font-size:12px;">'
+                    + '<span style="color:#fff;">' + (i.name || '-') + '</span>'
+                    + ' <span style="color:#888;">×' + (i.quantity || 1) + '</span>'
+                    + ' <span style="color:#f39c12;">¥' + (i.price || 0).toLocaleString() + '</span>'
+                    + (i.url ? ' <a href="' + i.url + '" target="_blank" style="color:#3498db;font-size:11px;">🔗</a>' : '')
+                    + '</div>';
+            }).join('');
+
+            var actions = '';
+            if (fc.status === '待處理') {
+                actions = '<a class="btn-edit-sm" href="/api/admin/forecasts/' + fc.id + '/csv" target="_blank" style="text-decoration:none;">⬇ CSV</a>'
+                    + ' <button class="btn-edit-sm" style="background:rgba(39,174,96,.2);border-color:rgba(39,174,96,.3);color:#27ae60;" onclick="updateForecast(' + fc.id + ',\'已處理\')">✅ 已處理</button>';
+            } else {
+                actions = '<a class="btn-edit-sm" href="/api/admin/forecasts/' + fc.id + '/csv" target="_blank" style="text-decoration:none;">⬇ CSV</a>';
+            }
+
+            return '<tr>'
+                + '<td><span class="g-code">' + fc.g_code + '</span></td>'
+                + '<td>' + (fc.customer_name || '-') + '</td>'
+                + '<td style="max-width:300px;">' + itemsHtml + '</td>'
+                + '<td style="font-size:12px;color:#ccc;">' + (fc.note || '-') + '</td>'
+                + '<td style="font-size:12px;">' + fc.created_at + '</td>'
+                + '<td><span style="padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;background:' + c + '22;color:' + c + ';">' + fc.status + '</span></td>'
+                + '<td style="white-space:nowrap;">' + actions + '</td>'
+                + '</tr>';
+        }).join('');
+    } catch(e) { showToast('載入失敗', 'error'); }
+}
+
+async function updateForecast(id, status) {
+    try {
+        const res = await fetch('/api/admin/forecasts/' + id, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ status: status })
+        });
+        const result = await res.json();
+        if (result.success) {
+            showToast('✅ 已更新', 'success');
+            loadForecasts();
+            loadForecastBadge();
+        } else {
+            showToast('更新失敗', 'error');
+        }
+    } catch(e) { showToast('網路錯誤', 'error'); }
+}
 </script>
 </body>
 </html>

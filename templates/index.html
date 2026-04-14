@@ -655,9 +655,29 @@
                     </p>
                 </div>
                 <div class="card">
-                    <div id="packagesContainer"></div>
-                    <div class="add-package-btn" onclick="addPackage()">➕ 新增包裹</div>
-                    <button class="btn btn-primary btn-block" style="padding: 16px;" onclick="submitForecast()">🚀 提交預報</button>
+                    <div class="card-title">📝 預報商品</div>
+                    <p style="font-size:13px;color:#888;margin-bottom:16px;">請填寫您寄來的商品資訊，方便我們入庫登記。</p>
+                    <div id="forecastItemsContainer">
+                        <div class="item-row forecast-item-row">
+                            <div class="form-group col-name"><label>品名 *</label><input type="text" class="form-control fc-name" placeholder="商品名稱"></div>
+                            <div class="form-group col-qty"><label>數量 *</label><input type="number" class="form-control fc-qty" value="1" min="1"></div>
+                            <div class="form-group col-price"><label>金額(日圓)</label><input type="number" class="form-control fc-price" value="0" min="0"></div>
+                            <div class="form-group col-url"><label>商品連結</label><input type="text" class="form-control fc-url" placeholder="https://..."></div>
+                            <div class="col-action"><label>&nbsp;</label><button class="btn btn-danger" onclick="removeFcItem(this)">✕</button></div>
+                        </div>
+                    </div>
+                    <div class="add-item-btn" onclick="addFcItem()">➕ 新增一筆商品</div>
+                    <div class="form-group" style="margin-top:16px;">
+                        <label>備註（選填）</label>
+                        <input type="text" id="fcNote" class="form-control" placeholder="例：易碎品請加固、合箱出貨等">
+                    </div>
+                    <button class="btn btn-primary btn-block" style="padding: 16px;" onclick="submitForecastSimple()">📦 提交預報</button>
+                </div>
+
+                <!-- 預報記錄 -->
+                <div class="card" id="forecastHistoryCard" style="display:none;">
+                    <div class="card-title">📋 我的預報記錄</div>
+                    <div id="forecastHistoryList"></div>
                 </div>
             </div>
 
@@ -705,7 +725,6 @@
 
     <script>
         let currentCustomer = null;
-        let packageCount = 0;
 
         function toggleCollapse(el) {
             el.classList.toggle('open');
@@ -743,7 +762,7 @@
                         document.getElementById('shippingRateDisplay').style.display = 'block';
                     }
 
-                    addPackage();
+                    addFcItem_init();
                     localStorage.setItem('gCode', currentCustomer.g_code);
                     showToast('登入成功！', 'success');
                 } else {
@@ -761,9 +780,7 @@
             document.getElementById('mainContent').classList.remove('active');
             document.getElementById('customerId').value = '';
             document.getElementById('password').value = '';
-            document.getElementById('packagesContainer').innerHTML = '';
             document.getElementById('shippingRateDisplay').style.display = 'none';
-            packageCount = 0;
             document.querySelectorAll('.member-code-placeholder').forEach(el => { el.textContent = '會員編號'; });
         }
 
@@ -774,76 +791,100 @@
             document.getElementById(`tab-${tab}`).classList.add('active');
             if (tab === 'packages') loadPackages();
             if (tab === 'orders') loadOrders();
+            if (tab === 'forecast') loadForecastHistory();
         }
 
-        function addPackage() {
-            packageCount++;
-            const container = document.getElementById('packagesContainer');
-            container.insertAdjacentHTML('beforeend', `
-                <div class="package-card" id="package-${packageCount}">
-                    <div class="package-header">
-                        <span class="package-title">📦 包裹 #${packageCount}</span>
-                        <button class="btn btn-danger" onclick="removePackage(${packageCount})">✕</button>
-                    </div>
-                    <div class="form-group">
-                        <label>自訂包裹編號（選填）</label>
-                        <input type="text" class="form-control client-pid" placeholder="例：蝦皮訂單12345">
-                    </div>
-                    <div class="item-table" id="items-${packageCount}">
-                        <div class="item-row">
-                            <div class="form-group col-name"><label>商品名稱 *</label><input type="text" class="form-control item-name" placeholder="請輸入商品名稱"></div>
-                            <div class="form-group col-qty"><label>數量 *</label><input type="number" class="form-control item-qty" value="1" min="1"></div>
-                            <div class="form-group col-price"><label>單價(日圓) *</label><input type="number" class="form-control item-price" value="0" min="0"></div>
-                            <div class="form-group col-url"><label>商品連結</label><input type="text" class="form-control item-url" placeholder="https://..."></div>
-                            <div class="col-action"><label>&nbsp;</label><button class="btn btn-danger" onclick="removeItem(this)">✕</button></div>
-                        </div>
-                    </div>
-                    <div class="add-item-btn" onclick="addItem(${packageCount})">➕ 新增商品</div>
+        function addFcItem_init() {
+            // 初始化：確保至少有一行（已在 HTML 中）
+        }
+
+        function addFcItem() {
+            document.getElementById('forecastItemsContainer').insertAdjacentHTML('beforeend', `
+                <div class="item-row forecast-item-row">
+                    <div class="form-group col-name"><input type="text" class="form-control fc-name" placeholder="商品名稱"></div>
+                    <div class="form-group col-qty"><input type="number" class="form-control fc-qty" value="1" min="1"></div>
+                    <div class="form-group col-price"><input type="number" class="form-control fc-price" value="0" min="0"></div>
+                    <div class="form-group col-url"><input type="text" class="form-control fc-url" placeholder="https://..."></div>
+                    <div class="col-action"><button class="btn btn-danger" onclick="removeFcItem(this)">✕</button></div>
                 </div>
             `);
         }
 
-        function removePackage(id) { const el = document.getElementById(`package-${id}`); if (el) el.remove(); }
-
-        function addItem(packageId) {
-            document.getElementById(`items-${packageId}`).insertAdjacentHTML('beforeend', `
-                <div class="item-row">
-                    <div class="form-group col-name"><input type="text" class="form-control item-name" placeholder="商品名稱"></div>
-                    <div class="form-group col-qty"><input type="number" class="form-control item-qty" value="1" min="1"></div>
-                    <div class="form-group col-price"><input type="number" class="form-control item-price" value="0" min="0"></div>
-                    <div class="form-group col-url"><input type="text" class="form-control item-url" placeholder="https://..."></div>
-                    <div class="col-action"><button class="btn btn-danger" onclick="removeItem(this)">✕</button></div>
-                </div>
-            `);
+        function removeFcItem(btn) {
+            const rows = document.querySelectorAll('.forecast-item-row');
+            if (rows.length <= 1) { showToast('至少保留一筆', 'error'); return; }
+            btn.closest('.item-row').remove();
         }
 
-        function removeItem(btn) { btn.closest('.item-row').remove(); }
-
-        async function submitForecast() {
-            const packageCards = document.querySelectorAll('.package-card');
-            if (packageCards.length === 0) { showToast('請至少新增一個包裹', 'error'); return; }
-            const packages = [];
-            packageCards.forEach(card => {
-                const clientPid = card.querySelector('.client-pid').value.trim();
-                const items = [];
-                card.querySelectorAll('.item-row').forEach(row => {
-                    const name = row.querySelector('.item-name').value.trim();
-                    if (name) items.push({ name, quantity: parseInt(row.querySelector('.item-qty').value)||1, price: parseInt(row.querySelector('.item-price').value)||0, url: row.querySelector('.item-url').value.trim() });
-                });
-                if (items.length > 0) packages.push({ client_pid: clientPid, items });
+        async function submitForecastSimple() {
+            const items = [];
+            document.querySelectorAll('.forecast-item-row').forEach(row => {
+                const name = (row.querySelector('.fc-name')?.value || '').trim();
+                if (name) {
+                    items.push({
+                        name: name,
+                        quantity: parseInt(row.querySelector('.fc-qty')?.value) || 1,
+                        price: parseInt(row.querySelector('.fc-price')?.value) || 0,
+                        url: (row.querySelector('.fc-url')?.value || '').trim()
+                    });
+                }
             });
-            if (packages.length === 0) { showToast('請至少填寫一個商品名稱', 'error'); return; }
+            if (!items.length) { showToast('請至少填寫一個商品名稱', 'error'); return; }
+            const note = document.getElementById('fcNote').value.trim();
             try {
-                const res = await fetch('/api/forecast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customer_id: currentCustomer.id, g_code: currentCustomer.g_code, packages }) });
+                const res = await fetch('/api/forecast_simple', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        g_code: currentCustomer.g_code,
+                        customer_name: currentCustomer.name,
+                        items: items,
+                        note: note
+                    })
+                });
                 const result = await res.json();
                 if (result.success) {
-                    showToast('✅ 預報成功！請盡快將包裹寄往公司', 'success');
-                    document.getElementById('packagesContainer').innerHTML = '';
-                    packageCount = 0;
-                    addPackage();
-                    setTimeout(() => switchTab('packages'), 1500);
-                } else { showToast('❌ ' + (result.error || '預報失敗'), 'error'); }
-            } catch (e) { showToast('網路錯誤', 'error'); }
+                    showToast('✅ ' + result.message, 'success');
+                    // 清空表單
+                    document.getElementById('forecastItemsContainer').innerHTML = `
+                        <div class="item-row forecast-item-row">
+                            <div class="form-group col-name"><label>品名 *</label><input type="text" class="form-control fc-name" placeholder="商品名稱"></div>
+                            <div class="form-group col-qty"><label>數量 *</label><input type="number" class="form-control fc-qty" value="1" min="1"></div>
+                            <div class="form-group col-price"><label>金額(日圓)</label><input type="number" class="form-control fc-price" value="0" min="0"></div>
+                            <div class="form-group col-url"><label>商品連結</label><input type="text" class="form-control fc-url" placeholder="https://..."></div>
+                            <div class="col-action"><label>&nbsp;</label><button class="btn btn-danger" onclick="removeFcItem(this)">✕</button></div>
+                        </div>`;
+                    document.getElementById('fcNote').value = '';
+                    loadForecastHistory();
+                } else {
+                    showToast('❌ ' + (result.error || '提交失敗'), 'error');
+                }
+            } catch(e) { showToast('網路錯誤', 'error'); }
+        }
+
+        async function loadForecastHistory() {
+            if (!currentCustomer) return;
+            try {
+                const res = await fetch(`/api/my_forecasts?g_code=${currentCustomer.g_code}`);
+                const result = await res.json();
+                const card = document.getElementById('forecastHistoryCard');
+                const container = document.getElementById('forecastHistoryList');
+                if (result.success && result.forecasts && result.forecasts.length > 0) {
+                    card.style.display = 'block';
+                    container.innerHTML = result.forecasts.map(fc => {
+                        const statusColors = {'待處理':'#f39c12','已處理':'#27ae60'};
+                        const c = statusColors[fc.status] || '#888';
+                        const itemsSummary = (fc.items || []).map(i => `${i.name} ×${i.quantity}`).join('、');
+                        return `<div class="package-item" style="grid-template-columns: 1fr 2fr 1fr;">
+                            <div><div class="label">提交時間</div><div class="value" style="font-size:12px;">${fc.created_at}</div></div>
+                            <div><div class="label">商品</div><div class="value" style="font-size:12px;">${itemsSummary}</div></div>
+                            <div><div class="label">狀態</div><div class="value"><span style="padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;background:${c}22;color:${c};">${fc.status}</span></div></div>
+                        </div>`;
+                    }).join('');
+                } else {
+                    card.style.display = 'none';
+                }
+            } catch(e) {}
         }
 
         async function loadPackages() {
