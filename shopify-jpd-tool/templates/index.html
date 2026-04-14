@@ -442,11 +442,17 @@
                     📋 倉庫待出貨包裹
                     <button class="btn btn-secondary refresh-btn" onclick="loadJpdPackages()">🔄 重新整理</button>
                 </h3>
+                <div style="margin-bottom:12px;">
+                    <input type="text" id="pkg-search" placeholder="🔍 搜尋包裹 ID、客戶編號、商品名稱、物流號..." oninput="filterJpdPackages()" style="width:100%;padding:10px 14px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#fff;font-size:14px;">
+                    <span id="pkg-search-count" style="font-size:12px;color:#888;margin-top:4px;display:inline-block;"></span>
+                </div>
                 <div id="jpd-packages-loading" class="loading">載入中</div>
                 <table id="jpd-packages-table" style="display:none;">
                     <thead>
                         <tr>
                             <th>包裹 ID</th>
+                            <th>客戶編號</th>
+                            <th>商品名稱</th>
                             <th>物流號</th>
                             <th>入庫日期</th>
                             <th>位置</th>
@@ -668,11 +674,21 @@
         }
         
         // 渲染 JPD 包裹
-        function renderJpdPackages() {
+        function renderJpdPackages(list) {
+            list = list || jpdPackages;
             const tbody = document.getElementById('jpd-packages-body');
-            tbody.innerHTML = jpdPackages.map(pkg => `
+            const countEl = document.getElementById('pkg-search-count');
+            const q = (document.getElementById('pkg-search')?.value || '').trim();
+            if (q) {
+                countEl.textContent = `搜尋到 ${list.length} 筆（共 ${jpdPackages.length} 筆）`;
+            } else {
+                countEl.textContent = `共 ${list.length} 筆`;
+            }
+            tbody.innerHTML = list.map(pkg => `
                 <tr>
                     <td>${pkg.package_id}</td>
+                    <td><strong style="color:#f39c12;">${pkg.client_cid || '-'}</strong></td>
+                    <td>${pkg.product_name || '-'}</td>
                     <td>${pkg.local_logis_num || '-'}</td>
                     <td>${pkg.stock_date}</td>
                     <td>${pkg.location || '-'}</td>
@@ -683,8 +699,20 @@
             // 更新倉庫代發選項
             const select = document.getElementById('form-package-id');
             select.innerHTML = jpdPackages.map(pkg => 
-                `<option value="${pkg.package_id}">${pkg.package_id} - ${pkg.local_logis_num || 'N/A'}</option>`
+                `<option value="${pkg.package_id}">${pkg.package_id} - ${pkg.client_cid || ''} - ${pkg.product_name || pkg.local_logis_num || 'N/A'}</option>`
             ).join('');
+        }
+        
+        function filterJpdPackages() {
+            const q = (document.getElementById('pkg-search').value || '').trim().toUpperCase();
+            if (!q) { renderJpdPackages(jpdPackages); return; }
+            const filtered = jpdPackages.filter(pkg =>
+                String(pkg.package_id).includes(q) ||
+                (pkg.client_cid || '').toUpperCase().includes(q) ||
+                (pkg.product_name || '').toUpperCase().includes(q) ||
+                (pkg.local_logis_num || '').toUpperCase().includes(q)
+            );
+            renderJpdPackages(filtered);
         }
         
         // 打開創建運單 Modal
