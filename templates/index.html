@@ -666,9 +666,22 @@
                 <div class="card">
                     <div class="list-header">
                         <h3>📦 我的包裹</h3>
-                        <button class="btn btn-secondary" onclick="loadPackages()">🔄 重新整理</button>
+                        <div style="display:flex;gap:8px;align-items:center;">
+                            <button class="btn btn-primary" id="shipRequestBtn" onclick="submitShipRequest()" style="display:none;padding:10px 20px;">
+                                🚚 申請出貨 (<span id="shipRequestCount">0</span>)
+                            </button>
+                            <button class="btn btn-secondary" onclick="loadPackages()">🔄 重新整理</button>
+                        </div>
                     </div>
                     <div id="packagesList"><div class="empty-state"><div class="icon">📭</div><p>尚無包裹記錄</p></div></div>
+                </div>
+
+                <!-- 出貨申請記錄 -->
+                <div class="card" id="shipRequestsCard" style="display:none;">
+                    <div class="list-header">
+                        <h3>📋 我的出貨申請</h3>
+                    </div>
+                    <div id="shipRequestsList"></div>
                 </div>
             </div>
 
@@ -839,18 +852,82 @@
                 const result = await res.json();
                 const container = document.getElementById('packagesList');
                 if (result.success && result.packages && result.packages.length > 0) {
-                    container.innerHTML = result.packages.map(pkg => `
-                        <div class="package-item">
-                            <div><div class="label">物流號碼</div><div class="value" style="font-size:13px;">${pkg.logis_num || '-'}</div></div>
+                    container.innerHTML = result.packages.map(pkg => {
+                        const canSelect = (pkg.status === '已到貨' || pkg.status === '已入庫');
+                        return `
+                        <div class="package-item" style="position:relative;">
+                            ${canSelect ? `<div style="position:absolute;left:8px;top:50%;transform:translateY(-50%);"><input type="checkbox" class="ship-chk" value="${pkg.id}" data-name="${pkg.product_name||''}" data-weight="${pkg.weight||''}" onchange="updateShipRequestBtn()" style="width:18px;height:18px;accent-color:#f39c12;cursor:pointer;"></div>` : ''}
+                            <div style="${canSelect ? 'padding-left:20px;' : ''}"><div class="label">物流號碼</div><div class="value" style="font-size:13px;">${pkg.logis_num || '-'}</div></div>
                             <div><div class="label">商店名稱</div><div class="value">${pkg.product_name || '-'}</div></div>
                             <div><div class="label">重量</div><div class="value">${pkg.weight ? pkg.weight + ' kg' : '待秤重'}</div></div>
                             <div><div class="label">狀態</div><div class="value"><span class="status-badge ${getStatusClass(pkg.status)}">${pkg.status || '待入庫'}</span></div></div>
                             <div><div class="label">到貨日期</div><div class="value">${pkg.in_date || '-'}</div></div>
                         </div>
                         ${pkg.note ? `<div style="margin: -6px 0 10px 0; padding: 8px 14px; background:rgba(255,255,255,0.03); border-radius:8px; font-size:12px; color:#888;">📝 ${pkg.note}</div>` : ''}
-                    `).join('');
+                    `}).join('');
                 } else { container.innerHTML = '<div class="empty-state"><div class="icon">📭</div><p>尚無包裹記錄</p></div>'; }
+                updateShipRequestBtn();
+                loadShipRequests();
             } catch (e) { showToast('載入失敗', 'error'); }
+        }
+
+        function updateShipRequestBtn() {
+            const checked = document.querySelectorAll('.ship-chk:checked');
+            const btn = document.getElementById('shipRequestBtn');
+            document.getElementById('shipRequestCount').textContent = checked.length;
+            btn.style.display = checked.length > 0 ? 'inline-flex' : 'none';
+        }
+
+        async function submitShipRequest() {
+            const checked = [...document.querySelectorAll('.ship-chk:checked')];
+            if (!checked.length) return;
+            const ids = checked.map(c => parseInt(c.value));
+            const note = prompt('備註（可留空，例如：請儘快出貨、合箱出貨等）') || '';
+            try {
+                const res = await fetch('/api/shipment_request', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        g_code: currentCustomer.g_code,
+                        customer_name: currentCustomer.name,
+                        package_ids: ids,
+                        note: note
+                    })
+                });
+                const result = await res.json();
+                if (result.success) {
+                    showToast('✅ ' + result.message, 'success');
+                    loadPackages();
+                } else {
+                    showToast('❌ ' + (result.error || '申請失敗'), 'error');
+                }
+            } catch (e) { showToast('網路錯誤', 'error'); }
+        }
+
+        async function loadShipRequests() {
+            if (!currentCustomer) return;
+            try {
+                const res = await fetch(`/api/shipment_requests?g_code=${currentCustomer.g_code}`);
+                const result = await res.json();
+                const card = document.getElementById('shipRequestsCard');
+                const container = document.getElementById('shipRequestsList');
+                if (result.success && result.requests && result.requests.length > 0) {
+                    card.style.display = 'block';
+                    container.innerHTML = result.requests.map(req => {
+                        const statusColors = {'待處理':'#f39c12','處理中':'#3498db','已出貨':'#27ae60','已拒絕':'#e74c3c'};
+                        const color = statusColors[req.status] || '#888';
+                        return `<div class="package-item" style="grid-template-columns: 1fr 2fr 1fr 1fr;">
+                            <div><div class="label">申請時間</div><div class="value" style="font-size:12px;">${req.created_at}</div></div>
+                            <div><div class="label">包裹內容</div><div class="value" style="font-size:12px;">${req.package_summary || '-'}</div></div>
+                            <div><div class="label">狀態</div><div class="value"><span style="padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;background:${color}22;color:${color};">${req.status}</span></div></div>
+                            <div><div class="label">管理員回覆</div><div class="value" style="font-size:12px;">${req.admin_note || '-'}</div></div>
+                        </div>
+                        ${req.note ? `<div style="margin:-6px 0 10px 0;padding:8px 14px;background:rgba(255,255,255,0.03);border-radius:8px;font-size:12px;color:#888;">📝 ${req.note}</div>` : ''}`;
+                    }).join('');
+                } else {
+                    card.style.display = 'none';
+                }
+            } catch(e) {}
         }
 
         async function loadOrders() {

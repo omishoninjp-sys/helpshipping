@@ -161,6 +161,7 @@
         <div class="admin-tabs">
             <button class="admin-tab active" onclick="switchAdminTab('members')">👥 會員管理</button>
             <button class="admin-tab" onclick="switchAdminTab('arrivals')">📦 到貨管理</button>
+            <button class="admin-tab" onclick="switchAdminTab('shipreqs')">🚚 出貨申請 <span id="shipreq-badge" style="display:none;background:#e74c3c;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:4px;">0</span></button>
         </div>
 
         <!-- 會員管理 -->
@@ -287,6 +288,43 @@
             </div>
         </div>
 
+        <!-- 出貨申請管理 -->
+        <div class="admin-panel" id="panel-shipreqs">
+            <div class="card">
+                <div class="toolbar">
+                    <h3>🚚 出貨申請列表</h3>
+                    <div class="toolbar-actions">
+                        <select id="shipreq-filter" class="form-control" style="width:auto;padding:6px 12px;font-size:13px;" onchange="loadShipReqs()">
+                            <option value="">全部</option>
+                            <option value="待處理" selected>待處理</option>
+                            <option value="處理中">處理中</option>
+                            <option value="已出貨">已出貨</option>
+                            <option value="已拒絕">已拒絕</option>
+                        </select>
+                        <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadShipReqs()">🔄 重新整理</button>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>會員</th>
+                                <th>姓名</th>
+                                <th>包裹內容</th>
+                                <th>客戶備註</th>
+                                <th>申請時間</th>
+                                <th>狀態</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="shipreqTable">
+                            <tr><td colspan="7" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
     </div>
 </div>
 
@@ -346,6 +384,7 @@ async function adminLogin() {
             twd_to_jpy_rate = cfg.twd_to_jpy_rate || 5.0;
         });
         loadMembers();
+        loadShipReqBadge();
         document.getElementById('member-search').value = '';
         showToast('登入成功', 'success');
     } else {
@@ -360,6 +399,7 @@ function switchAdminTab(tab) {
     document.querySelector(`.admin-tab[onclick="switchAdminTab('${tab}')"]`).classList.add('active');
     document.getElementById(`panel-${tab}`).classList.add('active');
     if (tab === 'arrivals') loadPackages();
+    if (tab === 'shipreqs') loadShipReqs();
 }
 
 // ── 會員管理 ──
@@ -713,6 +753,80 @@ function showToast(message, type='success') {
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 3000);
 }
+
+// ── 出貨申請管理 ──
+async function loadShipReqBadge() {
+    try {
+        const res = await fetch('/api/admin/shipment_requests?status=待處理');
+        const result = await res.json();
+        const badge = document.getElementById('shipreq-badge');
+        if (result.success && result.requests.length > 0) {
+            badge.textContent = result.requests.length;
+            badge.style.display = 'inline';
+        } else {
+            badge.style.display = 'none';
+        }
+    } catch(e) {}
+}
+
+async function loadShipReqs() {
+    const status = document.getElementById('shipreq-filter').value;
+    try {
+        const res = await fetch('/api/admin/shipment_requests' + (status ? '?status=' + encodeURIComponent(status) : ''));
+        const result = await res.json();
+        const tbody = document.getElementById('shipreqTable');
+        if (!result.success || !result.requests.length) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#666;padding:30px;">無出貨申請</td></tr>';
+            return;
+        }
+        tbody.innerHTML = result.requests.map(function(r) {
+            var statusColors = {'待處理':'#f39c12','處理中':'#3498db','已出貨':'#27ae60','已拒絕':'#e74c3c'};
+            var c = statusColors[r.status] || '#888';
+            var actions = '';
+            if (r.status === '待處理' || r.status === '處理中') {
+                actions = '<button class="btn-edit-sm" onclick="updateShipReq(' + r.id + ',\'處理中\')">⏳ 處理中</button>'
+                    + ' <button class="btn-edit-sm" style="background:rgba(39,174,96,.2);border-color:rgba(39,174,96,.3);color:#27ae60;" onclick="updateShipReq(' + r.id + ',\'已出貨\')">✅ 已出貨</button>'
+                    + ' <button class="btn-danger-sm" onclick="updateShipReq(' + r.id + ',\'已拒絕\')">✗ 拒絕</button>';
+            } else {
+                actions = '<span style="font-size:12px;color:#666;">' + (r.updated_at || '-') + '</span>';
+            }
+            return '<tr>'
+                + '<td><span class="g-code">' + r.g_code + '</span></td>'
+                + '<td>' + (r.customer_name || '-') + '</td>'
+                + '<td style="font-size:12px;max-width:250px;">' + (r.package_summary || '-') + '</td>'
+                + '<td style="font-size:12px;color:#ccc;">' + (r.note || '-') + '</td>'
+                + '<td style="font-size:12px;">' + r.created_at + '</td>'
+                + '<td><span style="padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;background:' + c + '22;color:' + c + ';">' + r.status + '</span></td>'
+                + '<td style="white-space:nowrap;">' + actions + '</td>'
+                + '</tr>';
+        }).join('');
+    } catch(e) { showToast('載入失敗', 'error'); }
+}
+
+async function updateShipReq(id, status) {
+    var adminNote = '';
+    if (status === '已拒絕') {
+        adminNote = prompt('拒絕原因（選填）') || '';
+    }
+    try {
+        const res = await fetch('/api/admin/shipment_requests/' + id, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ status: status, admin_note: adminNote })
+        });
+        const result = await res.json();
+        if (result.success) {
+            showToast('✅ 已更新為「' + status + '」', 'success');
+            loadShipReqs();
+            loadShipReqBadge();
+        } else {
+            showToast('更新失敗', 'error');
+        }
+    } catch(e) { showToast('網路錯誤', 'error'); }
+}
+
+// 每 30 秒自動刷新待處理數量
+setInterval(loadShipReqBadge, 30000);
 </script>
 </body>
 </html>

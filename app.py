@@ -54,6 +54,20 @@ def init_db():
             created_at  TEXT    NOT NULL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS shipment_requests (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            g_code      TEXT    NOT NULL,
+            customer_name TEXT  DEFAULT '',
+            package_ids TEXT    NOT NULL,
+            package_summary TEXT DEFAULT '',
+            status      TEXT    DEFAULT '待處理',
+            note        TEXT    DEFAULT '',
+            admin_note  TEXT    DEFAULT '',
+            created_at  TEXT    NOT NULL,
+            updated_at  TEXT
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -572,6 +586,124 @@ def get_orders():
                 })
             return jsonify({"success": True, "orders": formatted})
     return jsonify({"success": False, "error": "查詢失敗"})
+
+
+# ============ 出貨申請 API ============
+
+@app.route("/api/shipment_request", methods=["POST"])
+def create_shipment_request():
+    """客戶申請出貨"""
+    data = request.json
+    g_code = (data.get("g_code") or "").strip().upper()
+    customer_name = data.get("customer_name", "")
+    package_ids = data.get("package_ids", [])
+    note = (data.get("note") or "").strip()
+
+    if not g_code:
+        return jsonify({"success": False, "error": "缺少會員編號"})
+    if not package_ids:
+        return jsonify({"success": False, "error": "請選擇要出貨的包裹"})
+
+    # 組合包裹摘要
+    conn = get_db()
+    placeholders = ",".join(["?"] * len(package_ids))
+    rows = conn.execute(
+        f"SELECT id, logis_num, product_name, weight FROM packages WHERE id IN ({placeholders}) AND g_code=?",
+        package_ids + [g_code]
+    ).fetchall()
+
+    if not rows:
+        conn.close()
+        return jsonify({"success": False, "error": "找不到對應的包裹"})
+
+    summary_parts = []
+    total_weight = 0
+    for r in rows:
+        r = dict(r)
+        name = r["product_name"] or "商品"
+        w = r["weight"] or ""
+        summary_parts.append(f"{name}({w}kg)" if w else name)
+        try:
+            total_weight += float(w) if w else 0
+        except:
+            pass
+    summary = "、".join(summary_parts)
+    if total_weight > 0:
+        summary += f"（合計約 {total_weight:.1f} kg）"
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ids_str = ",".join(str(i) for i in package_ids)
+
+    conn.execute(
+        """INSERT INTO shipment_requests (g_code, customer_name, package_ids, package_summary, status, note, created_at)
+           VALUES (?, ?, ?, ?, '待處理', ?, ?)""",
+        (g_code, customer_name, ids_str, summary, note, now)
+    )
+    conn.commit()
+    conn.close()
+
+    return jsonify({"success": True, "message": "出貨申請已送出，管理員會盡快處理！"})
+
+
+@app.route("/api/shipment_requests", methods=["GET"])
+def get_my_shipment_requests():
+    """客戶查看自己的出貨申請"""
+    g_code = request.args.get("g_code", "").upper()
+    if not g_code:
+        return jsonify({"success": False, "error": "缺少會員編號"})
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM shipment_requests WHERE g_code=? ORDER BY id DESC", (g_code,)
+    ).fetchall()
+    conn.close()
+    return jsonify({"success": True, "requests": [dict(r) for r in rows]})
+
+
+@app.route("/api/admin/shipment_requests", methods=["GET"])
+def admin_get_shipment_requests():
+    """管理員查看所有出貨申請"""
+    status = request.args.get("status", "")
+    conn = get_db()
+    if status:
+        rows = conn.execute(
+            "SELECT * FROM shipment_requests WHERE status=? ORDER BY id DESC", (status,)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM shipment_requests ORDER BY id DESC"
+        ).fetchall()
+    conn.close()
+    return jsonify({"success": True, "requests": [dict(r) for r in rows]})
+
+
+@app.route("/api/admin/shipment_requests/<int:req_id>", methods=["PUT"])
+def admin_update_shipment_request(req_id):
+    """管理員更新出貨申請狀態"""
+    data = request.json
+    status = data.get("status", "")
+    admin_note = data.get("admin_note", "")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    conn = get_db()
+    conn.execute(
+        "UPDATE shipment_requests SET status=?, admin_note=?, updated_at=? WHERE id=?",
+        (status, admin_note, now, req_id)
+    )
+
+    # 如果管理員標記為「已出貨」，同步更新包裹狀態
+    if status == "已出貨":
+        req = conn.execute("SELECT package_ids FROM shipment_requests WHERE id=?", (req_id,)).fetchone()
+        if req:
+            pkg_ids = [int(x.strip()) for x in req["package_ids"].split(",") if x.strip()]
+            if pkg_ids:
+                placeholders = ",".join(["?"] * len(pkg_ids))
+                conn.execute(
+                    f"UPDATE packages SET status='已出貨' WHERE id IN ({placeholders})", pkg_ids
+                )
+
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
 
 
 if __name__ == "__main__":
