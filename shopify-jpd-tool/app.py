@@ -8,7 +8,7 @@ from flask import Flask, render_template, request, jsonify
 import requests
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
@@ -274,12 +274,21 @@ def get_jpd_packages():
 
 @app.route("/api/jpd/orders")
 def get_jpd_orders():
-    """取得 JPD 運單列表"""
-    days = request.args.get("days", 7, type=int)
+    """取得 JPD 運單列表（支援日期範圍）"""
+    date_from = request.args.get("date_from", "")
+    date_to = request.args.get("date_to", "")
     
-    result = jpd_request("TSearchOrders", {
-        "create_date": datetime.now().strftime("%Y-%m-%d")
-    })
+    search_params = {}
+    if date_from:
+        search_params["create_date_from"] = date_from
+    if date_to:
+        search_params["create_date_to"] = date_to
+    if not date_from and not date_to:
+        # 預設：近 30 天
+        search_params["create_date_from"] = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        search_params["create_date_to"] = datetime.now().strftime("%Y-%m-%d")
+    
+    result = jpd_request("TSearchOrders", search_params)
     
     if "OperationResult" in result:
         op_result = result["OperationResult"]

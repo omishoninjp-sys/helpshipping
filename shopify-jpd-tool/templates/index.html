@@ -414,9 +414,27 @@
         <div class="panel" id="panel-jpd">
             <div class="card">
                 <h3>
-                    🚚 今日 JPD 運單
+                    🚚 JPD 運單記錄
                     <button class="btn btn-secondary refresh-btn" onclick="loadJpdOrders()">🔄 重新整理</button>
                 </h3>
+                <!-- 日期範圍 -->
+                <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
+                    <label style="color:#888;font-size:13px;">日期：</label>
+                    <input type="date" id="jpd-date-from" style="padding:8px 10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#fff;font-size:13px;">
+                    <span style="color:#666;">～</span>
+                    <input type="date" id="jpd-date-to" style="padding:8px 10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#fff;font-size:13px;">
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                        <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px;" onclick="jpdQuickDate(0)">今天</button>
+                        <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px;" onclick="jpdQuickDate(7)">近 7 天</button>
+                        <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px;" onclick="jpdQuickDate(30)">近 30 天</button>
+                        <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px;" onclick="jpdQuickDate(90)">近 3 個月</button>
+                    </div>
+                </div>
+                <!-- 搜尋 -->
+                <div style="margin-bottom:12px;">
+                    <input type="text" id="jpd-order-search" placeholder="🔍 搜尋運單號、客戶單號、收件人、電話..." oninput="filterJpdOrders()" style="width:100%;padding:10px 14px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#fff;font-size:14px;">
+                    <span id="jpd-order-count" style="font-size:12px;color:#888;margin-top:4px;display:inline-block;"></span>
+                </div>
                 <div id="jpd-orders-loading" class="loading">載入中</div>
                 <table id="jpd-orders-table" style="display:none;">
                     <thead>
@@ -424,7 +442,9 @@
                             <th>運單號</th>
                             <th>客戶單號</th>
                             <th>收件人</th>
+                            <th>電話</th>
                             <th>地址</th>
+                            <th>建立日期</th>
                             <th>狀態</th>
                             <th>操作</th>
                         </tr>
@@ -611,17 +631,51 @@
             `).join('');
         }
         
+        let allJpdOrders = [];
+        
+        // JPD 運單日期快捷
+        function jpdQuickDate(days) {
+            const today = new Date();
+            const fmt = d => d.toISOString().split('T')[0];
+            document.getElementById('jpd-date-to').value = fmt(today);
+            if (days === 0) {
+                document.getElementById('jpd-date-from').value = fmt(today);
+            } else {
+                const from = new Date(today);
+                from.setDate(from.getDate() - days);
+                document.getElementById('jpd-date-from').value = fmt(from);
+            }
+            loadJpdOrders();
+        }
+        
+        // 初始化日期：近 30 天
+        (function initJpdDates() {
+            const today = new Date();
+            const fmt = d => d.toISOString().split('T')[0];
+            const from = new Date(today);
+            from.setDate(from.getDate() - 30);
+            document.getElementById('jpd-date-from').value = fmt(from);
+            document.getElementById('jpd-date-to').value = fmt(today);
+        })();
+        
         // 載入 JPD 運單
         async function loadJpdOrders() {
             document.getElementById('jpd-orders-loading').style.display = 'block';
             document.getElementById('jpd-orders-table').style.display = 'none';
             
+            const dateFrom = document.getElementById('jpd-date-from').value;
+            const dateTo = document.getElementById('jpd-date-to').value;
+            let url = '/api/jpd/orders?';
+            if (dateFrom) url += `date_from=${dateFrom}&`;
+            if (dateTo) url += `date_to=${dateTo}&`;
+            
             try {
-                const res = await fetch('/api/jpd/orders');
+                const res = await fetch(url);
                 const data = await res.json();
                 
                 if (data.success) {
-                    renderJpdOrders(data.orders);
+                    allJpdOrders = data.orders;
+                    filterJpdOrders();
                 } else {
                     showToast('載入失敗', 'error');
                 }
@@ -633,15 +687,42 @@
             document.getElementById('jpd-orders-table').style.display = 'table';
         }
         
+        function filterJpdOrders() {
+            const q = (document.getElementById('jpd-order-search').value || '').trim().toUpperCase();
+            let list = allJpdOrders;
+            if (q) {
+                list = allJpdOrders.filter(o =>
+                    (o.logis_num || '').toUpperCase().includes(q) ||
+                    (o.customer_order_id || '').toUpperCase().includes(q) ||
+                    (o.recipient || '').toUpperCase().includes(q) ||
+                    (o.tel || '').includes(q)
+                );
+            }
+            renderJpdOrders(list);
+        }
+        
         // 渲染 JPD 運單
         function renderJpdOrders(orders) {
+            const countEl = document.getElementById('jpd-order-count');
+            const q = (document.getElementById('jpd-order-search')?.value || '').trim();
+            if (q) {
+                countEl.textContent = `搜尋到 ${orders.length} 筆（共 ${allJpdOrders.length} 筆）`;
+            } else {
+                countEl.textContent = `共 ${orders.length} 筆`;
+            }
             const tbody = document.getElementById('jpd-orders-body');
+            if (!orders.length) {
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#666;padding:30px;">無運單記錄</td></tr>';
+                return;
+            }
             tbody.innerHTML = orders.map(order => `
                 <tr>
                     <td><strong>${order.logis_num || '-'}</strong></td>
-                    <td>${order.customer_order_id}</td>
-                    <td>${order.recipient}</td>
-                    <td style="max-width:200px;">${order.addr1}</td>
+                    <td>${order.customer_order_id || '-'}</td>
+                    <td>${order.recipient || '-'}</td>
+                    <td style="font-size:12px;">${order.tel || '-'}</td>
+                    <td style="max-width:200px;font-size:12px;">${order.addr1 || '-'}</td>
+                    <td style="font-size:12px;">${order.create_date || '-'}</td>
                     <td><span class="status status-processing">${order.status_name}</span></td>
                     <td class="order-actions">
                         ${order.status_id === '1' ? `
