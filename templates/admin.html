@@ -104,6 +104,18 @@
         .filter-bar input:focus { outline: none; border-color: #f39c12; }
         .pkg-count { font-size: 12px; color: #888; white-space: nowrap; }
 
+        /* Member search & pagination */
+        .member-filter-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+        .member-filter-bar input { flex: 1; min-width: 200px; padding: 10px 14px; background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.1); border-radius: 8px; color: #fff; font-size: 13px; font-family: inherit; }
+        .member-filter-bar input:focus { outline: none; border-color: #f39c12; }
+        .member-filter-bar .member-count { font-size: 12px; color: #888; white-space: nowrap; }
+        .pagination { display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 18px; flex-wrap: wrap; }
+        .pagination button { padding: 7px 14px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); border-radius: 6px; color: #ccc; font-size: 13px; font-family: inherit; cursor: pointer; transition: all .2s; }
+        .pagination button:hover:not(:disabled) { background: rgba(243,156,18,.15); border-color: rgba(243,156,18,.3); color: #f39c12; }
+        .pagination button:disabled { opacity: .35; cursor: not-allowed; }
+        .pagination button.active { background: rgba(243,156,18,.2); border-color: #f39c12; color: #f39c12; font-weight: 700; }
+        .pagination .page-info { font-size: 12px; color: #888; }
+
         /* Edit modal */
         .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.72); z-index: 1000; justify-content: center; align-items: center; }
         .modal-overlay.show { display: flex; }
@@ -176,6 +188,11 @@
                         <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadMembers()">🔄 整理</button>
                     </div>
                 </div>
+                <!-- 搜尋框 -->
+                <div class="member-filter-bar">
+                    <input type="text" id="member-search" placeholder="🔍 搜尋會員編號、姓名、Email 或手機..." oninput="onMemberSearch()">
+                    <span class="member-count" id="member-count"></span>
+                </div>
                 <div class="table-wrap">
                     <table>
                         <thead>
@@ -193,6 +210,8 @@
                         </tbody>
                     </table>
                 </div>
+                <!-- 分頁 -->
+                <div class="pagination" id="memberPagination"></div>
             </div>
         </div>
 
@@ -302,7 +321,13 @@
 let membersData = [];
 let pendingChanges = {};
 let allPackages = [];
-let twd_to_jpy_rate = 5.0;  // 預設匯率，登入後從 /api/config 取得
+let twd_to_jpy_rate = 5.0;
+
+// ── 會員分頁 & 搜尋 ──
+const MEMBER_PAGE_SIZE = 50;
+let memberPage = 1;
+let memberSearchQuery = '';
+let filteredMembers = [];
 
 function jpyPreview(twd) {
     if (!twd || isNaN(twd)) return '';
@@ -317,7 +342,6 @@ async function adminLogin() {
     if (result.success) {
         document.getElementById('loginSection').classList.add('hidden');
         document.getElementById('mainContent').classList.add('active');
-        // 取得匯率設定
         fetch('/api/config').then(r => r.json()).then(cfg => {
             twd_to_jpy_rate = cfg.twd_to_jpy_rate || 5.0;
         });
@@ -344,15 +368,72 @@ async function loadMembers() {
     const result = await res.json();
     if (!result.success) { showToast(result.error || '載入失敗', 'error'); return; }
     membersData = result.members;
-    // 更新匯率（從 API 回傳同步）
     if (result.twd_to_jpy_rate) twd_to_jpy_rate = result.twd_to_jpy_rate;
     document.getElementById('totalMembers').textContent = result.total;
     document.getElementById('maxNumber').textContent = result.max_number > 0 ? `G${String(result.max_number).padStart(4,'0')}` : '-';
     document.getElementById('nextCode').textContent = result.next_g_code;
+
+    // 新的在上面：依 G 編號降序排列
+    membersData.sort((a, b) => {
+        const numA = parseInt(a.g_code.replace(/\D/g, '')) || 0;
+        const numB = parseInt(b.g_code.replace(/\D/g, '')) || 0;
+        return numB - numA;
+    });
+
+    // 重置搜尋與分頁
+    memberPage = 1;
+    memberSearchQuery = document.getElementById('member-search').value.trim().toUpperCase();
+    applyMemberFilter();
+}
+
+function onMemberSearch() {
+    memberSearchQuery = document.getElementById('member-search').value.trim().toUpperCase();
+    memberPage = 1;
+    applyMemberFilter();
+}
+
+function applyMemberFilter() {
+    if (memberSearchQuery) {
+        filteredMembers = membersData.filter(m =>
+            m.g_code.toUpperCase().includes(memberSearchQuery) ||
+            (m.name || '').toUpperCase().includes(memberSearchQuery) ||
+            (m.email || '').toUpperCase().includes(memberSearchQuery) ||
+            (m.phone || '').includes(memberSearchQuery)
+        );
+    } else {
+        filteredMembers = [...membersData];
+    }
+    renderMembersPage();
+}
+
+function renderMembersPage() {
+    const total = filteredMembers.length;
+    const totalPages = Math.max(1, Math.ceil(total / MEMBER_PAGE_SIZE));
+    if (memberPage > totalPages) memberPage = totalPages;
+    const start = (memberPage - 1) * MEMBER_PAGE_SIZE;
+    const end = Math.min(start + MEMBER_PAGE_SIZE, total);
+    const pageMembers = filteredMembers.slice(start, end);
+
+    // 更新計數
+    const countEl = document.getElementById('member-count');
+    if (memberSearchQuery) {
+        countEl.textContent = `搜尋到 ${total} 筆（共 ${membersData.length} 筆）`;
+    } else {
+        countEl.textContent = `共 ${total} 筆`;
+    }
+
     const tbody = document.getElementById('membersTable');
-    if (!result.members.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#666;padding:30px;">尚無會員</td></tr>'; return; }
-    const ph = result.default_shipping_rate > 0 ? result.default_shipping_rate : '未設定';
-    tbody.innerHTML = result.members.map((m, idx) => {
+    const defaultRate = document.getElementById('totalMembers').textContent; // just for placeholder
+
+    if (!pageMembers.length) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#666;padding:30px;">無符合的會員</td></tr>';
+        document.getElementById('memberPagination').innerHTML = '';
+        return;
+    }
+
+    tbody.innerHTML = pageMembers.map((m, localIdx) => {
+        // 計算在 membersData 中的原始 index（用於 pendingChanges 等操作）
+        const globalIdx = membersData.indexOf(m);
         const rateDisplay = m.shipping_rate || '';
         return `<tr>
             <td><span class="g-code">${m.g_code}</span></td>
@@ -361,19 +442,55 @@ async function loadMembers() {
             <td>${m.phone||'-'}</td>
             <td>
                 <div class="rate-input-wrap">
-                    <input type="number" class="rate-input" id="rate-${idx}" value="${rateDisplay}"
-                        placeholder="${ph}" min="0"
-                        data-gid="${m.gid}" data-original="${rateDisplay}" data-idx="${idx}"
-                        oninput="onRateChange(${idx})"
-                        onkeydown="if(event.key==='Enter')saveSingleRate(${idx})">
+                    <input type="number" class="rate-input" id="rate-${globalIdx}" value="${rateDisplay}"
+                        placeholder="未設定" min="0"
+                        data-gid="${m.gid}" data-original="${rateDisplay}" data-idx="${globalIdx}"
+                        oninput="onRateChange(${globalIdx})"
+                        onkeydown="if(event.key==='Enter')saveSingleRate(${globalIdx})">
                     <span class="rate-unit">台幣/kg</span>
-                    <span class="rate-jpy-preview" id="jpy-${idx}">${rateDisplay ? jpyPreview(rateDisplay) : ''}</span>
-                    <button class="rate-save-btn" id="save-${idx}" onclick="saveSingleRate(${idx})">儲存</button>
+                    <span class="rate-jpy-preview" id="jpy-${globalIdx}">${rateDisplay ? jpyPreview(rateDisplay) : ''}</span>
+                    <button class="rate-save-btn" id="save-${globalIdx}" onclick="saveSingleRate(${globalIdx})">儲存</button>
                 </div>
             </td>
             <td><button class="copy-btn" onclick="copyInfo('${m.g_code}','${m.phone}')">📋 複製</button></td>
         </tr>`;
     }).join('');
+
+    // 分頁按鈕
+    renderMemberPagination(totalPages);
+}
+
+function renderMemberPagination(totalPages) {
+    const container = document.getElementById('memberPagination');
+    if (totalPages <= 1) { container.innerHTML = ''; return; }
+
+    let html = '';
+    html += `<button onclick="goMemberPage(1)" ${memberPage === 1 ? 'disabled' : ''}>«</button>`;
+    html += `<button onclick="goMemberPage(${memberPage - 1})" ${memberPage === 1 ? 'disabled' : ''}>‹</button>`;
+
+    // 顯示頁碼（最多顯示 7 個）
+    let startPage = Math.max(1, memberPage - 3);
+    let endPage = Math.min(totalPages, startPage + 6);
+    if (endPage - startPage < 6) startPage = Math.max(1, endPage - 6);
+
+    for (let p = startPage; p <= endPage; p++) {
+        html += `<button onclick="goMemberPage(${p})" class="${p === memberPage ? 'active' : ''}">${p}</button>`;
+    }
+
+    html += `<button onclick="goMemberPage(${memberPage + 1})" ${memberPage === totalPages ? 'disabled' : ''}>›</button>`;
+    html += `<button onclick="goMemberPage(${totalPages})" ${memberPage === totalPages ? 'disabled' : ''}>»</button>`;
+    html += `<span class="page-info">第 ${memberPage} / ${totalPages} 頁</span>`;
+
+    container.innerHTML = html;
+}
+
+function goMemberPage(page) {
+    const totalPages = Math.max(1, Math.ceil(filteredMembers.length / MEMBER_PAGE_SIZE));
+    if (page < 1 || page > totalPages) return;
+    memberPage = page;
+    renderMembersPage();
+    // 捲動到表格頂部
+    document.getElementById('membersTable').closest('.card').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function onRateChange(idx) {
@@ -381,7 +498,6 @@ function onRateChange(idx) {
     const saveBtn = document.getElementById(`save-${idx}`);
     const jpyEl = document.getElementById(`jpy-${idx}`);
     const gid = input.dataset.gid;
-    // 即時更新日圓預覽
     if (jpyEl) jpyEl.textContent = input.value ? jpyPreview(input.value) : '';
     if (input.value !== input.dataset.original) {
         input.classList.add('changed'); input.classList.remove('saved');
@@ -432,6 +548,7 @@ async function saveAllChanges() {
     let ok = 0, fail = 0;
     for (const [gid, {idx, rate}] of Object.entries(pendingChanges)) {
         const input = document.getElementById(`rate-${idx}`);
+        if (!input) continue;
         input.classList.add('saving');
         const res = await fetch('/api/admin/shipping_rate', {
             method:'POST', headers:{'Content-Type':'application/json'},
@@ -441,7 +558,8 @@ async function saveAllChanges() {
         if (result.success) {
             input.classList.remove('saving','changed'); input.classList.add('saved');
             input.dataset.original = rate;
-            document.getElementById(`save-${idx}`).classList.remove('visible');
+            const saveBtn = document.getElementById(`save-${idx}`);
+            if (saveBtn) saveBtn.classList.remove('visible');
             delete pendingChanges[gid]; ok++;
             setTimeout(() => input.classList.remove('saved'), 2000);
         } else { input.classList.remove('saving'); fail++; }
