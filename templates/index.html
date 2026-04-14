@@ -667,6 +667,7 @@
                     <div class="list-header">
                         <h3>📦 我的包裹</h3>
                         <div style="display:flex;gap:8px;align-items:center;">
+                            <button class="btn btn-secondary" id="selectAllPkgBtn" onclick="toggleSelectAllPkg()" style="padding:10px 16px;font-size:13px;">☑ 全選</button>
                             <button class="btn btn-primary" id="shipRequestBtn" onclick="submitShipRequest()" style="display:none;padding:10px 20px;">
                                 🚚 申請出貨 (<span id="shipRequestCount">0</span>)
                             </button>
@@ -873,9 +874,25 @@
 
         function updateShipRequestBtn() {
             const checked = document.querySelectorAll('.ship-chk:checked');
+            const all = document.querySelectorAll('.ship-chk');
             const btn = document.getElementById('shipRequestBtn');
+            const selBtn = document.getElementById('selectAllPkgBtn');
             document.getElementById('shipRequestCount').textContent = checked.length;
             btn.style.display = checked.length > 0 ? 'inline-flex' : 'none';
+            if (all.length > 0) {
+                selBtn.style.display = 'inline-flex';
+                selBtn.textContent = checked.length === all.length ? '☐ 取消全選' : '☑ 全選';
+            } else {
+                selBtn.style.display = 'none';
+            }
+        }
+
+        function toggleSelectAllPkg() {
+            const all = document.querySelectorAll('.ship-chk');
+            const checked = document.querySelectorAll('.ship-chk:checked');
+            const shouldCheck = checked.length < all.length;
+            all.forEach(c => c.checked = shouldCheck);
+            updateShipRequestBtn();
         }
 
         async function submitShipRequest() {
