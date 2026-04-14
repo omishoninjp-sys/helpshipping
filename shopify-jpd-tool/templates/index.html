@@ -420,9 +420,9 @@
                 <!-- 日期範圍 -->
                 <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
                     <label style="color:#888;font-size:13px;">日期：</label>
-                    <input type="date" id="jpd-date-from" style="padding:8px 10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#fff;font-size:13px;">
+                    <input type="date" id="jpd-date-from" onchange="filterJpdOrders()" style="padding:8px 10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#fff;font-size:13px;">
                     <span style="color:#666;">～</span>
-                    <input type="date" id="jpd-date-to" style="padding:8px 10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#fff;font-size:13px;">
+                    <input type="date" id="jpd-date-to" onchange="filterJpdOrders()" style="padding:8px 10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#fff;font-size:13px;">
                     <div style="display:flex;gap:6px;flex-wrap:wrap;">
                         <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px;" onclick="jpdQuickDate(0)">今天</button>
                         <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px;" onclick="jpdQuickDate(7)">近 7 天</button>
@@ -645,7 +645,7 @@
                 from.setDate(from.getDate() - days);
                 document.getElementById('jpd-date-from').value = fmt(from);
             }
-            loadJpdOrders();
+            filterJpdOrders();
         }
         
         // 初始化日期：近 30 天
@@ -658,19 +658,13 @@
             document.getElementById('jpd-date-to').value = fmt(today);
         })();
         
-        // 載入 JPD 運單
+        // 載入 JPD 運單（一次拿全部，前端篩選）
         async function loadJpdOrders() {
             document.getElementById('jpd-orders-loading').style.display = 'block';
             document.getElementById('jpd-orders-table').style.display = 'none';
             
-            const dateFrom = document.getElementById('jpd-date-from').value;
-            const dateTo = document.getElementById('jpd-date-to').value;
-            let url = '/api/jpd/orders?';
-            if (dateFrom) url += `date_from=${dateFrom}&`;
-            if (dateTo) url += `date_to=${dateTo}&`;
-            
             try {
-                const res = await fetch(url);
+                const res = await fetch('/api/jpd/orders');
                 const data = await res.json();
                 
                 if (data.success) {
@@ -689,9 +683,25 @@
         
         function filterJpdOrders() {
             const q = (document.getElementById('jpd-order-search').value || '').trim().toUpperCase();
+            const dateFrom = document.getElementById('jpd-date-from').value;
+            const dateTo = document.getElementById('jpd-date-to').value;
+            
             let list = allJpdOrders;
+            
+            // 日期篩選（前端）
+            if (dateFrom || dateTo) {
+                list = list.filter(o => {
+                    const d = (o.create_date || '').substring(0, 10);
+                    if (!d) return true;
+                    if (dateFrom && d < dateFrom) return false;
+                    if (dateTo && d > dateTo) return false;
+                    return true;
+                });
+            }
+            
+            // 關鍵字搜尋
             if (q) {
-                list = allJpdOrders.filter(o =>
+                list = list.filter(o =>
                     (o.logis_num || '').toUpperCase().includes(q) ||
                     (o.customer_order_id || '').toUpperCase().includes(q) ||
                     (o.recipient || '').toUpperCase().includes(q) ||

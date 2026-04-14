@@ -274,21 +274,21 @@ def get_jpd_packages():
 
 @app.route("/api/jpd/orders")
 def get_jpd_orders():
-    """取得 JPD 運單列表（支援日期範圍）"""
-    date_from = request.args.get("date_from", "")
-    date_to = request.args.get("date_to", "")
+    """取得 JPD 運單列表"""
+    # JPD TSearchOrders 只支援 create_date（單日），不支援範圍查詢
+    # 先嘗試不帶日期拿全部，失敗再用今日
+    result = jpd_request("TSearchOrders", {})
     
-    search_params = {}
-    if date_from:
-        search_params["create_date_from"] = date_from
-    if date_to:
-        search_params["create_date_to"] = date_to
-    if not date_from and not date_to:
-        # 預設：近 30 天
-        search_params["create_date_from"] = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-        search_params["create_date_to"] = datetime.now().strftime("%Y-%m-%d")
+    if "OperationResult" in result:
+        op_result = result["OperationResult"]
+        if op_result["Request"]["IsValid"] == "True":
+            orders = op_result["Result"].get("Data", [])
+            return jsonify({"success": True, "orders": orders})
     
-    result = jpd_request("TSearchOrders", search_params)
+    # fallback: 用今天日期
+    result = jpd_request("TSearchOrders", {
+        "create_date": datetime.now().strftime("%Y-%m-%d")
+    })
     
     if "OperationResult" in result:
         op_result = result["OperationResult"]
