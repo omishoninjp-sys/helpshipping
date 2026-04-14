@@ -443,19 +443,19 @@
                     <button class="btn btn-secondary refresh-btn" onclick="loadJpdPackages()">🔄 重新整理</button>
                 </h3>
                 <div style="margin-bottom:12px;">
-                    <input type="text" id="pkg-search" placeholder="🔍 搜尋包裹 ID、客戶編號、商品名稱、物流號..." oninput="filterJpdPackages()" style="width:100%;padding:10px 14px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#fff;font-size:14px;">
+                    <input type="text" id="pkg-search" placeholder="🔍 搜尋包裹 ID..." oninput="filterJpdPackages()" style="width:100%;padding:10px 14px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#fff;font-size:14px;">
                     <span id="pkg-search-count" style="font-size:12px;color:#888;margin-top:4px;display:inline-block;"></span>
                 </div>
                 <div id="jpd-packages-loading" class="loading">載入中</div>
                 <table id="jpd-packages-table" style="display:none;">
                     <thead>
                         <tr>
+                            <th>照片</th>
                             <th>包裹 ID</th>
-                            <th>客戶編號</th>
-                            <th>商品名稱</th>
-                            <th>物流號</th>
+                            <th>重量</th>
+                            <th>尺寸 (cm)</th>
                             <th>入庫日期</th>
-                            <th>位置</th>
+                            <th>運單 ID</th>
                             <th>狀態</th>
                         </tr>
                     </thead>
@@ -663,8 +663,6 @@
                 
                 if (data.success) {
                     jpdPackages = data.packages;
-                    console.log('📦 JPD 包裹欄位（第一筆）:', JSON.stringify(jpdPackages[0], null, 2));
-                    console.log('📦 所有欄位 keys:', jpdPackages[0] ? Object.keys(jpdPackages[0]) : 'empty');
                     renderJpdPackages();
                 }
             } catch (e) {
@@ -686,23 +684,30 @@
             } else {
                 countEl.textContent = `共 ${list.length} 筆`;
             }
-            tbody.innerHTML = list.map(pkg => `
-                <tr>
-                    <td>${pkg.package_id}</td>
-                    <td><strong style="color:#f39c12;">${pkg.client_cid || '-'}</strong></td>
-                    <td>${pkg.product_name || '-'}</td>
-                    <td>${pkg.local_logis_num || '-'}</td>
+            tbody.innerHTML = list.map(pkg => {
+                const weightKg = pkg.weight ? (parseFloat(pkg.weight) / 1000).toFixed(1) : '-';
+                const dims = (pkg.p_long && pkg.p_width && pkg.p_height) 
+                    ? `${pkg.p_long}×${pkg.p_width}×${pkg.p_height}` : '-';
+                const photoHtml = pkg.photo_thumbnail 
+                    ? `<a href="${pkg.photo}" target="_blank"><img src="${pkg.photo_thumbnail}" style="width:50px;height:50px;object-fit:cover;border-radius:4px;cursor:pointer;" loading="lazy"></a>` 
+                    : '-';
+                return `<tr>
+                    <td>${photoHtml}</td>
+                    <td><strong>${pkg.package_id}</strong></td>
+                    <td>${weightKg} kg</td>
+                    <td style="font-size:12px;">${dims}</td>
                     <td>${pkg.stock_date}</td>
-                    <td>${pkg.location || '-'}</td>
+                    <td>${pkg.order_id || '-'}</td>
                     <td><span class="badge">${pkg.status_name}</span></td>
-                </tr>
-            `).join('');
+                </tr>`;
+            }).join('');
             
             // 更新倉庫代發選項
             const select = document.getElementById('form-package-id');
-            select.innerHTML = jpdPackages.map(pkg => 
-                `<option value="${pkg.package_id}">${pkg.package_id} - ${pkg.client_cid || ''} - ${pkg.product_name || pkg.local_logis_num || 'N/A'}</option>`
-            ).join('');
+            select.innerHTML = jpdPackages.map(pkg => {
+                const w = pkg.weight ? (parseFloat(pkg.weight)/1000).toFixed(1)+'kg' : '';
+                return `<option value="${pkg.package_id}">${pkg.package_id} ${w}</option>`;
+            }).join('');
         }
         
         function filterJpdPackages() {
@@ -710,9 +715,7 @@
             if (!q) { renderJpdPackages(jpdPackages); return; }
             const filtered = jpdPackages.filter(pkg =>
                 String(pkg.package_id).includes(q) ||
-                (pkg.client_cid || '').toUpperCase().includes(q) ||
-                (pkg.product_name || '').toUpperCase().includes(q) ||
-                (pkg.local_logis_num || '').toUpperCase().includes(q)
+                String(pkg.order_id || '').includes(q)
             );
             renderJpdPackages(filtered);
         }
