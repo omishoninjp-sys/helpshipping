@@ -149,7 +149,7 @@
             <h3 style="margin-bottom:20px;text-align:center;">🔐 管理員登入</h3>
             <div class="form-group">
                 <label>管理員密碼</label>
-                <input type="password" id="adminPassword" class="form-control" placeholder="請輸入管理員密碼">
+                <input type="password" id="adminPassword" class="form-control" placeholder="請輸入管理員密碼" autocomplete="new-password">
             </div>
             <button class="btn btn-red btn-block" onclick="adminLogin()">登入</button>
         </div>
@@ -190,7 +190,7 @@
                 </div>
                 <!-- 搜尋框 -->
                 <div class="member-filter-bar">
-                    <input type="text" id="member-search" placeholder="🔍 搜尋會員編號、姓名、Email 或手機..." oninput="onMemberSearch()">
+                    <input type="text" id="member-search" placeholder="🔍 搜尋會員編號、姓名、Email 或手機..." oninput="onMemberSearch()" autocomplete="off">
                     <span class="member-count" id="member-count"></span>
                 </div>
                 <div class="table-wrap">
@@ -346,6 +346,7 @@ async function adminLogin() {
             twd_to_jpy_rate = cfg.twd_to_jpy_rate || 5.0;
         });
         loadMembers();
+        document.getElementById('member-search').value = '';
         showToast('登入成功', 'success');
     } else {
         showToast(result.error || '密碼錯誤', 'error');
