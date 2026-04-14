@@ -158,6 +158,11 @@
     <!-- 主要內容 -->
     <div class="main-content" id="mainContent">
 
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <div></div>
+            <button class="btn" style="background:rgba(255,255,255,.06);color:#888;padding:6px 14px;font-size:12px;" onclick="openChangePwd()">🔑 變更密碼</button>
+        </div>
+
         <div class="admin-tabs">
             <button class="admin-tab active" onclick="switchAdminTab('members')">👥 會員管理</button>
             <button class="admin-tab" onclick="switchAdminTab('arrivals')">📦 到貨管理</button>
@@ -387,6 +392,29 @@
         <div class="modal-actions">
             <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;" onclick="closeEditModal()">取消</button>
             <button class="btn btn-primary" onclick="saveEdit()">💾 儲存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 變更密碼 Modal -->
+<div class="modal-overlay" id="pwdModal">
+    <div class="modal-box" style="max-width:400px;">
+        <div class="modal-title">🔑 變更管理員密碼</div>
+        <div class="form-group">
+            <label>目前密碼</label>
+            <input type="password" id="pwd-current" class="form-control" placeholder="請輸入目前密碼" autocomplete="off">
+        </div>
+        <div class="form-group">
+            <label>新密碼</label>
+            <input type="password" id="pwd-new" class="form-control" placeholder="至少 4 個字元" autocomplete="new-password">
+        </div>
+        <div class="form-group">
+            <label>確認新密碼</label>
+            <input type="password" id="pwd-confirm" class="form-control" placeholder="再輸入一次新密碼" autocomplete="new-password">
+        </div>
+        <div class="modal-actions">
+            <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;" onclick="closePwdModal()">取消</button>
+            <button class="btn btn-primary" onclick="submitChangePwd()">💾 確認變更</button>
         </div>
     </div>
 </div>
@@ -940,6 +968,44 @@ async function updateForecast(id, status) {
             loadForecastBadge();
         } else {
             showToast('更新失敗', 'error');
+        }
+    } catch(e) { showToast('網路錯誤', 'error'); }
+}
+
+// ── 變更密碼 ──
+function openChangePwd() {
+    document.getElementById('pwd-current').value = '';
+    document.getElementById('pwd-new').value = '';
+    document.getElementById('pwd-confirm').value = '';
+    document.getElementById('pwdModal').classList.add('show');
+}
+
+function closePwdModal() {
+    document.getElementById('pwdModal').classList.remove('show');
+}
+
+async function submitChangePwd() {
+    var current = document.getElementById('pwd-current').value;
+    var newPwd = document.getElementById('pwd-new').value;
+    var confirm = document.getElementById('pwd-confirm').value;
+
+    if (!current) { showToast('請輸入目前密碼', 'error'); return; }
+    if (!newPwd) { showToast('請輸入新密碼', 'error'); return; }
+    if (newPwd.length < 4) { showToast('新密碼至少 4 個字元', 'error'); return; }
+    if (newPwd !== confirm) { showToast('兩次密碼不一致', 'error'); return; }
+
+    try {
+        var res = await fetch('/api/admin/change_password', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ current: current, new_password: newPwd, confirm: confirm })
+        });
+        var result = await res.json();
+        if (result.success) {
+            showToast('✅ 密碼已更新', 'success');
+            closePwdModal();
+        } else {
+            showToast('❌ ' + (result.error || '變更失敗'), 'error');
         }
     } catch(e) { showToast('網路錯誤', 'error'); }
 }

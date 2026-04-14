@@ -81,6 +81,12 @@ def init_db():
             created_at  TEXT    NOT NULL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS admin_settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -249,14 +255,47 @@ def get_config():
     })
 
 
+def get_admin_password():
+    """取得管理員密碼：DB 優先，否則環境變數"""
+    conn = get_db()
+    row = conn.execute("SELECT value FROM admin_settings WHERE key='admin_password'").fetchone()
+    conn.close()
+    if row:
+        return row["value"]
+    return os.environ.get("ADMIN_PASSWORD", "admin123")
+
+
 @app.route("/api/admin/verify", methods=["POST"])
 def admin_verify():
     data = request.json
     password = data.get("password", "")
-    admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
-    if password == admin_password:
+    if password == get_admin_password():
         return jsonify({"success": True})
     return jsonify({"success": False, "error": "密碼錯誤"})
+
+
+@app.route("/api/admin/change_password", methods=["POST"])
+def admin_change_password():
+    data = request.json
+    current = data.get("current", "")
+    new_pwd = data.get("new_password", "").strip()
+    confirm = data.get("confirm", "").strip()
+
+    if current != get_admin_password():
+        return jsonify({"success": False, "error": "目前密碼錯誤"})
+    if not new_pwd or len(new_pwd) < 4:
+        return jsonify({"success": False, "error": "新密碼至少 4 個字元"})
+    if new_pwd != confirm:
+        return jsonify({"success": False, "error": "兩次密碼不一致"})
+
+    conn = get_db()
+    conn.execute(
+        "INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('admin_password', ?)",
+        (new_pwd,)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "message": "密碼已更新"})
 
 
 @app.route("/api/admin/members", methods=["GET"])
