@@ -663,6 +663,8 @@
                 
                 if (data.success) {
                     jpdPackages = data.packages;
+                    console.log('📦 JPD 包裹欄位（第一筆）:', JSON.stringify(jpdPackages[0], null, 2));
+                    console.log('📦 所有欄位 keys:', jpdPackages[0] ? Object.keys(jpdPackages[0]) : 'empty');
                     renderJpdPackages();
                 }
             } catch (e) {
