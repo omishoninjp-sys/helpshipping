@@ -215,21 +215,61 @@ def get_shopify_order(order_id):
 
 @app.route("/api/jpd/packages")
 def get_jpd_packages():
-    """取得 JPD 倉庫的包裹列表"""
+    """取得 JPD 倉庫的包裹列表，並合併運單收件人資訊"""
     result = jpd_request("TSearchPackages", {
         "stock_date_from": (datetime.now().replace(day=1)).strftime("%Y-%m-%d 00:00:00")
     })
     
-    if "OperationResult" in result:
-        op_result = result["OperationResult"]
-        if op_result["Request"]["IsValid"] == "True":
-            packages = op_result["Result"].get("Data", [])
-            return jsonify({"success": True, "packages": packages})
-        else:
-            errors = op_result["Request"].get("Errors", {})
-            return jsonify({"success": False, "error": errors})
+    if "OperationResult" not in result:
+        return jsonify({"success": False, "error": "Unknown error"})
     
-    return jsonify({"success": False, "error": "Unknown error"})
+    op_result = result["OperationResult"]
+    if op_result["Request"]["IsValid"] != "True":
+        errors = op_result["Request"].get("Errors", {})
+        return jsonify({"success": False, "error": errors})
+    
+    packages = op_result["Result"].get("Data", [])
+    
+    # 收集有 order_id 的包裹，去撈運單的收件人資訊
+    order_ids = set()
+    for pkg in packages:
+        oid = pkg.get("order_id")
+        if oid and str(oid) != "0":
+            order_ids.add(str(oid))
+    
+    order_map = {}  # order_id -> {recipient, tel, addr1, customer_order_id}
+    if order_ids:
+        # 用同月份範圍撈運單
+        orders_result = jpd_request("TSearchOrders", {
+            "create_date_from": (datetime.now().replace(day=1)).strftime("%Y-%m-%d"),
+            "create_date_to": datetime.now().strftime("%Y-%m-%d")
+        })
+        if "OperationResult" in orders_result:
+            orders_op = orders_result["OperationResult"]
+            if orders_op["Request"]["IsValid"] == "True":
+                orders_data = orders_op.get("Result", {}).get("Data", [])
+                for o in orders_data:
+                    oid = str(o.get("order_id", ""))
+                    if oid:
+                        order_map[oid] = {
+                            "recipient": o.get("recipient", ""),
+                            "tel": o.get("tel", ""),
+                            "addr1": o.get("addr1", ""),
+                            "customer_order_id": o.get("customer_order_id", ""),
+                            "logis_num": o.get("logis_num", ""),
+                        }
+    
+    # 合併到包裹資料
+    for pkg in packages:
+        oid = str(pkg.get("order_id", ""))
+        info = order_map.get(oid, {})
+        pkg["recipient"] = info.get("recipient", "")
+        pkg["tel"] = info.get("tel", "")
+        pkg["addr1"] = info.get("addr1", "")
+        pkg["customer_order_id"] = info.get("customer_order_id", "")
+        pkg["logis_num"] = info.get("logis_num", "")
+    
+    return jsonify({"success": True, "packages": packages})
 
 
 @app.route("/api/jpd/orders")

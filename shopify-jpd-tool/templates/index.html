@@ -443,7 +443,7 @@
                     <button class="btn btn-secondary refresh-btn" onclick="loadJpdPackages()">🔄 重新整理</button>
                 </h3>
                 <div style="margin-bottom:12px;">
-                    <input type="text" id="pkg-search" placeholder="🔍 搜尋包裹 ID..." oninput="filterJpdPackages()" style="width:100%;padding:10px 14px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#fff;font-size:14px;">
+                    <input type="text" id="pkg-search" placeholder="🔍 搜尋包裹 ID、收件人、電話、訂單號..." oninput="filterJpdPackages()" style="width:100%;padding:10px 14px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#fff;font-size:14px;">
                     <span id="pkg-search-count" style="font-size:12px;color:#888;margin-top:4px;display:inline-block;"></span>
                 </div>
                 <div id="jpd-packages-loading" class="loading">載入中</div>
@@ -452,10 +452,11 @@
                         <tr>
                             <th>照片</th>
                             <th>包裹 ID</th>
+                            <th>收件人</th>
+                            <th>電話</th>
                             <th>重量</th>
                             <th>尺寸 (cm)</th>
                             <th>入庫日期</th>
-                            <th>運單 ID</th>
                             <th>狀態</th>
                         </tr>
                     </thead>
@@ -691,13 +692,17 @@
                 const photoHtml = pkg.photo_thumbnail 
                     ? `<a href="${pkg.photo}" target="_blank"><img src="${pkg.photo_thumbnail}" style="width:50px;height:50px;object-fit:cover;border-radius:4px;cursor:pointer;" loading="lazy"></a>` 
                     : '-';
+                const recipientHtml = pkg.recipient 
+                    ? `<strong style="color:#f39c12;">${pkg.recipient}</strong>${pkg.customer_order_id ? `<br><span style="font-size:11px;color:#888;">${pkg.customer_order_id}</span>` : ''}`
+                    : '<span style="color:#666;">未配單</span>';
                 return `<tr>
                     <td>${photoHtml}</td>
                     <td><strong>${pkg.package_id}</strong></td>
+                    <td>${recipientHtml}</td>
+                    <td style="font-size:12px;">${pkg.tel || '-'}</td>
                     <td>${weightKg} kg</td>
                     <td style="font-size:12px;">${dims}</td>
-                    <td>${pkg.stock_date}</td>
-                    <td>${pkg.order_id || '-'}</td>
+                    <td style="font-size:12px;">${pkg.stock_date}</td>
                     <td><span class="badge">${pkg.status_name}</span></td>
                 </tr>`;
             }).join('');
@@ -706,7 +711,8 @@
             const select = document.getElementById('form-package-id');
             select.innerHTML = jpdPackages.map(pkg => {
                 const w = pkg.weight ? (parseFloat(pkg.weight)/1000).toFixed(1)+'kg' : '';
-                return `<option value="${pkg.package_id}">${pkg.package_id} ${w}</option>`;
+                const r = pkg.recipient || '';
+                return `<option value="${pkg.package_id}">${pkg.package_id} ${r} ${w}</option>`;
             }).join('');
         }
         
@@ -715,7 +721,9 @@
             if (!q) { renderJpdPackages(jpdPackages); return; }
             const filtered = jpdPackages.filter(pkg =>
                 String(pkg.package_id).includes(q) ||
-                String(pkg.order_id || '').includes(q)
+                (pkg.recipient || '').toUpperCase().includes(q) ||
+                (pkg.tel || '').includes(q) ||
+                (pkg.customer_order_id || '').toUpperCase().includes(q)
             );
             renderJpdPackages(filtered);
         }
