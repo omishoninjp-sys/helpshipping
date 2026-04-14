@@ -648,31 +648,66 @@
             filterJpdOrders();
         }
         
-        // 初始化日期：近 30 天
+        // 初始化日期：近 3 個月
         (function initJpdDates() {
             const today = new Date();
             const fmt = d => d.toISOString().split('T')[0];
             const from = new Date(today);
-            from.setDate(from.getDate() - 30);
+            from.setDate(from.getDate() - 90);
             document.getElementById('jpd-date-from').value = fmt(from);
             document.getElementById('jpd-date-to').value = fmt(today);
         })();
         
-        // 載入 JPD 運單（一次拿全部，前端篩選）
+        // 載入 JPD 運單（合併 JPD API + 本地歷史）
         async function loadJpdOrders() {
             document.getElementById('jpd-orders-loading').style.display = 'block';
             document.getElementById('jpd-orders-table').style.display = 'none';
             
             try {
-                const res = await fetch('/api/jpd/orders');
-                const data = await res.json();
+                // 同時抓 JPD 即時資料 + 本地歷史
+                const [liveRes, histRes] = await Promise.all([
+                    fetch('/api/jpd/orders').then(r => r.json()).catch(() => ({success:false})),
+                    fetch('/api/jpd/order_history').then(r => r.json()).catch(() => ({success:false}))
+                ]);
                 
-                if (data.success) {
-                    allJpdOrders = data.orders;
-                    filterJpdOrders();
-                } else {
-                    showToast('載入失敗', 'error');
+                const liveOrders = liveRes.success ? liveRes.orders : [];
+                const histOrders = histRes.success ? histRes.orders : [];
+                
+                // 以 customer_order_id 為 key 合併（JPD 即時資料優先，因為有最新狀態）
+                const merged = new Map();
+                
+                // 先放本地歷史
+                for (const h of histOrders) {
+                    const key = h.customer_order_id || h.logis_num || `hist-${h.id}`;
+                    merged.set(key, {
+                        logis_num: h.logis_num || '',
+                        customer_order_id: h.customer_order_id || '',
+                        recipient: h.recipient || '',
+                        tel: h.phone || '',
+                        addr1: h.address || '',
+                        create_date: h.created_at || '',
+                        status_name: h.status || '已建立',
+                        status_id: '',
+                        source: 'local',
+                        items: h.items || [],
+                        memo: h.memo || '',
+                    });
                 }
+                
+                // JPD 即時資料覆蓋（有最新狀態）
+                for (const o of liveOrders) {
+                    const key = o.customer_order_id || o.logis_num;
+                    merged.set(key, {
+                        ...o,
+                        source: 'jpd',
+                    });
+                }
+                
+                // 轉成陣列，按日期降序
+                allJpdOrders = Array.from(merged.values());
+                allJpdOrders.sort((a, b) => (b.create_date || b.created_at || '').localeCompare(a.create_date || a.created_at || ''));
+                
+                filterJpdOrders();
             } catch (e) {
                 showToast('網路錯誤', 'error');
             }
@@ -688,10 +723,10 @@
             
             let list = allJpdOrders;
             
-            // 日期篩選（前端）
+            // 日期篩選
             if (dateFrom || dateTo) {
                 list = list.filter(o => {
-                    const d = (o.create_date || '').substring(0, 10);
+                    const d = (o.create_date || o.created_at || '').substring(0, 10);
                     if (!d) return true;
                     if (dateFrom && d < dateFrom) return false;
                     if (dateTo && d > dateTo) return false;
@@ -705,7 +740,8 @@
                     (o.logis_num || '').toUpperCase().includes(q) ||
                     (o.customer_order_id || '').toUpperCase().includes(q) ||
                     (o.recipient || '').toUpperCase().includes(q) ||
-                    (o.tel || '').includes(q)
+                    (o.tel || '').includes(q) ||
+                    (o.addr1 || '').toUpperCase().includes(q)
                 );
             }
             renderJpdOrders(list);
@@ -725,23 +761,30 @@
                 tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#666;padding:30px;">無運單記錄</td></tr>';
                 return;
             }
-            tbody.innerHTML = orders.map(order => `
-                <tr>
+            tbody.innerHTML = orders.map(order => {
+                const statusColor = (order.status_name || '').includes('发货') ? 'status-processing' 
+                    : (order.status_name || '').includes('完成') || (order.status_name || '').includes('签收') ? 'status-fulfilled' 
+                    : 'status-unfulfilled';
+                const sourceTag = order.source === 'jpd' 
+                    ? '<span style="font-size:10px;padding:2px 6px;background:rgba(39,174,96,0.2);color:#27ae60;border-radius:8px;margin-left:4px;">即時</span>' 
+                    : '<span style="font-size:10px;padding:2px 6px;background:rgba(243,156,18,0.2);color:#f39c12;border-radius:8px;margin-left:4px;">歷史</span>';
+                return `<tr>
                     <td><strong>${order.logis_num || '-'}</strong></td>
                     <td>${order.customer_order_id || '-'}</td>
                     <td>${order.recipient || '-'}</td>
                     <td style="font-size:12px;">${order.tel || '-'}</td>
                     <td style="max-width:200px;font-size:12px;">${order.addr1 || '-'}</td>
-                    <td style="font-size:12px;">${order.create_date || '-'}</td>
-                    <td><span class="status status-processing">${order.status_name}</span></td>
+                    <td style="font-size:12px;">${order.create_date || order.created_at || '-'}</td>
+                    <td><span class="status ${statusColor}">${order.status_name || '-'}</span>${sourceTag}</td>
                     <td class="order-actions">
                         ${order.status_id === '1' ? `
                             <button class="btn btn-success btn-sm" onclick="confirmOrder('${order.customer_order_id}')">✓ 確認發貨</button>
                             <button class="btn btn-danger btn-sm" onclick="cancelOrder('${order.customer_order_id}')">✗ 取消</button>
                         ` : ''}
+                        ${order.logis_num ? `<a href="https://www.sgxpress.com/query/?logic_num=${order.logis_num}" target="_blank" class="btn btn-secondary" style="padding:4px 10px;font-size:11px;">📍追蹤</a>` : ''}
                     </td>
-                </tr>
-            `).join('');
+                </tr>`;
+            }).join('');
         }
         
         // 載入 JPD 包裹

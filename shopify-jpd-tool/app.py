@@ -8,6 +8,7 @@ from flask import Flask, render_template, request, jsonify
 import requests
 import json
 import os
+import sqlite3
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
@@ -23,7 +24,74 @@ JPD_PASSWORD = os.environ.get("JPD_PASSWORD", "")
 JPD_BASE_URL = os.environ.get("JPD_BASE_URL", "https://biz.cloudwh.jp")
 JPD_WAREHOUSE_ID = int(os.environ.get("JPD_WAREHOUSE_ID", "1"))   # 足立倉庫
 JPD_DELIV_ID = int(os.environ.get("JPD_DELIV_ID", "40"))          # 台灣空運線
+
+# SQLite 路徑（Zeabur Volume 持久化）
+DB_PATH = os.environ.get("DB_PATH", "orders.db")
 # =============================================
+
+
+# ============ SQLite 初始化 ============
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    conn = get_db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS order_history (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id        TEXT,
+            logis_num       TEXT,
+            customer_order_id TEXT,
+            shopify_order_id TEXT,
+            shopify_order_name TEXT,
+            recipient       TEXT,
+            phone           TEXT,
+            address         TEXT,
+            items_json      TEXT,
+            package_ids     TEXT,
+            mode            TEXT DEFAULT 'self',
+            status          TEXT DEFAULT '待发货',
+            memo            TEXT DEFAULT '',
+            created_at      TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+init_db()
+
+def save_order_history(data):
+    """建立運單成功後存入本地歷史"""
+    try:
+        conn = get_db()
+        conn.execute("""
+            INSERT INTO order_history 
+            (order_id, logis_num, customer_order_id, shopify_order_id, shopify_order_name,
+             recipient, phone, address, items_json, package_ids, mode, status, memo, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data.get("order_id", ""),
+            data.get("logis_num", ""),
+            data.get("customer_order_id", ""),
+            data.get("shopify_order_id", ""),
+            data.get("shopify_order_name", ""),
+            data.get("recipient", ""),
+            data.get("phone", ""),
+            data.get("address", ""),
+            json.dumps(data.get("items", []), ensure_ascii=False),
+            data.get("package_ids", ""),
+            data.get("mode", "self"),
+            data.get("status", "待发货"),
+            data.get("memo", ""),
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ))
+        conn.commit()
+        conn.close()
+        print(f"💾 運單歷史已存檔: {data.get('customer_order_id')} / {data.get('logis_num')}")
+    except Exception as e:
+        print(f"⚠️ 存檔失敗: {e}")
 
 
 def shopify_request(endpoint: str, method: str = "GET", data: dict = None) -> dict:
@@ -239,11 +307,8 @@ def get_jpd_packages():
     
     order_map = {}  # order_id -> {recipient, tel, addr1, customer_order_id}
     if order_ids:
-        # 用同月份範圍撈運單
-        orders_result = jpd_request("TSearchOrders", {
-            "create_date_from": (datetime.now().replace(day=1)).strftime("%Y-%m-%d"),
-            "create_date_to": datetime.now().strftime("%Y-%m-%d")
-        })
+        # 撈運單資訊來合併
+        orders_result = jpd_request("TSearchOrders", {})
         if "OperationResult" in orders_result:
             orders_op = orders_result["OperationResult"]
             if orders_op["Request"]["IsValid"] == "True":
@@ -297,6 +362,28 @@ def get_jpd_orders():
             return jsonify({"success": True, "orders": orders})
     
     return jsonify({"success": False, "error": "Failed to fetch JPD orders"})
+
+
+@app.route("/api/jpd/order_history")
+def get_order_history():
+    """取得本地運單歷史記錄"""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM order_history ORDER BY id DESC"
+    ).fetchall()
+    conn.close()
+    
+    orders = []
+    for r in rows:
+        row = dict(r)
+        # 解析商品 JSON
+        try:
+            row["items"] = json.loads(row.get("items_json") or "[]")
+        except:
+            row["items"] = []
+        orders.append(row)
+    
+    return jsonify({"success": True, "orders": orders})
 
 
 @app.route("/api/jpd/create_order", methods=["POST"])
@@ -426,6 +513,21 @@ def create_jpd_order():
             result_data = op_result["Result"]
             if result_data.get("Result") == "SUCCESS":
                 jpd_data = result_data.get("Data", {})
+                # 存入本地歷史
+                save_order_history({
+                    "order_id": jpd_data.get("order_id", ""),
+                    "logis_num": jpd_data.get("logis_num", ""),
+                    "customer_order_id": data["customer_order_id"],
+                    "shopify_order_id": data.get("shopify_order_id", ""),
+                    "shopify_order_name": data.get("customer_order_id", ""),
+                    "recipient": recipient,
+                    "phone": data.get("phone", ""),
+                    "address": data.get("address", ""),
+                    "items": data.get("declare_list", []),
+                    "package_ids": ",".join(str(p) for p in package_ids),
+                    "mode": mode,
+                    "memo": data.get("memo", ""),
+                })
                 return jsonify({
                     "success": True,
                     "order_id": jpd_data.get("order_id"),
@@ -458,6 +560,21 @@ def create_jpd_order():
                         if search_data and len(search_data) > 0:
                             order_info = search_data[0]
                 
+                # 重複運單也存一份（避免之前沒存到）
+                save_order_history({
+                    "order_id": order_info.get("order_id", ""),
+                    "logis_num": order_info.get("logis_num", ""),
+                    "customer_order_id": data["customer_order_id"],
+                    "shopify_order_id": data.get("shopify_order_id", ""),
+                    "shopify_order_name": data.get("customer_order_id", ""),
+                    "recipient": recipient,
+                    "phone": data.get("phone", ""),
+                    "address": data.get("address", ""),
+                    "items": data.get("declare_list", []),
+                    "package_ids": ",".join(str(p) for p in package_ids),
+                    "mode": mode,
+                    "memo": data.get("memo", ""),
+                })
                 return jsonify({
                     "success": True,
                     "order_id": order_info.get("order_id", ""),
