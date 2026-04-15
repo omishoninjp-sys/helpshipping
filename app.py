@@ -821,6 +821,40 @@ def admin_update_shipment_request(req_id):
     return jsonify({"success": True})
 
 
+@app.route("/api/admin/shipment_requests/<int:req_id>/revert", methods=["POST"])
+def admin_revert_shipment_request(req_id):
+    """還原出貨申請：狀態回到待處理，包裹回到已到貨，清空帳單"""
+    conn = get_db()
+    req = conn.execute("SELECT * FROM shipment_requests WHERE id=?", (req_id,)).fetchone()
+    if not req:
+        conn.close()
+        return jsonify({"success": False, "error": "找不到該申請"})
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute(
+        """UPDATE shipment_requests 
+           SET status='待處理', updated_at=?,
+               billed_weight=0, rate_per_kg=0, shipping_fee=0, handling_fee=0, total_fee=0,
+               tracking_num='', payment_last5='', payment_at=''
+           WHERE id=?""",
+        (now, req_id)
+    )
+
+    # 包裹狀態還原為「已到貨」
+    pkg_ids_str = req["package_ids"]
+    if pkg_ids_str:
+        pkg_ids = [int(x.strip()) for x in pkg_ids_str.split(",") if x.strip()]
+        if pkg_ids:
+            placeholders = ",".join(["?"] * len(pkg_ids))
+            conn.execute(
+                f"UPDATE packages SET status='已到貨' WHERE id IN ({placeholders})", pkg_ids
+            )
+
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
 # ============ 預報包裹 API（本地存檔，不連 JPD）============
 
 @app.route("/api/forecast_simple", methods=["POST"])

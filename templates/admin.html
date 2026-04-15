@@ -912,6 +912,9 @@ async function loadShipReqs() {
                     + ' <button class="btn-danger-sm" onclick="updateShipReq(' + r.id + ',\'已拒絕\')">✗ 拒絕</button>';
             } else {
                 actions = r.total_fee ? '<span style="font-size:12px;color:#27ae60;font-weight:700;">NT$' + Math.round(r.total_fee).toLocaleString() + '</span><br><span style="font-size:11px;color:#888;">' + (r.billed_weight||0) + 'kg × ' + (r.rate_per_kg||0) + ' + 理貨' + (r.handling_fee||0) + '</span>' : '<span style="font-size:12px;color:#666;">' + (r.updated_at || '-') + '</span>';
+                if (r.status === '已出貨') {
+                    actions += '<br><button class="btn-danger-sm" style="margin-top:6px;" onclick="revertShipReq(' + r.id + ')">↩ 還原</button>';
+                }
             }
             var paymentHtml = '';
             if (r.payment_last5) {
@@ -953,6 +956,24 @@ async function updateShipReq(id, status) {
             loadShipReqBadge();
         } else {
             showToast('更新失敗', 'error');
+        }
+    } catch(e) { showToast('網路錯誤', 'error'); }
+}
+
+async function revertShipReq(id) {
+    if (!confirm('確定要還原此出貨申請？包裹狀態將回復為「已到貨」')) return;
+    try {
+        const res = await fetch('/api/admin/shipment_requests/' + id + '/revert', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        });
+        const result = await res.json();
+        if (result.success) {
+            showToast('✅ 已還原', 'success');
+            loadShipReqs();
+            loadShipReqBadge();
+        } else {
+            showToast('❌ ' + (result.error || '還原失敗'), 'error');
         }
     } catch(e) { showToast('網路錯誤', 'error'); }
 }
