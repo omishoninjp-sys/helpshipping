@@ -390,11 +390,13 @@
                 <h3>
                     📦 待出貨訂單
                     <button class="btn btn-secondary refresh-btn" onclick="loadShopifyOrders()">🔄 重新整理</button>
+                    <button class="btn btn-primary refresh-btn" id="batchPushBtn" style="display:none;margin-right:8px;" onclick="openBatchModal()">🚀 合併推單 (<span id="batchCount">0</span>)</button>
                 </h3>
                 <div id="shopify-orders-loading" class="loading">載入中</div>
                 <table id="shopify-orders-table" style="display:none;">
                     <thead>
                         <tr>
+                            <th style="width:36px;"><input type="checkbox" id="order-chk-all" onchange="toggleAllOrders(this)" style="accent-color:#f39c12;cursor:pointer;width:15px;height:15px;"></th>
                             <th>訂單編號</th>
                             <th>收件人</th>
                             <th>地址</th>
@@ -616,6 +618,7 @@
             const tbody = document.getElementById('shopify-orders-body');
             tbody.innerHTML = shopifyOrders.map(order => `
                 <tr>
+                    <td><input type="checkbox" class="order-chk" value="${order.id}" onchange="updateBatchBtn()" style="accent-color:#f39c12;cursor:pointer;width:15px;height:15px;"></td>
                     <td><strong>${order.name}</strong></td>
                     <td>${order.customer_name}</td>
                     <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;">${order.address}</td>
@@ -629,6 +632,65 @@
                     </td>
                 </tr>
             `).join('');
+            updateBatchBtn();
+        }
+
+        function toggleAllOrders(chk) {
+            document.querySelectorAll('.order-chk').forEach(c => c.checked = chk.checked);
+            updateBatchBtn();
+        }
+
+        function updateBatchBtn() {
+            const checked = document.querySelectorAll('.order-chk:checked');
+            const btn = document.getElementById('batchPushBtn');
+            document.getElementById('batchCount').textContent = checked.length;
+            btn.style.display = checked.length >= 2 ? 'inline-block' : 'none';
+        }
+
+        // 合併推單
+        function openBatchModal() {
+            const checkedIds = [...document.querySelectorAll('.order-chk:checked')].map(c => c.value);
+            const selectedOrders = shopifyOrders.filter(o => checkedIds.includes(String(o.id)));
+            if (selectedOrders.length < 2) { showToast('請至少勾選 2 筆訂單', 'error'); return; }
+
+            // 用第一筆的收件人資料
+            const first = selectedOrders[0];
+            currentOrder = {
+                id: first.id,
+                name: selectedOrders.map(o => o.name).join('+'),
+                customer_name: first.customer_name,
+                phone: first.phone,
+                address: first.address,
+                line_items: [],
+                _merged_order_ids: selectedOrders.map(o => o.id),
+                _merged_order_names: selectedOrders.map(o => o.name),
+            };
+            // 合併所有商品
+            selectedOrders.forEach(o => {
+                o.line_items.forEach(item => {
+                    currentOrder.line_items.push({
+                        ...item,
+                        _from_order: o.name
+                    });
+                });
+            });
+
+            document.getElementById('form-shopify-order-id').value = first.id;
+            document.getElementById('form-customer-order-id').value = selectedOrders.map(o => o.name.replace('#','')).join('+');
+            document.getElementById('form-recipient').value = first.customer_name;
+            document.getElementById('form-phone').value = first.phone || '';
+            document.getElementById('form-address').value = first.address;
+
+            const itemsHtml = '<div style="margin-bottom:8px;font-size:12px;color:#f39c12;font-weight:600;">📦 合併 ' + selectedOrders.length + ' 筆訂單</div>'
+                + currentOrder.line_items.map(item =>
+                    '<div class="item">'
+                    + '<span>' + item.title + (item.variant_title ? ' (' + item.variant_title + ')' : '') + ' <span style="font-size:11px;color:#888;">' + (item._from_order||'') + '</span></span>'
+                    + '<span>x' + item.quantity + ' / ' + item.price + '</span>'
+                    + '</div>'
+                ).join('');
+            document.getElementById('form-items').innerHTML = itemsHtml;
+
+            document.getElementById('create-order-modal').classList.add('show');
         }
         
         let allJpdOrders = [];
@@ -950,15 +1012,23 @@
                 
                 if (result.success) {
                     const logisNum = result.logis_num || '';
-                    const orderId = currentOrder.id;  // 先儲存訂單 ID
+                    const mergedIds = currentOrder._merged_order_ids || [currentOrder.id];
+                    const mergedNames = currentOrder._merged_order_names || [currentOrder.name];
                     
                     showToast(`✅ ${result.message || '運單創建成功'}！物流號: ${logisNum || 'N/A'}`, 'success');
                     closeModal();
                     loadShopifyOrders();
                     
-                    // 詢問是否回寫 Shopify
-                    if (logisNum && confirm(`是否將物流單號 ${logisNum} 回寫到 Shopify？`)) {
-                        await fulfillShopifyOrder(orderId, logisNum);
+                    // 詢問是否回寫 Shopify（批次時回寫所有訂單）
+                    if (logisNum) {
+                        const orderDesc = mergedIds.length > 1 
+                            ? `${mergedIds.length} 筆訂單（${mergedNames.join(', ')}）`
+                            : `訂單`;
+                        if (confirm(`是否將物流單號 ${logisNum} 回寫到 Shopify 的${orderDesc}？`)) {
+                            for (const oid of mergedIds) {
+                                await fulfillShopifyOrder(oid, logisNum);
+                            }
+                        }
                     }
                 } else {
                     showToast('❌ ' + result.error, 'error');
