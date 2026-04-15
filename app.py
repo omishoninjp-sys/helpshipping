@@ -3,7 +3,7 @@
 GOYOUTATI x OMISHONIN 雲倉
 """
 
-from flask import Flask, request, jsonify, render_template, make_response
+from flask import Flask, request, jsonify, render_template, make_response, send_file
 from datetime import datetime
 import requests
 import json
@@ -11,6 +11,8 @@ import os
 import sqlite3
 import csv
 import io
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 app = Flask(__name__)
 
@@ -945,9 +947,9 @@ def admin_update_forecast(fc_id):
     return jsonify({"success": True})
 
 
-@app.route("/api/admin/forecasts/<int:fc_id>/csv")
-def admin_download_forecast_csv(fc_id):
-    """下載單筆預報的 JPD CSV"""
+@app.route("/api/admin/forecasts/<int:fc_id>/excel")
+def admin_download_forecast_excel(fc_id):
+    """下載單筆預報的 JPD Excel"""
     conn = get_db()
     row = conn.execute("SELECT * FROM forecasts WHERE id=?", (fc_id,)).fetchone()
     conn.close()
@@ -963,45 +965,62 @@ def admin_download_forecast_csv(fc_id):
     today_str = datetime.now().strftime("%m%d")
     customer_order_id = f"{g_code}-{today_str}"
 
-    output = io.StringIO()
-    writer = csv.writer(output)
-    # JPD CSV 標頭
-    writer.writerow([
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "預報資料"
+
+    # 標頭
+    headers = [
         "客戶運單號", "JpD包裹ID", "運單ID", "包裹特殊服務",
         "收件人", "收件人身份證ID", "收件人詳細地址", "收件人电话号码",
         "備註", "特殊服务", "渠道ID",
         "申報人", "申報人身份證ID", "申報人詳細地址", "申報人电话号码",
         "品名", "数量", "金额", "材質", "產地", "URL/JanCode"
-    ])
-    for item in items:
-        writer.writerow([
-            customer_order_id,  # 客戶運單號
-            "",  # JpD包裹ID（手動填）
-            "",  # 運單ID
-            "",  # 包裹特殊服務
-            "",  # 收件人（手動填）
-            "",  # 身份證
-            "",  # 地址（手動填）
-            "",  # 電話（手動填）
-            row.get("note", ""),  # 備註
-            "",  # 特殊服务
-            "40",  # 渠道ID
-            "",  # 申報人
-            "",  # 申報人身份證
-            "",  # 申報人地址
-            "",  # 申報人電話
-            item.get("name", ""),  # 品名
-            item.get("quantity", 1),  # 数量
-            item.get("price", 0),  # 金额
-            "",  # 材質
-            "Japan",  # 產地
-            item.get("url", ""),  # URL
-        ])
+    ]
+    hfill = PatternFill("solid", fgColor="1F4E79")
+    hfont = Font(bold=True, color="FFFFFF", name="Arial", size=10)
+    thin = Border(
+        left=Side(style="thin"), right=Side(style="thin"),
+        top=Side(style="thin"), bottom=Side(style="thin")
+    )
+    for col_idx, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx, value=h)
+        cell.fill = hfill
+        cell.font = hfont
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = thin
 
-    resp = make_response(output.getvalue())
-    resp.headers["Content-Type"] = "text/csv; charset=utf-8-sig"
-    resp.headers["Content-Disposition"] = f"attachment; filename={g_code}_{today_str}_forecast.csv"
-    return resp
+    # 資料
+    for row_idx, item in enumerate(items, 2):
+        data_row = [
+            customer_order_id, "", "", "",
+            "", "", "", "",
+            row.get("note", ""), "", "40",
+            "", "", "", "",
+            item.get("name", ""),
+            item.get("quantity", 1),
+            item.get("price", 0),
+            "", "Japan",
+            item.get("url", "")
+        ]
+        for col_idx, val in enumerate(data_row, 1):
+            cell = ws.cell(row=row_idx, column=col_idx, value=val)
+            cell.font = Font(name="Arial", size=10)
+            cell.border = thin
+            cell.alignment = Alignment(vertical="center")
+
+    # 欄寬
+    col_widths = {1:16, 2:14, 5:12, 7:20, 8:16, 9:12, 11:8, 16:20, 17:8, 18:10, 21:30}
+    for col, w in col_widths.items():
+        ws.column_dimensions[chr(64+col) if col<=26 else 'A'].width = w
+    ws.freeze_panes = "A2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f"{g_code}_{today_str}_forecast.xlsx"
+    return send_file(buf, as_attachment=True, download_name=fname,
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 if __name__ == "__main__":

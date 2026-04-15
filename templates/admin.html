@@ -1022,10 +1022,10 @@ async function loadForecasts() {
 
             var actions = '';
             if (fc.status === '待處理') {
-                actions = '<a class="btn-edit-sm" href="/api/admin/forecasts/' + fc.id + '/csv" target="_blank" style="text-decoration:none;">⬇ CSV</a>'
+                actions = '<a class="btn-edit-sm" href="/api/admin/forecasts/' + fc.id + '/excel" target="_blank" style="text-decoration:none;">⬇ Excel</a>'
                     + ' <button class="btn-edit-sm" style="background:rgba(39,174,96,.2);border-color:rgba(39,174,96,.3);color:#27ae60;" onclick="updateForecast(' + fc.id + ',\'已處理\')">✅ 已處理</button>';
             } else {
-                actions = '<a class="btn-edit-sm" href="/api/admin/forecasts/' + fc.id + '/csv" target="_blank" style="text-decoration:none;">⬇ CSV</a>';
+                actions = '<a class="btn-edit-sm" href="/api/admin/forecasts/' + fc.id + '/excel" target="_blank" style="text-decoration:none;">⬇ Excel</a>';
             }
 
             return '<tr>'
