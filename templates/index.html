@@ -683,6 +683,14 @@
 
             <!-- 我的包裹 -->
             <div class="tab-content" id="tab-packages">
+                <!-- 出貨申請記錄 -->
+                <div class="card" id="shipRequestsCard" style="display:none;">
+                    <div class="list-header">
+                        <h3>📋 我的出貨申請</h3>
+                    </div>
+                    <div id="shipRequestsList"></div>
+                </div>
+
                 <div class="card">
                     <div class="list-header">
                         <h3>📦 我的包裹</h3>
@@ -695,14 +703,6 @@
                         </div>
                     </div>
                     <div id="packagesList"><div class="empty-state"><div class="icon">📭</div><p>尚無包裹記錄</p></div></div>
-                </div>
-
-                <!-- 出貨申請記錄 -->
-                <div class="card" id="shipRequestsCard" style="display:none;">
-                    <div class="list-header">
-                        <h3>📋 我的出貨申請</h3>
-                    </div>
-                    <div id="shipRequestsList"></div>
                 </div>
             </div>
 
