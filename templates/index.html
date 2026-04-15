@@ -1028,7 +1028,7 @@
                                         ✅ 已回報匯款（後五碼：${req.payment_last5}）<span style="font-size:11px;color:#888;font-weight:400;margin-left:8px;">${req.payment_at || ''}</span>
                                        </div>`
                                     : `<div style="margin-top:10px;padding:12px;background:rgba(243,156,18,0.08);border:1px solid rgba(243,156,18,0.2);border-radius:8px;">
-                                        <div style="font-size:13px;color:#f39c12;font-weight:600;margin-bottom:8px;">💳 匯款完成請回報</div>
+                                        <div style="font-size:13px;color:#f39c12;font-weight:600;margin-bottom:8px;">💳 匯款回報後倉庫自動出貨</div>
                                         <div style="display:flex;gap:8px;align-items:center;">
                                             <input type="text" id="pay5-${req.id}" maxlength="5" placeholder="帳號後五碼" style="width:120px;padding:8px 12px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;font-size:14px;text-align:center;letter-spacing:2px;">
                                             <button onclick="submitPayment(${req.id})" style="padding:8px 16px;background:linear-gradient(135deg,#27ae60,#2ecc71);border:none;border-radius:6px;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">確認回報</button>
