@@ -90,7 +90,8 @@ def init_db():
     # 帳單欄位遷移（已存在的表加欄位）
     for col, default in [
         ("billed_weight", "0"), ("rate_per_kg", "0"),
-        ("shipping_fee", "0"), ("handling_fee", "0"), ("total_fee", "0")
+        ("shipping_fee", "0"), ("handling_fee", "0"), ("total_fee", "0"),
+        ("payment_last5", "''"), ("payment_at", "''")
     ]:
         try:
             conn.execute(f"ALTER TABLE shipment_requests ADD COLUMN {col} REAL DEFAULT {default}")
@@ -724,6 +725,35 @@ def get_my_shipment_requests():
     ).fetchall()
     conn.close()
     return jsonify({"success": True, "requests": [dict(r) for r in rows]})
+
+
+@app.route("/api/shipment_requests/<int:req_id>/payment", methods=["POST"])
+def submit_payment_info(req_id):
+    """客戶回報匯款後五碼"""
+    data = request.json
+    last5 = (data.get("last5") or "").strip()
+    g_code = (data.get("g_code") or "").strip().upper()
+
+    if not last5 or len(last5) != 5:
+        return jsonify({"success": False, "error": "請輸入帳號後五碼（5位數字）"})
+    if not last5.isdigit():
+        return jsonify({"success": False, "error": "請輸入數字"})
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_db()
+    # 確認是該客戶的申請
+    row = conn.execute("SELECT g_code FROM shipment_requests WHERE id=?", (req_id,)).fetchone()
+    if not row or row["g_code"] != g_code:
+        conn.close()
+        return jsonify({"success": False, "error": "找不到該申請"})
+
+    conn.execute(
+        "UPDATE shipment_requests SET payment_last5=?, payment_at=? WHERE id=?",
+        (last5, now, req_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "message": "匯款回報成功！"})
 
 
 @app.route("/api/admin/shipment_requests", methods=["GET"])

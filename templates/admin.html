@@ -320,6 +320,7 @@
                                 <th>客戶備註</th>
                                 <th>申請時間</th>
                                 <th>狀態</th>
+                                <th>匯款</th>
                                 <th>操作</th>
                             </tr>
                         </thead>
@@ -894,7 +895,7 @@ async function loadShipReqs() {
         const result = await res.json();
         const tbody = document.getElementById('shipreqTable');
         if (!result.success || !result.requests.length) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#666;padding:30px;">無出貨申請</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#666;padding:30px;">無出貨申請</td></tr>';
             return;
         }
         tbody.innerHTML = result.requests.map(function(r) {
@@ -908,6 +909,14 @@ async function loadShipReqs() {
             } else {
                 actions = r.total_fee ? '<span style="font-size:12px;color:#27ae60;font-weight:700;">NT$' + Math.round(r.total_fee).toLocaleString() + '</span><br><span style="font-size:11px;color:#888;">' + (r.billed_weight||0) + 'kg × ' + (r.rate_per_kg||0) + ' + 理貨' + (r.handling_fee||0) + '</span>' : '<span style="font-size:12px;color:#666;">' + (r.updated_at || '-') + '</span>';
             }
+            var paymentHtml = '';
+            if (r.payment_last5) {
+                paymentHtml = '<span style="font-size:12px;color:#27ae60;font-weight:600;">✅ ' + r.payment_last5 + '</span><br><span style="font-size:10px;color:#888;">' + (r.payment_at||'') + '</span>';
+            } else if (r.total_fee && r.total_fee > 0) {
+                paymentHtml = '<span style="font-size:11px;color:#e74c3c;">未回報</span>';
+            } else {
+                paymentHtml = '-';
+            }
             return '<tr>'
                 + '<td><span class="g-code">' + r.g_code + '</span></td>'
                 + '<td>' + (r.customer_name || '-') + '</td>'
@@ -915,6 +924,7 @@ async function loadShipReqs() {
                 + '<td style="font-size:12px;color:#ccc;">' + (r.note || '-') + '</td>'
                 + '<td style="font-size:12px;">' + r.created_at + '</td>'
                 + '<td><span style="padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;background:' + c + '22;color:' + c + ';">' + r.status + '</span></td>'
+                + '<td>' + paymentHtml + '</td>'
                 + '<td style="white-space:nowrap;">' + actions + '</td>'
                 + '</tr>';
         }).join('');

@@ -962,6 +962,26 @@
             } catch (e) { showToast('網路錯誤', 'error'); }
         }
 
+        async function submitPayment(reqId) {
+            const input = document.getElementById('pay5-' + reqId);
+            const last5 = (input?.value || '').trim();
+            if (!last5 || last5.length !== 5) { showToast('請輸入帳號後五碼（5位數字）', 'error'); return; }
+            try {
+                const res = await fetch('/api/shipment_requests/' + reqId + '/payment', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ last5: last5, g_code: currentCustomer.g_code })
+                });
+                const result = await res.json();
+                if (result.success) {
+                    showToast('✅ 匯款回報成功！', 'success');
+                    loadShipRequests();
+                } else {
+                    showToast('❌ ' + (result.error || '回報失敗'), 'error');
+                }
+            } catch(e) { showToast('網路錯誤', 'error'); }
+        }
+
         async function loadShipRequests() {
             if (!currentCustomer) return;
             try {
@@ -996,6 +1016,18 @@
                                     帳號：<strong style="color:#fff;">699515361956</strong>
                                     <button onclick="navigator.clipboard.writeText('699515361956');this.textContent='已複製✓';setTimeout(()=>this.textContent='📋',1500)" style="background:rgba(243,156,18,.2);border:none;color:#f39c12;padding:2px 8px;border-radius:4px;font-size:11px;cursor:pointer;margin-left:6px;">📋</button>
                                 </div>
+                                ${req.payment_last5 
+                                    ? `<div style="margin-top:10px;padding:10px 14px;background:rgba(39,174,96,0.1);border:1px solid rgba(39,174,96,0.3);border-radius:8px;font-size:13px;color:#27ae60;font-weight:600;">
+                                        ✅ 已回報匯款（後五碼：${req.payment_last5}）<span style="font-size:11px;color:#888;font-weight:400;margin-left:8px;">${req.payment_at || ''}</span>
+                                       </div>`
+                                    : `<div style="margin-top:10px;padding:12px;background:rgba(243,156,18,0.08);border:1px solid rgba(243,156,18,0.2);border-radius:8px;">
+                                        <div style="font-size:13px;color:#f39c12;font-weight:600;margin-bottom:8px;">💳 匯款完成請回報</div>
+                                        <div style="display:flex;gap:8px;align-items:center;">
+                                            <input type="text" id="pay5-${req.id}" maxlength="5" placeholder="帳號後五碼" style="width:120px;padding:8px 12px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;font-size:14px;text-align:center;letter-spacing:2px;">
+                                            <button onclick="submitPayment(${req.id})" style="padding:8px 16px;background:linear-gradient(135deg,#27ae60,#2ecc71);border:none;border-radius:6px;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">確認回報</button>
+                                        </div>
+                                       </div>`
+                                }
                             </div>`;
                         }
                         
