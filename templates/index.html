@@ -974,13 +974,39 @@
                     container.innerHTML = result.requests.map(req => {
                         const statusColors = {'待處理':'#f39c12','處理中':'#3498db','已出貨':'#27ae60','已拒絕':'#e74c3c'};
                         const color = statusColors[req.status] || '#888';
+                        
+                        // 帳單區塊
+                        let billingHtml = '';
+                        if (req.total_fee && req.total_fee > 0) {
+                            billingHtml = `
+                            <div style="margin:-6px 0 10px 0;padding:16px;background:linear-gradient(135deg,rgba(39,174,96,0.08),rgba(39,174,96,0.03));border:1px solid rgba(39,174,96,0.2);border-radius:10px;">
+                                <div style="font-size:14px;font-weight:700;color:#27ae60;margin-bottom:10px;">💰 出貨帳單</div>
+                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px;color:#ccc;">
+                                    <div>計費重量：<strong style="color:#fff;">${req.billed_weight || 0} kg</strong></div>
+                                    <div>運費單價：<strong style="color:#fff;">${req.rate_per_kg || 0} 台幣/kg</strong></div>
+                                    <div>運費小計：<strong style="color:#fff;">NT$ ${Math.round(req.shipping_fee || 0).toLocaleString()}</strong></div>
+                                    <div>理貨費：<strong style="color:#fff;">NT$ ${Math.round(req.handling_fee || 0).toLocaleString()}</strong></div>
+                                </div>
+                                <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.1);font-size:18px;font-weight:700;color:#f39c12;">
+                                    合計：NT$ ${Math.round(req.total_fee).toLocaleString()}
+                                </div>
+                                <div style="margin-top:12px;padding:12px;background:rgba(0,0,0,0.2);border-radius:8px;font-size:13px;color:#ccc;line-height:1.8;">
+                                    <div style="font-weight:600;color:#f39c12;margin-bottom:4px;">🏦 匯款資訊</div>
+                                    銀行代碼：<strong style="color:#fff;">(013) 國泰世華銀行</strong><br>
+                                    帳號：<strong style="color:#fff;">699515361956</strong>
+                                    <button onclick="navigator.clipboard.writeText('699515361956');this.textContent='已複製✓';setTimeout(()=>this.textContent='📋',1500)" style="background:rgba(243,156,18,.2);border:none;color:#f39c12;padding:2px 8px;border-radius:4px;font-size:11px;cursor:pointer;margin-left:6px;">📋</button>
+                                </div>
+                            </div>`;
+                        }
+                        
                         return `<div class="package-item" style="grid-template-columns: 1fr 2fr 1fr 1fr;">
                             <div><div class="label">申請時間</div><div class="value" style="font-size:12px;">${req.created_at}</div></div>
                             <div><div class="label">包裹內容</div><div class="value" style="font-size:12px;line-height:1.8;">${(req.package_summary || '-').replace(/\n/g, '<br>')}</div></div>
                             <div><div class="label">狀態</div><div class="value"><span style="padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;background:${color}22;color:${color};">${req.status}</span></div></div>
                             <div><div class="label">管理員回覆</div><div class="value" style="font-size:12px;">${req.admin_note || '-'}</div></div>
                         </div>
-                        ${req.note ? `<div style="margin:-6px 0 10px 0;padding:8px 14px;background:rgba(255,255,255,0.03);border-radius:8px;font-size:12px;color:#888;">📝 ${req.note}</div>` : ''}`;
+                        ${req.note ? `<div style="margin:-6px 0 10px 0;padding:8px 14px;background:rgba(255,255,255,0.03);border-radius:8px;font-size:12px;color:#888;">📝 ${req.note}</div>` : ''}
+                        ${billingHtml}`;
                     }).join('');
                 } else {
                     card.style.display = 'none';

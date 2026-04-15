@@ -87,6 +87,15 @@ def init_db():
             value TEXT NOT NULL
         )
     """)
+    # 帳單欄位遷移（已存在的表加欄位）
+    for col, default in [
+        ("billed_weight", "0"), ("rate_per_kg", "0"),
+        ("shipping_fee", "0"), ("handling_fee", "0"), ("total_fee", "0")
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE shipment_requests ADD COLUMN {col} REAL DEFAULT {default}")
+        except:
+            pass
     conn.commit()
     conn.close()
 
@@ -736,17 +745,34 @@ def admin_get_shipment_requests():
 
 @app.route("/api/admin/shipment_requests/<int:req_id>", methods=["PUT"])
 def admin_update_shipment_request(req_id):
-    """管理員更新出貨申請狀態"""
+    """管理員更新出貨申請狀態（含帳單資訊）"""
     data = request.json
     status = data.get("status", "")
     admin_note = data.get("admin_note", "")
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     conn = get_db()
-    conn.execute(
-        "UPDATE shipment_requests SET status=?, admin_note=?, updated_at=? WHERE id=?",
-        (status, admin_note, now, req_id)
-    )
+
+    # 帳單欄位（出貨時填寫）
+    billed_weight = data.get("billed_weight", 0)
+    rate_per_kg = data.get("rate_per_kg", 0)
+    shipping_fee = data.get("shipping_fee", 0)
+    handling_fee = data.get("handling_fee", 0)
+    total_fee = data.get("total_fee", 0)
+
+    if status == "已出貨" and billed_weight:
+        conn.execute(
+            """UPDATE shipment_requests 
+               SET status=?, admin_note=?, updated_at=?,
+                   billed_weight=?, rate_per_kg=?, shipping_fee=?, handling_fee=?, total_fee=?
+               WHERE id=?""",
+            (status, admin_note, now, billed_weight, rate_per_kg, shipping_fee, handling_fee, total_fee, req_id)
+        )
+    else:
+        conn.execute(
+            "UPDATE shipment_requests SET status=?, admin_note=?, updated_at=? WHERE id=?",
+            (status, admin_note, now, req_id)
+        )
 
     # 如果管理員標記為「已出貨」，同步更新包裹狀態
     if status == "已出貨":
