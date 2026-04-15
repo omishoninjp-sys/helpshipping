@@ -683,14 +683,6 @@
 
             <!-- 我的包裹 -->
             <div class="tab-content" id="tab-packages">
-                <!-- 出貨申請記錄 -->
-                <div class="card" id="shipRequestsCard" style="display:none;">
-                    <div class="list-header">
-                        <h3>📋 我的出貨申請</h3>
-                    </div>
-                    <div id="shipRequestsList"></div>
-                </div>
-
                 <div class="card">
                     <div class="list-header">
                         <h3>📦 我的包裹</h3>
@@ -708,6 +700,14 @@
 
             <!-- 運單查詢 -->
             <div class="tab-content" id="tab-orders">
+                <!-- 出貨申請記錄 -->
+                <div class="card" id="shipRequestsCard" style="display:none;">
+                    <div class="list-header">
+                        <h3>📋 我的出貨申請</h3>
+                    </div>
+                    <div id="shipRequestsList"></div>
+                </div>
+
                 <div class="card">
                     <div class="list-header">
                         <h3>🚚 運單查詢</h3>
@@ -790,7 +790,7 @@
             document.querySelector(`.tab[onclick="switchTab('${tab}')"]`).classList.add('active');
             document.getElementById(`tab-${tab}`).classList.add('active');
             if (tab === 'packages') loadPackages();
-            if (tab === 'orders') loadOrders();
+            if (tab === 'orders') { loadOrders(); loadShipRequests(); }
             if (tab === 'forecast') loadForecastHistory();
         }
 
@@ -909,7 +909,6 @@
                     `}).join('');
                 } else { container.innerHTML = '<div class="empty-state"><div class="icon">📭</div><p>尚無包裹記錄</p></div>'; }
                 updateShipRequestBtn();
-                loadShipRequests();
             } catch (e) { showToast('載入失敗', 'error'); }
         }
 
