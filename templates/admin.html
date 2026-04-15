@@ -448,8 +448,13 @@
                 <input type="number" id="bill-shipping" class="form-control" readonly style="color:#27ae60;font-weight:700;">
             </div>
             <div class="form-group" style="margin:0;">
+                <label>理貨重量 (kg)</label>
+                <input type="number" id="bill-handling-weight" class="form-control" step="0.5" min="0" placeholder="0 = 不收" oninput="calcHandling()">
+            </div>
+            <div class="form-group" style="margin:0;">
                 <label>理貨費</label>
                 <input type="number" id="bill-handling" class="form-control" min="0" oninput="calcTotal()">
+                <div style="font-size:11px;color:#888;margin-top:2px;">首重 11/kg，續重 6/0.5kg</div>
             </div>
         </div>
         <!-- 加值服務 -->
@@ -465,7 +470,7 @@
         </div>
         <div style="font-size:12px;color:#888;margin-top:8px;">
             運費 = 計費重量 × 單價<br>
-            理貨費 = 預設自動計算（可手動改為 0 或其他金額）<br>
+            理貨費 = 首重 11/kg + 續重 6/0.5kg（理貨重量填 0 = 不收）<br>
             計費規則：最低 1kg，超過後以 0.5kg 進位
         </div>
         <div class="form-group" style="margin-top:12px;">
@@ -1114,6 +1119,7 @@ function openBillingModal(reqId, gCode, name, summary) {
     document.getElementById('bill-billed-weight').value = '';
     document.getElementById('bill-shipping').value = '';
     document.getElementById('bill-handling').value = '';
+    document.getElementById('bill-handling-weight').value = '';
     document.getElementById('bill-total').value = '';
     document.getElementById('bill-admin-note').value = '';
     document.getElementById('bill-tracking').value = '';
@@ -1160,6 +1166,7 @@ function calcBilling() {
     if (weight <= 0) {
         document.getElementById('bill-billed-weight').value = '';
         document.getElementById('bill-shipping').value = '';
+        document.getElementById('bill-handling-weight').value = '';
         document.getElementById('bill-handling').value = '';
         document.getElementById('bill-total').value = '';
         return;
@@ -1169,13 +1176,27 @@ function calcBilling() {
     else billed = Math.ceil(billed * 2) / 2;
     
     var shipping = Math.round(billed * rate);
-    var wholeKg = Math.floor(billed);
-    var hasHalf = (billed - wholeKg) >= 0.5 ? 1 : 0;
-    var handling = wholeKg * 11 + hasHalf * 6;
     
     document.getElementById('bill-billed-weight').value = billed.toFixed(1);
     document.getElementById('bill-shipping').value = shipping;
-    document.getElementById('bill-handling').value = handling;
+    // 預設理貨重量 = 計費重量
+    document.getElementById('bill-handling-weight').value = billed.toFixed(1);
+    calcHandling();
+}
+
+function calcHandling() {
+    var hw = parseFloat(document.getElementById('bill-handling-weight').value) || 0;
+    if (hw <= 0) {
+        document.getElementById('bill-handling').value = 0;
+    } else {
+        // 計費：最低1kg，0.5kg進位
+        var billedHw = hw < 1 ? 1 : Math.ceil(hw * 2) / 2;
+        // 首重 11/整數kg，續重 6/半kg
+        var wholeKg = Math.floor(billedHw);
+        var hasHalf = (billedHw - wholeKg) >= 0.5 ? 1 : 0;
+        var handling = wholeKg * 11 + hasHalf * 6;
+        document.getElementById('bill-handling').value = handling;
+    }
     calcTotal();
 }
 
