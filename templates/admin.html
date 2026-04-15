@@ -449,7 +449,7 @@
             </div>
             <div class="form-group" style="margin:0;">
                 <label>理貨費</label>
-                <input type="number" id="bill-handling" class="form-control" readonly>
+                <input type="number" id="bill-handling" class="form-control" min="0" oninput="calcTotal()">
             </div>
         </div>
         <!-- 加值服務 -->
@@ -465,7 +465,7 @@
         </div>
         <div style="font-size:12px;color:#888;margin-top:8px;">
             運費 = 計費重量 × 單價<br>
-            理貨費 = 整數kg × 11 + 半kg × 6<br>
+            理貨費 = 預設自動計算（可手動改為 0 或其他金額）<br>
             計費規則：最低 1kg，超過後以 0.5kg 進位
         </div>
         <div class="form-group" style="margin-top:12px;">
@@ -1135,10 +1135,10 @@ function addExtraService() {
     var idx = container.children.length;
     container.insertAdjacentHTML('beforeend',
         '<div class="extra-svc-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">'
-        + '<input type="text" class="form-control extra-svc-name" placeholder="服務名稱" style="flex:2;padding:8px 10px;font-size:13px;" oninput="calcBilling()">'
-        + '<input type="number" class="form-control extra-svc-price" placeholder="金額" style="flex:1;padding:8px 10px;font-size:13px;text-align:right;" min="0" oninput="calcBilling()">'
+        + '<input type="text" class="form-control extra-svc-name" placeholder="服務名稱" style="flex:2;padding:8px 10px;font-size:13px;">'
+        + '<input type="number" class="form-control extra-svc-price" placeholder="金額" style="flex:1;padding:8px 10px;font-size:13px;text-align:right;" min="0" oninput="calcTotal()">'
         + '<span style="color:#888;font-size:12px;white-space:nowrap;">台幣</span>'
-        + '<button onclick="this.parentElement.remove();calcBilling();" style="background:rgba(231,76,60,.2);border:none;color:#e74c3c;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;">✕</button>'
+        + '<button onclick="this.parentElement.remove();calcTotal();" style="background:rgba(231,76,60,.2);border:none;color:#e74c3c;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;">✕</button>'
         + '</div>'
     );
 }
@@ -1173,16 +1173,18 @@ function calcBilling() {
     var hasHalf = (billed - wholeKg) >= 0.5 ? 1 : 0;
     var handling = wholeKg * 11 + hasHalf * 6;
     
-    // 加值服務
-    var extras = getExtraServices();
-    var extrasTotal = extras.reduce(function(sum, e) { return sum + e.price; }, 0);
-    
-    var total = shipping + handling + extrasTotal;
-    
     document.getElementById('bill-billed-weight').value = billed.toFixed(1);
     document.getElementById('bill-shipping').value = shipping;
     document.getElementById('bill-handling').value = handling;
-    document.getElementById('bill-total').value = total;
+    calcTotal();
+}
+
+function calcTotal() {
+    var shipping = parseInt(document.getElementById('bill-shipping').value) || 0;
+    var handling = parseInt(document.getElementById('bill-handling').value) || 0;
+    var extras = getExtraServices();
+    var extrasTotal = extras.reduce(function(sum, e) { return sum + e.price; }, 0);
+    document.getElementById('bill-total').value = shipping + handling + extrasTotal;
 }
 
 async function submitBilling() {
