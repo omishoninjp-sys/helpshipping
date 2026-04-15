@@ -462,6 +462,10 @@
             計費規則：最低 1kg，超過後以 0.5kg 進位
         </div>
         <div class="form-group" style="margin-top:12px;">
+            <label>📦 追蹤號碼（SG 物流單號）</label>
+            <input type="text" id="bill-tracking" class="form-control" placeholder="例：SG21213544501">
+        </div>
+        <div class="form-group">
             <label>管理員備註（選填）</label>
             <input type="text" id="bill-admin-note" class="form-control" placeholder="選填">
         </div>
@@ -1084,6 +1088,7 @@ function openBillingModal(reqId, gCode, name, summary) {
     document.getElementById('bill-handling').value = '';
     document.getElementById('bill-total').value = '';
     document.getElementById('bill-admin-note').value = '';
+    document.getElementById('bill-tracking').value = '';
     // 查找會員運費
     var member = membersData.find(function(m) { return m.g_code === gCode; });
     var rate = (member && member.shipping_rate) ? parseInt(member.shipping_rate) : 180;
@@ -1135,6 +1140,7 @@ async function submitBilling() {
     var handling = parseInt(document.getElementById('bill-handling').value);
     var total = parseInt(document.getElementById('bill-total').value);
     var adminNote = document.getElementById('bill-admin-note').value;
+    var trackingNum = document.getElementById('bill-tracking').value.trim();
 
     if (!billedWeight || billedWeight <= 0) { showToast('請輸入重量', 'error'); return; }
 
@@ -1149,7 +1155,8 @@ async function submitBilling() {
                 rate_per_kg: rate,
                 shipping_fee: shipping,
                 handling_fee: handling,
-                total_fee: total
+                total_fee: total,
+                tracking_num: trackingNum
             })
         });
         var result = await res.json();

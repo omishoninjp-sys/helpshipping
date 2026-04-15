@@ -91,7 +91,7 @@ def init_db():
     for col, default in [
         ("billed_weight", "0"), ("rate_per_kg", "0"),
         ("shipping_fee", "0"), ("handling_fee", "0"), ("total_fee", "0"),
-        ("payment_last5", "''"), ("payment_at", "''")
+        ("payment_last5", "''"), ("payment_at", "''"), ("tracking_num", "''")
     ]:
         try:
             conn.execute(f"ALTER TABLE shipment_requests ADD COLUMN {col} REAL DEFAULT {default}")
@@ -789,14 +789,15 @@ def admin_update_shipment_request(req_id):
     shipping_fee = data.get("shipping_fee", 0)
     handling_fee = data.get("handling_fee", 0)
     total_fee = data.get("total_fee", 0)
+    tracking_num = data.get("tracking_num", "")
 
     if status == "已出貨" and billed_weight:
         conn.execute(
             """UPDATE shipment_requests 
                SET status=?, admin_note=?, updated_at=?,
-                   billed_weight=?, rate_per_kg=?, shipping_fee=?, handling_fee=?, total_fee=?
+                   billed_weight=?, rate_per_kg=?, shipping_fee=?, handling_fee=?, total_fee=?, tracking_num=?
                WHERE id=?""",
-            (status, admin_note, now, billed_weight, rate_per_kg, shipping_fee, handling_fee, total_fee, req_id)
+            (status, admin_note, now, billed_weight, rate_per_kg, shipping_fee, handling_fee, total_fee, tracking_num, req_id)
         )
     else:
         conn.execute(
