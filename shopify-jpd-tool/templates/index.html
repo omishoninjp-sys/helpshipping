@@ -413,6 +413,7 @@
                     <tbody id="shopify-orders-body">
                     </tbody>
                 </table>
+                <div id="shopify-orders-pagination" style="display:flex;justify-content:center;align-items:center;gap:8px;margin-top:16px;flex-wrap:wrap;"></div>
             </div>
         </div>
         
@@ -571,6 +572,9 @@
         let shopifyOrders = [];
         let jpdPackages = [];
         let currentOrder = null;
+        const ORDER_PAGE_SIZE = 30;
+        let orderPage = 1;
+        let filteredShopifyOrders = [];
         
         // 初始化
         document.addEventListener('DOMContentLoaded', () => {
@@ -605,6 +609,8 @@
                 
                 if (data.success) {
                     shopifyOrders = data.orders;
+                    filteredShopifyOrders = shopifyOrders;
+                    orderPage = 1;
                     renderShopifyOrders();
                 } else {
                     showToast('載入失敗: ' + data.error, 'error');
@@ -620,23 +626,34 @@
         // 渲染 Shopify 訂單
         function filterShopifyOrders() {
             const q = (document.getElementById('shopify-order-search').value || '').trim().toUpperCase();
-            if (!q) { renderShopifyOrders(shopifyOrders); return; }
-            const filtered = shopifyOrders.filter(o =>
-                (o.name || '').toUpperCase().includes(q) ||
-                (o.customer_name || '').toUpperCase().includes(q) ||
-                (o.address || '').toUpperCase().includes(q) ||
-                (o.phone || '').includes(q)
-            );
-            renderShopifyOrders(filtered);
+            orderPage = 1;
+            if (!q) { filteredShopifyOrders = shopifyOrders; }
+            else {
+                filteredShopifyOrders = shopifyOrders.filter(o =>
+                    (o.name || '').toUpperCase().includes(q) ||
+                    (o.customer_name || '').toUpperCase().includes(q) ||
+                    (o.address || '').toUpperCase().includes(q) ||
+                    (o.phone || '').includes(q)
+                );
+            }
+            renderShopifyOrders();
         }
 
-        function renderShopifyOrders(list) {
-            list = list || shopifyOrders;
+        function renderShopifyOrders() {
+            const list = filteredShopifyOrders.length ? filteredShopifyOrders : (filteredShopifyOrders === shopifyOrders ? shopifyOrders : []);
+            const total = filteredShopifyOrders.length;
+            const totalPages = Math.max(1, Math.ceil(total / ORDER_PAGE_SIZE));
+            if (orderPage > totalPages) orderPage = totalPages;
+            const start = (orderPage - 1) * ORDER_PAGE_SIZE;
+            const end = Math.min(start + ORDER_PAGE_SIZE, total);
+            const pageList = filteredShopifyOrders.slice(start, end);
+
             const countEl = document.getElementById('shopify-order-count');
             const q = (document.getElementById('shopify-order-search')?.value || '').trim();
-            countEl.textContent = q ? `搜尋到 ${list.length} 筆（共 ${shopifyOrders.length} 筆）` : `共 ${list.length} 筆`;
+            countEl.textContent = q ? `搜尋到 ${total} 筆（共 ${shopifyOrders.length} 筆）` : `共 ${total} 筆`;
+
             const tbody = document.getElementById('shopify-orders-body');
-            tbody.innerHTML = list.map(order => `
+            tbody.innerHTML = pageList.map(order => `
                 <tr>
                     <td><input type="checkbox" class="order-chk" value="${order.id}" onchange="updateBatchBtn()" style="accent-color:#f39c12;cursor:pointer;width:15px;height:15px;"></td>
                     <td><strong>${order.name}</strong></td>
@@ -653,6 +670,33 @@
                 </tr>
             `).join('');
             updateBatchBtn();
+            renderOrderPagination(totalPages);
+        }
+
+        function renderOrderPagination(totalPages) {
+            const container = document.getElementById('shopify-orders-pagination');
+            if (totalPages <= 1) { container.innerHTML = ''; return; }
+            let html = '';
+            html += `<button class="btn btn-secondary" style="padding:6px 12px;font-size:12px;" onclick="goOrderPage(1)" ${orderPage===1?'disabled':''}>«</button>`;
+            html += `<button class="btn btn-secondary" style="padding:6px 12px;font-size:12px;" onclick="goOrderPage(${orderPage-1})" ${orderPage===1?'disabled':''}>‹</button>`;
+            let startP = Math.max(1, orderPage - 3);
+            let endP = Math.min(totalPages, startP + 6);
+            if (endP - startP < 6) startP = Math.max(1, endP - 6);
+            for (let p = startP; p <= endP; p++) {
+                const active = p === orderPage ? 'background:rgba(243,156,18,.2);border-color:#f39c12;color:#f39c12;font-weight:700;' : '';
+                html += `<button class="btn btn-secondary" style="padding:6px 12px;font-size:12px;${active}" onclick="goOrderPage(${p})">${p}</button>`;
+            }
+            html += `<button class="btn btn-secondary" style="padding:6px 12px;font-size:12px;" onclick="goOrderPage(${orderPage+1})" ${orderPage===totalPages?'disabled':''}>›</button>`;
+            html += `<button class="btn btn-secondary" style="padding:6px 12px;font-size:12px;" onclick="goOrderPage(${totalPages})" ${orderPage===totalPages?'disabled':''}>»</button>`;
+            html += `<span style="font-size:12px;color:#888;">第 ${orderPage}/${totalPages} 頁</span>`;
+            container.innerHTML = html;
+        }
+
+        function goOrderPage(p) {
+            const totalPages = Math.max(1, Math.ceil(filteredShopifyOrders.length / ORDER_PAGE_SIZE));
+            if (p < 1 || p > totalPages) return;
+            orderPage = p;
+            renderShopifyOrders();
         }
 
         function toggleAllOrders(chk) {

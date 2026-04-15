@@ -173,7 +173,7 @@ def health():
 def get_shopify_orders():
     """取得 Shopify 訂單列表"""
     status = request.args.get("status", "unfulfilled")
-    limit = request.args.get("limit", 50)
+    limit = request.args.get("limit", 250)
     
     result = shopify_request(f"orders.json?status=any&fulfillment_status={status}&limit={limit}")
     
