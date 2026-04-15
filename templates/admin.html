@@ -451,10 +451,17 @@
                 <label>理貨費</label>
                 <input type="number" id="bill-handling" class="form-control" readonly>
             </div>
-            <div class="form-group" style="margin:0;">
-                <label>💰 合計 (台幣)</label>
-                <input type="number" id="bill-total" class="form-control" style="color:#f39c12;font-weight:700;font-size:18px;" readonly>
-            </div>
+        </div>
+        <!-- 加值服務 -->
+        <div style="margin-top:14px;padding:14px;background:rgba(155,89,182,0.08);border:1px solid rgba(155,89,182,0.2);border-radius:8px;">
+            <div style="font-size:13px;font-weight:600;color:#9b59b6;margin-bottom:10px;">⭐ 加值服務（選填）</div>
+            <div id="extraServicesContainer"></div>
+            <button type="button" onclick="addExtraService()" style="display:flex;align-items:center;gap:6px;padding:8px 14px;background:rgba(155,89,182,0.1);border:1px dashed rgba(155,89,182,0.4);border-radius:6px;color:#9b59b6;font-size:12px;cursor:pointer;width:100%;justify-content:center;margin-top:8px;">➕ 新增加值服務</button>
+        </div>
+        <!-- 合計 -->
+        <div style="margin-top:14px;padding:14px;background:rgba(243,156,18,0.08);border:1px solid rgba(243,156,18,0.2);border-radius:10px;text-align:center;">
+            <div style="font-size:12px;color:#888;margin-bottom:4px;">💰 合計 (台幣)</div>
+            <input type="number" id="bill-total" class="form-control" style="color:#f39c12;font-weight:700;font-size:22px;text-align:center;background:transparent;border:none;" readonly>
         </div>
         <div style="font-size:12px;color:#888;margin-top:8px;">
             運費 = 計費重量 × 單價<br>
@@ -1110,6 +1117,7 @@ function openBillingModal(reqId, gCode, name, summary) {
     document.getElementById('bill-total').value = '';
     document.getElementById('bill-admin-note').value = '';
     document.getElementById('bill-tracking').value = '';
+    document.getElementById('extraServicesContainer').innerHTML = '';
     // 查找會員運費
     var member = membersData.find(function(m) { return m.g_code === gCode; });
     var rate = (member && member.shipping_rate) ? parseInt(member.shipping_rate) : 180;
@@ -1122,6 +1130,30 @@ function closeBillingModal() {
     document.getElementById('billingModal').classList.remove('show');
 }
 
+function addExtraService() {
+    var container = document.getElementById('extraServicesContainer');
+    var idx = container.children.length;
+    container.insertAdjacentHTML('beforeend',
+        '<div class="extra-svc-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">'
+        + '<input type="text" class="form-control extra-svc-name" placeholder="服務名稱" style="flex:2;padding:8px 10px;font-size:13px;" oninput="calcBilling()">'
+        + '<input type="number" class="form-control extra-svc-price" placeholder="金額" style="flex:1;padding:8px 10px;font-size:13px;text-align:right;" min="0" oninput="calcBilling()">'
+        + '<span style="color:#888;font-size:12px;white-space:nowrap;">台幣</span>'
+        + '<button onclick="this.parentElement.remove();calcBilling();" style="background:rgba(231,76,60,.2);border:none;color:#e74c3c;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;">✕</button>'
+        + '</div>'
+    );
+}
+
+function getExtraServices() {
+    var rows = document.querySelectorAll('.extra-svc-row');
+    var extras = [];
+    rows.forEach(function(row) {
+        var name = (row.querySelector('.extra-svc-name')?.value || '').trim();
+        var price = parseInt(row.querySelector('.extra-svc-price')?.value) || 0;
+        if (name && price > 0) extras.push({ name: name, price: price });
+    });
+    return extras;
+}
+
 function calcBilling() {
     var weight = parseFloat(document.getElementById('bill-weight').value) || 0;
     var rate = parseInt(document.getElementById('bill-rate').value) || 0;
@@ -1132,20 +1164,20 @@ function calcBilling() {
         document.getElementById('bill-total').value = '';
         return;
     }
-    // 計費重量：最低 1kg，超過後以 0.5kg 進位
     var billed = weight;
     if (billed < 1) billed = 1;
-    else billed = Math.ceil(billed * 2) / 2; // 進位到 0.5
+    else billed = Math.ceil(billed * 2) / 2;
     
-    // 運費
     var shipping = Math.round(billed * rate);
-    
-    // 理貨費：整數kg × 11 + 半kg × 6
     var wholeKg = Math.floor(billed);
     var hasHalf = (billed - wholeKg) >= 0.5 ? 1 : 0;
     var handling = wholeKg * 11 + hasHalf * 6;
     
-    var total = shipping + handling;
+    // 加值服務
+    var extras = getExtraServices();
+    var extrasTotal = extras.reduce(function(sum, e) { return sum + e.price; }, 0);
+    
+    var total = shipping + handling + extrasTotal;
     
     document.getElementById('bill-billed-weight').value = billed.toFixed(1);
     document.getElementById('bill-shipping').value = shipping;
@@ -1162,6 +1194,7 @@ async function submitBilling() {
     var total = parseInt(document.getElementById('bill-total').value);
     var adminNote = document.getElementById('bill-admin-note').value;
     var trackingNum = document.getElementById('bill-tracking').value.trim();
+    var extras = getExtraServices();
 
     if (!billedWeight || billedWeight <= 0) { showToast('請輸入重量', 'error'); return; }
 
@@ -1177,7 +1210,8 @@ async function submitBilling() {
                 shipping_fee: shipping,
                 handling_fee: handling,
                 total_fee: total,
-                tracking_num: trackingNum
+                tracking_num: trackingNum,
+                extra_services: extras
             })
         });
         var result = await res.json();

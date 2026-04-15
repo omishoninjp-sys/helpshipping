@@ -1006,6 +1006,18 @@
                                     <div>運費小計：<strong style="color:#fff;">NT$ ${Math.round(req.shipping_fee || 0).toLocaleString()}</strong></div>
                                     <div>理貨費：<strong style="color:#fff;">NT$ ${Math.round(req.handling_fee || 0).toLocaleString()}</strong></div>
                                 </div>
+                                ${(() => {
+                                    try {
+                                        const extras = typeof req.extra_services === 'string' ? JSON.parse(req.extra_services || '[]') : (req.extra_services || []);
+                                        if (extras.length > 0) {
+                                            return '<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.06);font-size:13px;color:#ccc;">'
+                                                + '<div style="font-weight:600;color:#9b59b6;margin-bottom:4px;">⭐ 加值服務</div>'
+                                                + extras.map(e => '<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>' + e.name + '</span><strong style="color:#fff;">NT$ ' + e.price.toLocaleString() + '</strong></div>').join('')
+                                                + '</div>';
+                                        }
+                                        return '';
+                                    } catch(e) { return ''; }
+                                })()}
                                 <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.1);font-size:18px;font-weight:700;color:#f39c12;">
                                     合計：NT$ ${Math.round(req.total_fee).toLocaleString()}
                                 </div>
