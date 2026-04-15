@@ -976,7 +976,7 @@
                         const color = statusColors[req.status] || '#888';
                         return `<div class="package-item" style="grid-template-columns: 1fr 2fr 1fr 1fr;">
                             <div><div class="label">申請時間</div><div class="value" style="font-size:12px;">${req.created_at}</div></div>
-                            <div><div class="label">包裹內容</div><div class="value" style="font-size:12px;">${req.package_summary || '-'}</div></div>
+                            <div><div class="label">包裹內容</div><div class="value" style="font-size:12px;line-height:1.8;">${(req.package_summary || '-').replace(/\n/g, '<br>')}</div></div>
                             <div><div class="label">狀態</div><div class="value"><span style="padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;background:${color}22;color:${color};">${req.status}</span></div></div>
                             <div><div class="label">管理員回覆</div><div class="value" style="font-size:12px;">${req.admin_note || '-'}</div></div>
                         </div>

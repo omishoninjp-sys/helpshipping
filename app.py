@@ -670,18 +670,24 @@ def create_shipment_request():
 
     summary_parts = []
     total_weight = 0
-    for r in rows:
+    for idx, r in enumerate(rows, 1):
         r = dict(r)
         name = r["product_name"] or "商品"
+        logis = r["logis_num"] or ""
         w = r["weight"] or ""
-        summary_parts.append(f"{name}({w}kg)" if w else name)
+        line = f"{idx}. {name}"
+        if w:
+            line += f" / {w} kg"
+        if logis and logis != "-":
+            line += f" / {logis}"
+        summary_parts.append(line)
         try:
             total_weight += float(w) if w else 0
         except:
             pass
-    summary = "、".join(summary_parts)
+    summary = "\n".join(summary_parts)
     if total_weight > 0:
-        summary += f"（合計約 {total_weight:.1f} kg）"
+        summary += f"\n合計約 {total_weight:.1f} kg"
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     ids_str = ",".join(str(i) for i in package_ids)
