@@ -505,9 +505,9 @@
 
             <div class="tabs">
                 <button class="tab active" onclick="switchTab('info')">📋 集運介紹</button>
-                <button class="tab" onclick="switchTab('forecast')">📝 預報包裹</button>
-                <button class="tab" onclick="switchTab('packages')">📦 我的包裹 <span id="badge-packages" style="display:none;background:#e74c3c;color:#fff;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:700;"></span></button>
-                <button class="tab" onclick="switchTab('orders')">🚚 運單查詢 <span id="badge-orders" style="display:none;background:#e74c3c;color:#fff;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:700;"></span></button>
+                <button class="tab" onclick="switchTab('forecast')">📝 預報包裹 <span id="badge-forecast" style="display:none;background:#e74c3c;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;min-width:20px;text-align:center;"></span></button>
+                <button class="tab" onclick="switchTab('packages')">📦 我的包裹 <span id="badge-packages" style="display:none;background:#e74c3c;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;min-width:20px;text-align:center;"></span></button>
+                <button class="tab" onclick="switchTab('orders')">🚚 運單查詢 <span id="badge-orders" style="display:none;background:#e74c3c;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;min-width:20px;text-align:center;"></span></button>
             </div>
 
             <!-- 集運介紹（登入後） -->
@@ -779,6 +779,7 @@
             document.querySelectorAll('.member-code-placeholder').forEach(el => { el.textContent = '會員編號'; });
             document.getElementById('badge-packages').style.display = 'none';
             document.getElementById('badge-orders').style.display = 'none';
+            document.getElementById('badge-forecast').style.display = 'none';
         }
 
         function switchTab(tab) {
@@ -1086,7 +1087,7 @@
         async function updateCustomerBadges() {
             if (!currentCustomer) return;
             try {
-                // 我的包裹：已到貨/已入庫的數量
+                // 我的包裹：倉庫中的數量（已到貨/已入庫）
                 const pkgRes = await fetch(`/api/packages?g_code=${currentCustomer.g_code}`);
                 const pkgData = await pkgRes.json();
                 const badgePkg = document.getElementById('badge-packages');
@@ -1098,24 +1099,38 @@
                     } else {
                         badgePkg.style.display = 'none';
                     }
-                }
+                } else { badgePkg.style.display = 'none'; }
 
-                // 運單查詢：有帳單未付款 或 狀態更新的數量
+                // 運單查詢：有帳單待付款的數量
                 const reqRes = await fetch(`/api/shipment_requests?g_code=${currentCustomer.g_code}`);
                 const reqData = await reqRes.json();
                 const badgeOrders = document.getElementById('badge-orders');
                 if (reqData.success && reqData.requests) {
-                    const actionCount = reqData.requests.filter(r => 
-                        (r.status === '已出貨' && r.total_fee > 0 && !r.payment_last5)
+                    const unpaidCount = reqData.requests.filter(r => 
+                        r.status === '已出貨' && r.total_fee && r.total_fee > 0 && !r.payment_last5
                     ).length;
-                    if (actionCount > 0) {
-                        badgeOrders.textContent = actionCount;
+                    if (unpaidCount > 0) {
+                        badgeOrders.textContent = unpaidCount;
                         badgeOrders.style.display = 'inline';
                     } else {
                         badgeOrders.style.display = 'none';
                     }
-                }
-            } catch(e) {}
+                } else { badgeOrders.style.display = 'none'; }
+
+                // 預報包裹：待處理中的預報
+                const fcRes = await fetch(`/api/my_forecasts?g_code=${currentCustomer.g_code}`);
+                const fcData = await fcRes.json();
+                const badgeForecast = document.getElementById('badge-forecast');
+                if (fcData.success && fcData.forecasts) {
+                    const pendingCount = fcData.forecasts.filter(f => f.status === '待處理').length;
+                    if (pendingCount > 0) {
+                        badgeForecast.textContent = pendingCount;
+                        badgeForecast.style.display = 'inline';
+                    } else {
+                        badgeForecast.style.display = 'none';
+                    }
+                } else { badgeForecast.style.display = 'none'; }
+            } catch(e) { console.log('badge update error', e); }
         }
 
         function getStatusClass(statusText) {
