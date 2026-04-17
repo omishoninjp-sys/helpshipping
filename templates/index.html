@@ -506,8 +506,8 @@
             <div class="tabs">
                 <button class="tab active" onclick="switchTab('info')">📋 集運介紹</button>
                 <button class="tab" onclick="switchTab('forecast')">📝 預報包裹</button>
-                <button class="tab" onclick="switchTab('packages')">📦 我的包裹</button>
-                <button class="tab" onclick="switchTab('orders')">🚚 運單查詢</button>
+                <button class="tab" onclick="switchTab('packages')">📦 我的包裹 <span id="badge-packages" style="display:none;background:#e74c3c;color:#fff;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:700;"></span></button>
+                <button class="tab" onclick="switchTab('orders')">🚚 運單查詢 <span id="badge-orders" style="display:none;background:#e74c3c;color:#fff;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:700;"></span></button>
             </div>
 
             <!-- 集運介紹（登入後） -->
@@ -757,6 +757,8 @@
 
                     addFcItem_init();
                     localStorage.setItem('gCode', currentCustomer.g_code);
+                    updateCustomerBadges();
+                    setInterval(updateCustomerBadges, 30000);
                     showToast('登入成功！', 'success');
                 } else {
                     showToast(result.error || '登入失敗', 'error');
@@ -775,6 +777,8 @@
             document.getElementById('password').value = '';
             document.getElementById('shippingRateDisplay').style.display = 'none';
             document.querySelectorAll('.member-code-placeholder').forEach(el => { el.textContent = '會員編號'; });
+            document.getElementById('badge-packages').style.display = 'none';
+            document.getElementById('badge-orders').style.display = 'none';
         }
 
         function switchTab(tab) {
@@ -948,6 +952,7 @@
                 if (result.success) {
                     showToast('✅ ' + result.message, 'success');
                     loadPackages();
+                    updateCustomerBadges();
                 } else {
                     showToast('❌ ' + (result.error || '申請失敗'), 'error');
                 }
@@ -968,6 +973,7 @@
                 if (result.success) {
                     showToast('✅ 匯款回報成功！', 'success');
                     loadShipRequests();
+                    updateCustomerBadges();
                 } else {
                     showToast('❌ ' + (result.error || '回報失敗'), 'error');
                 }
@@ -1075,6 +1081,41 @@
                     `).join('');
                 } else { container.innerHTML = '<div class="empty-state"><div class="icon">📭</div><p>尚無運單記錄</p></div>'; }
             } catch (e) { showToast('載入失敗', 'error'); }
+        }
+
+        async function updateCustomerBadges() {
+            if (!currentCustomer) return;
+            try {
+                // 我的包裹：已到貨/已入庫的數量
+                const pkgRes = await fetch(`/api/packages?g_code=${currentCustomer.g_code}`);
+                const pkgData = await pkgRes.json();
+                const badgePkg = document.getElementById('badge-packages');
+                if (pkgData.success && pkgData.packages) {
+                    const waitingCount = pkgData.packages.filter(p => p.status === '已到貨' || p.status === '已入庫').length;
+                    if (waitingCount > 0) {
+                        badgePkg.textContent = waitingCount;
+                        badgePkg.style.display = 'inline';
+                    } else {
+                        badgePkg.style.display = 'none';
+                    }
+                }
+
+                // 運單查詢：有帳單未付款 或 狀態更新的數量
+                const reqRes = await fetch(`/api/shipment_requests?g_code=${currentCustomer.g_code}`);
+                const reqData = await reqRes.json();
+                const badgeOrders = document.getElementById('badge-orders');
+                if (reqData.success && reqData.requests) {
+                    const actionCount = reqData.requests.filter(r => 
+                        (r.status === '已出貨' && r.total_fee > 0 && !r.payment_last5)
+                    ).length;
+                    if (actionCount > 0) {
+                        badgeOrders.textContent = actionCount;
+                        badgeOrders.style.display = 'inline';
+                    } else {
+                        badgeOrders.style.display = 'none';
+                    }
+                }
+            } catch(e) {}
         }
 
         function getStatusClass(statusText) {
