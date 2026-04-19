@@ -1022,11 +1022,12 @@
                                     合計：NT$ ${Math.round(req.total_fee).toLocaleString()}
                                 </div>
                                 ${req.tracking_num ? `
-                                <div style="margin-top:12px;">
-                                    <a href="https://www.sgxpress.com/query/?logic_num=${req.tracking_num}" target="_blank" 
-                                       style="display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;background:linear-gradient(135deg,#3498db,#2980b9);border-radius:10px;color:#fff;text-decoration:none;font-size:15px;font-weight:700;">
-                                        📍 查詢貨運進度
-                                    </a>
+                                <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px;">
+                                    ${req.tracking_num.split(/[\n,，]+/).filter(t => t.trim()).map((t, i) => `
+                                    <a href="https://www.sgxpress.com/query/?logic_num=${t.trim()}" target="_blank" 
+                                       style="display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;background:linear-gradient(135deg,#3498db,#2980b9);border-radius:10px;color:#fff;text-decoration:none;font-size:14px;font-weight:700;">
+                                        📍 查詢貨運進度 — 第 ${i+1} 箱（${t.trim()}）
+                                    </a>`).join('')}
                                 </div>` : ''}
                                 <div style="margin-top:12px;padding:12px;background:rgba(0,0,0,0.2);border-radius:8px;font-size:13px;color:#ccc;line-height:1.8;">
                                     <div style="font-weight:600;color:#f39c12;margin-bottom:4px;">🏦 匯款資訊</div>
