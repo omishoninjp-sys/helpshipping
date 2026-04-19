@@ -1138,12 +1138,13 @@ function closeBillingModal() {
 
 function addExtraService() {
     var container = document.getElementById('extraServicesContainer');
-    var idx = container.children.length;
     container.insertAdjacentHTML('beforeend',
-        '<div class="extra-svc-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">'
+        '<div class="extra-svc-row" style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">'
         + '<input type="text" class="form-control extra-svc-name" placeholder="服務名稱" style="flex:2;padding:8px 10px;font-size:13px;">'
-        + '<input type="number" class="form-control extra-svc-price" placeholder="金額" style="flex:1;padding:8px 10px;font-size:13px;text-align:right;" min="0" oninput="calcTotal()">'
-        + '<span style="color:#888;font-size:12px;white-space:nowrap;">台幣</span>'
+        + '<input type="number" class="form-control extra-svc-qty" value="1" min="1" style="width:50px;flex:none;padding:8px 6px;font-size:13px;text-align:center;" oninput="calcTotal()">'
+        + '<span style="color:#888;font-size:11px;">×</span>'
+        + '<input type="number" class="form-control extra-svc-price" placeholder="單價" style="flex:1;padding:8px 10px;font-size:13px;text-align:right;" min="0" oninput="calcTotal()">'
+        + '<span style="color:#888;font-size:11px;white-space:nowrap;">台幣</span>'
         + '<button onclick="this.parentElement.remove();calcTotal();" style="background:rgba(231,76,60,.2);border:none;color:#e74c3c;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;">✕</button>'
         + '</div>'
     );
@@ -1154,8 +1155,9 @@ function getExtraServices() {
     var extras = [];
     rows.forEach(function(row) {
         var name = (row.querySelector('.extra-svc-name')?.value || '').trim();
+        var qty = parseInt(row.querySelector('.extra-svc-qty')?.value) || 1;
         var price = parseInt(row.querySelector('.extra-svc-price')?.value) || 0;
-        if (name && price > 0) extras.push({ name: name, price: price });
+        if (name && price > 0) extras.push({ name: name, qty: qty, price: price, subtotal: qty * price });
     });
     return extras;
 }
@@ -1204,7 +1206,7 @@ function calcTotal() {
     var shipping = parseInt(document.getElementById('bill-shipping').value) || 0;
     var handling = parseInt(document.getElementById('bill-handling').value) || 0;
     var extras = getExtraServices();
-    var extrasTotal = extras.reduce(function(sum, e) { return sum + e.price; }, 0);
+    var extrasTotal = extras.reduce(function(sum, e) { return sum + e.subtotal; }, 0);
     document.getElementById('bill-total').value = shipping + handling + extrasTotal;
 }
 
