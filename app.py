@@ -89,12 +89,26 @@ def init_db():
             value TEXT NOT NULL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS addresses (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            g_code      TEXT    NOT NULL,
+            label       TEXT    DEFAULT '',
+            recipient   TEXT    NOT NULL,
+            phone       TEXT    NOT NULL,
+            zipcode     TEXT    DEFAULT '',
+            address     TEXT    NOT NULL,
+            is_default  INTEGER DEFAULT 0,
+            created_at  TEXT    NOT NULL
+        )
+    """)
     # 帳單欄位遷移（已存在的表加欄位）
     for col, default in [
         ("billed_weight", "0"), ("rate_per_kg", "0"),
         ("shipping_fee", "0"), ("handling_fee", "0"), ("total_fee", "0"),
         ("payment_last5", "''"), ("payment_at", "''"), ("tracking_num", "''"),
-        ("extra_services", "''")
+        ("extra_services", "''"),
+        ("ship_recipient", "''"), ("ship_phone", "''"), ("ship_address", "''")
     ]:
         try:
             conn.execute(f"ALTER TABLE shipment_requests ADD COLUMN {col} REAL DEFAULT {default}")
@@ -666,6 +680,124 @@ def get_orders():
     return jsonify({"success": False, "error": "查詢失敗"})
 
 
+# ============ 地址簿 API ============
+
+@app.route("/api/addresses", methods=["GET"])
+def get_addresses():
+    """取得客戶地址簿"""
+    g_code = request.args.get("g_code", "").upper()
+    if not g_code:
+        return jsonify({"success": False, "error": "缺少會員編號"})
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM addresses WHERE g_code=? ORDER BY is_default DESC, id DESC", (g_code,)
+    ).fetchall()
+    conn.close()
+    return jsonify({"success": True, "addresses": [dict(r) for r in rows]})
+
+
+@app.route("/api/addresses", methods=["POST"])
+def add_address():
+    """新增地址"""
+    data = request.json
+    g_code = (data.get("g_code") or "").strip().upper()
+    recipient = (data.get("recipient") or "").strip()
+    phone = (data.get("phone") or "").strip()
+    address = (data.get("address") or "").strip()
+    label = (data.get("label") or "").strip()
+    zipcode = (data.get("zipcode") or "").strip()
+    is_default = 1 if data.get("is_default") else 0
+
+    if not g_code or not recipient or not phone or not address:
+        return jsonify({"success": False, "error": "收件人、電話、地址為必填"})
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_db()
+    # 如果設為預設，先清除其他預設
+    if is_default:
+        conn.execute("UPDATE addresses SET is_default=0 WHERE g_code=?", (g_code,))
+    # 如果是第一筆，自動設為預設
+    count = conn.execute("SELECT COUNT(*) as c FROM addresses WHERE g_code=?", (g_code,)).fetchone()["c"]
+    if count == 0:
+        is_default = 1
+
+    conn.execute(
+        """INSERT INTO addresses (g_code, label, recipient, phone, zipcode, address, is_default, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (g_code, label, recipient, phone, zipcode, address, is_default, now)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "message": "地址已新增"})
+
+
+@app.route("/api/addresses/<int:addr_id>", methods=["PUT"])
+def update_address(addr_id):
+    """更新地址"""
+    data = request.json
+    g_code = (data.get("g_code") or "").strip().upper()
+    conn = get_db()
+    # 驗證是本人的
+    row = conn.execute("SELECT g_code FROM addresses WHERE id=?", (addr_id,)).fetchone()
+    if not row or row["g_code"] != g_code:
+        conn.close()
+        return jsonify({"success": False, "error": "找不到該地址"})
+
+    fields = {}
+    for key in ["label", "recipient", "phone", "zipcode", "address"]:
+        if key in data:
+            fields[key] = (data[key] or "").strip()
+    if "is_default" in data and data["is_default"]:
+        conn.execute("UPDATE addresses SET is_default=0 WHERE g_code=?", (g_code,))
+        fields["is_default"] = 1
+
+    if fields:
+        sets = ", ".join(f"{k}=?" for k in fields)
+        vals = list(fields.values()) + [addr_id]
+        conn.execute(f"UPDATE addresses SET {sets} WHERE id=?", vals)
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route("/api/addresses/<int:addr_id>", methods=["DELETE"])
+def delete_address(addr_id):
+    """刪除地址"""
+    data = request.json or {}
+    g_code = (data.get("g_code") or request.args.get("g_code", "")).strip().upper()
+    conn = get_db()
+    row = conn.execute("SELECT g_code, is_default FROM addresses WHERE id=?", (addr_id,)).fetchone()
+    if not row or row["g_code"] != g_code:
+        conn.close()
+        return jsonify({"success": False, "error": "找不到該地址"})
+    conn.execute("DELETE FROM addresses WHERE id=?", (addr_id,))
+    # 如果刪的是預設，把第一筆設為預設
+    if row["is_default"]:
+        first = conn.execute("SELECT id FROM addresses WHERE g_code=? ORDER BY id LIMIT 1", (g_code,)).fetchone()
+        if first:
+            conn.execute("UPDATE addresses SET is_default=1 WHERE id=?", (first["id"],))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route("/api/addresses/<int:addr_id>/default", methods=["POST"])
+def set_default_address(addr_id):
+    """設為預設地址"""
+    data = request.json
+    g_code = (data.get("g_code") or "").strip().upper()
+    conn = get_db()
+    row = conn.execute("SELECT g_code FROM addresses WHERE id=?", (addr_id,)).fetchone()
+    if not row or row["g_code"] != g_code:
+        conn.close()
+        return jsonify({"success": False, "error": "找不到該地址"})
+    conn.execute("UPDATE addresses SET is_default=0 WHERE g_code=?", (g_code,))
+    conn.execute("UPDATE addresses SET is_default=1 WHERE id=?", (addr_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
 # ============ 出貨申請 API ============
 
 @app.route("/api/shipment_request", methods=["POST"])
@@ -676,11 +808,17 @@ def create_shipment_request():
     customer_name = data.get("customer_name", "")
     package_ids = data.get("package_ids", [])
     note = (data.get("note") or "").strip()
+    # 收件地址
+    ship_recipient = (data.get("ship_recipient") or "").strip()
+    ship_phone = (data.get("ship_phone") or "").strip()
+    ship_address = (data.get("ship_address") or "").strip()
 
     if not g_code:
         return jsonify({"success": False, "error": "缺少會員編號"})
     if not package_ids:
         return jsonify({"success": False, "error": "請選擇要出貨的包裹"})
+    if not ship_recipient or not ship_phone or not ship_address:
+        return jsonify({"success": False, "error": "請選擇寄送地址"})
 
     # 組合包裹摘要
     conn = get_db()
@@ -719,9 +857,9 @@ def create_shipment_request():
     ids_str = ",".join(str(i) for i in package_ids)
 
     conn.execute(
-        """INSERT INTO shipment_requests (g_code, customer_name, package_ids, package_summary, status, note, created_at)
-           VALUES (?, ?, ?, ?, '待處理', ?, ?)""",
-        (g_code, customer_name, ids_str, summary, note, now)
+        """INSERT INTO shipment_requests (g_code, customer_name, package_ids, package_summary, status, note, ship_recipient, ship_phone, ship_address, created_at)
+           VALUES (?, ?, ?, ?, '待處理', ?, ?, ?, ?, ?)""",
+        (g_code, customer_name, ids_str, summary, note, ship_recipient, ship_phone, ship_address, now)
     )
     conn.commit()
     conn.close()

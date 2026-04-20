@@ -488,6 +488,7 @@
                         <div id="userContactInfo" style="display:none;font-size:12px;color:#888;margin-top:4px;line-height:1.6;">
                             <span id="userPhone"></span><br>
                             <span id="userAddress"></span>
+                            <button onclick="openAddressBook()" style="background:rgba(243,156,18,.15);border:1px solid rgba(243,156,18,.3);color:#f39c12;padding:3px 10px;border-radius:6px;font-size:11px;cursor:pointer;margin-left:6px;">📒 地址簿</button>
                         </div>
                     </div>
                 </div>
@@ -712,6 +713,52 @@
                     </div>
                     <div id="ordersList"><div class="empty-state"><div class="icon">📭</div><p>尚無運單記錄</p></div></div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 地址簿 Modal -->
+    <div id="addressBookModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;justify-content:center;align-items:flex-start;padding-top:60px;">
+        <div style="background:#1a1a2e;border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:24px;width:92%;max-width:520px;max-height:80vh;overflow-y:auto;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                <h3 style="font-size:16px;font-weight:700;">📒 我的地址簿</h3>
+                <button onclick="closeAddressBook()" style="background:none;border:none;color:#fff;font-size:22px;cursor:pointer;">✕</button>
+            </div>
+            <div id="addressList"></div>
+            <!-- 新增地址表單 -->
+            <div style="margin-top:16px;padding:16px;background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.15);border-radius:10px;">
+                <div style="font-size:13px;font-weight:600;color:#f39c12;margin-bottom:12px;">➕ 新增地址</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                    <div><label style="font-size:11px;color:#888;">標籤（選填）</label><input type="text" id="addr-label" class="form-control" placeholder="例：家、公司" style="padding:8px 10px;font-size:13px;"></div>
+                    <div><label style="font-size:11px;color:#888;">收件人 *</label><input type="text" id="addr-recipient" class="form-control" placeholder="姓名" style="padding:8px 10px;font-size:13px;"></div>
+                    <div><label style="font-size:11px;color:#888;">電話 *</label><input type="text" id="addr-phone" class="form-control" placeholder="手機號碼" style="padding:8px 10px;font-size:13px;"></div>
+                    <div><label style="font-size:11px;color:#888;">郵遞區號</label><input type="text" id="addr-zip" class="form-control" placeholder="選填" style="padding:8px 10px;font-size:13px;"></div>
+                </div>
+                <div style="margin-top:10px;"><label style="font-size:11px;color:#888;">地址 *</label><input type="text" id="addr-address" class="form-control" placeholder="完整地址" style="padding:8px 10px;font-size:13px;"></div>
+                <div style="display:flex;align-items:center;gap:8px;margin-top:10px;">
+                    <input type="checkbox" id="addr-default" style="accent-color:#f39c12;width:16px;height:16px;">
+                    <label for="addr-default" style="font-size:12px;color:#ccc;">設為預設地址</label>
+                    <button onclick="saveNewAddress()" style="margin-left:auto;padding:8px 20px;background:linear-gradient(135deg,#f39c12,#e67e22);border:none;border-radius:6px;color:#fff;font-weight:600;font-size:13px;cursor:pointer;">儲存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 出貨地址選擇 Modal -->
+    <div id="shipAddressModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1001;justify-content:center;align-items:flex-start;padding-top:80px;">
+        <div style="background:#1a1a2e;border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:24px;width:92%;max-width:480px;max-height:75vh;overflow-y:auto;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                <h3 style="font-size:16px;font-weight:700;">📦 選擇寄送地址</h3>
+                <button onclick="closeShipAddressModal()" style="background:none;border:none;color:#fff;font-size:22px;cursor:pointer;">✕</button>
+            </div>
+            <div id="shipAddressList"></div>
+            <div class="form-group" style="margin-top:14px;">
+                <label style="font-size:12px;color:#888;">備註（選填）</label>
+                <input type="text" id="shipNote" class="form-control" placeholder="例：合箱出貨、請儘快" style="padding:8px 10px;font-size:13px;">
+            </div>
+            <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;">
+                <button onclick="closeShipAddressModal()" class="btn btn-secondary" style="padding:10px 18px;">取消</button>
+                <button onclick="confirmShipRequest()" class="btn btn-primary" style="padding:10px 24px;">🚚 確認出貨</button>
             </div>
         </div>
     </div>
@@ -947,11 +994,141 @@
             updateShipRequestBtn();
         }
 
-        async function submitShipRequest() {
+        let pendingShipIds = [];
+
+        function submitShipRequest() {
             const checked = [...document.querySelectorAll('.ship-chk:checked')];
             if (!checked.length) return;
-            const ids = checked.map(c => parseInt(c.value));
-            const note = prompt('備註（可留空，例如：請儘快出貨、合箱出貨等）') || '';
+            pendingShipIds = checked.map(c => parseInt(c.value));
+            openShipAddressModal();
+        }
+
+        // ── 地址簿 ──
+        function openAddressBook() {
+            document.getElementById('addressBookModal').style.display = 'flex';
+            loadAddresses();
+        }
+        function closeAddressBook() {
+            document.getElementById('addressBookModal').style.display = 'none';
+        }
+
+        async function loadAddresses() {
+            if (!currentCustomer) return;
+            try {
+                const res = await fetch(`/api/addresses?g_code=${currentCustomer.g_code}`);
+                const data = await res.json();
+                const container = document.getElementById('addressList');
+                if (data.success && data.addresses.length > 0) {
+                    container.innerHTML = data.addresses.map(a => `
+                        <div style="padding:12px;background:rgba(0,0,0,.2);border:1px solid ${a.is_default ? 'rgba(243,156,18,.4)' : 'rgba(255,255,255,.08)'};border-radius:8px;margin-bottom:8px;">
+                            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                                <div>
+                                    ${a.is_default ? '<span style="font-size:10px;padding:2px 8px;background:rgba(243,156,18,.2);color:#f39c12;border-radius:8px;font-weight:600;">預設</span> ' : ''}
+                                    ${a.label ? '<span style="font-size:12px;color:#3498db;font-weight:600;">'+a.label+'</span> ' : ''}
+                                    <strong style="color:#fff;">${a.recipient}</strong>
+                                    <span style="color:#888;font-size:12px;margin-left:6px;">${a.phone}</span>
+                                </div>
+                                <div style="display:flex;gap:4px;">
+                                    ${!a.is_default ? '<button onclick="setDefaultAddr('+a.id+')" style="background:rgba(243,156,18,.15);border:none;color:#f39c12;padding:4px 8px;border-radius:4px;font-size:11px;cursor:pointer;">⭐ 預設</button>' : ''}
+                                    <button onclick="deleteAddr(${a.id})" style="background:rgba(231,76,60,.15);border:none;color:#e74c3c;padding:4px 8px;border-radius:4px;font-size:11px;cursor:pointer;">🗑</button>
+                                </div>
+                            </div>
+                            <div style="font-size:12px;color:#aaa;margin-top:4px;">${a.zipcode ? a.zipcode+' ' : ''}${a.address}</div>
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = '<div style="text-align:center;color:#666;padding:20px;">尚無地址，請新增</div>';
+                }
+            } catch(e) {}
+        }
+
+        async function saveNewAddress() {
+            const data = {
+                g_code: currentCustomer.g_code,
+                label: document.getElementById('addr-label').value.trim(),
+                recipient: document.getElementById('addr-recipient').value.trim(),
+                phone: document.getElementById('addr-phone').value.trim(),
+                zipcode: document.getElementById('addr-zip').value.trim(),
+                address: document.getElementById('addr-address').value.trim(),
+                is_default: document.getElementById('addr-default').checked
+            };
+            if (!data.recipient || !data.phone || !data.address) {
+                showToast('收件人、電話、地址為必填', 'error'); return;
+            }
+            try {
+                const res = await fetch('/api/addresses', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify(data)
+                });
+                const result = await res.json();
+                if (result.success) {
+                    showToast('✅ 地址已新增', 'success');
+                    ['addr-label','addr-recipient','addr-phone','addr-zip','addr-address'].forEach(id => document.getElementById(id).value = '');
+                    document.getElementById('addr-default').checked = false;
+                    loadAddresses();
+                } else { showToast('❌ ' + (result.error || '新增失敗'), 'error'); }
+            } catch(e) { showToast('網路錯誤', 'error'); }
+        }
+
+        async function setDefaultAddr(id) {
+            try {
+                await fetch('/api/addresses/'+id+'/default', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({g_code: currentCustomer.g_code})
+                });
+                loadAddresses();
+                showToast('✅ 已設為預設', 'success');
+            } catch(e) {}
+        }
+
+        async function deleteAddr(id) {
+            if (!confirm('確定刪除此地址？')) return;
+            try {
+                await fetch('/api/addresses/'+id, {
+                    method:'DELETE', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({g_code: currentCustomer.g_code})
+                });
+                loadAddresses();
+                showToast('已刪除', 'success');
+            } catch(e) {}
+        }
+
+        // ── 出貨地址選擇 ──
+        async function openShipAddressModal() {
+            document.getElementById('shipAddressModal').style.display = 'flex';
+            document.getElementById('shipNote').value = '';
+            try {
+                const res = await fetch(`/api/addresses?g_code=${currentCustomer.g_code}`);
+                const data = await res.json();
+                const container = document.getElementById('shipAddressList');
+                if (data.success && data.addresses.length > 0) {
+                    container.innerHTML = data.addresses.map((a, i) => `
+                        <label style="display:block;padding:12px;background:rgba(0,0,0,.2);border:2px solid ${a.is_default ? '#f39c12' : 'rgba(255,255,255,.08)'};border-radius:8px;margin-bottom:8px;cursor:pointer;">
+                            <div style="display:flex;align-items:flex-start;gap:10px;">
+                                <input type="radio" name="ship-addr" value="${a.id}" data-recipient="${a.recipient}" data-phone="${a.phone}" data-address="${(a.zipcode||'')+' '+a.address}" ${a.is_default ? 'checked' : ''} style="accent-color:#f39c12;width:18px;height:18px;margin-top:2px;">
+                                <div>
+                                    ${a.label ? '<span style="font-size:11px;color:#3498db;font-weight:600;">'+a.label+'</span> ' : ''}
+                                    <strong style="color:#fff;">${a.recipient}</strong>
+                                    <span style="color:#888;font-size:12px;margin-left:6px;">${a.phone}</span>
+                                    <div style="font-size:12px;color:#aaa;margin-top:4px;">${a.zipcode ? a.zipcode+' ' : ''}${a.address}</div>
+                                </div>
+                            </div>
+                        </label>
+                    `).join('');
+                } else {
+                    container.innerHTML = '<div style="text-align:center;color:#888;padding:20px;">尚無地址，請先到 <a href="javascript:closeShipAddressModal();openAddressBook();" style="color:#f39c12;">📒 地址簿</a> 新增</div>';
+                }
+            } catch(e) { showToast('載入地址失敗', 'error'); }
+        }
+
+        function closeShipAddressModal() {
+            document.getElementById('shipAddressModal').style.display = 'none';
+        }
+
+        async function confirmShipRequest() {
+            const selected = document.querySelector('input[name="ship-addr"]:checked');
+            if (!selected) { showToast('請選擇寄送地址', 'error'); return; }
+            const note = document.getElementById('shipNote').value.trim();
             try {
                 const res = await fetch('/api/shipment_request', {
                     method: 'POST',
@@ -959,13 +1136,17 @@
                     body: JSON.stringify({
                         g_code: currentCustomer.g_code,
                         customer_name: currentCustomer.name,
-                        package_ids: ids,
-                        note: note
+                        package_ids: pendingShipIds,
+                        note: note,
+                        ship_recipient: selected.dataset.recipient,
+                        ship_phone: selected.dataset.phone,
+                        ship_address: selected.dataset.address
                     })
                 });
                 const result = await res.json();
                 if (result.success) {
                     showToast('✅ ' + result.message, 'success');
+                    closeShipAddressModal();
                     loadPackages();
                     updateCustomerBadges();
                 } else {
@@ -1070,6 +1251,7 @@
                             <div><div class="label">狀態</div><div class="value"><span style="padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;background:${color}22;color:${color};">${req.status}</span></div></div>
                             <div><div class="label">管理員回覆</div><div class="value" style="font-size:12px;">${req.admin_note || '-'}</div></div>
                         </div>
+                        ${req.ship_recipient ? `<div style="margin:-6px 0 10px 0;padding:10px 14px;background:rgba(52,152,219,0.06);border:1px solid rgba(52,152,219,0.15);border-radius:8px;font-size:12px;color:#aaa;">📦 寄送至：<strong style="color:#fff;">${req.ship_recipient}</strong> ${req.ship_phone || ''}<br>📍 ${req.ship_address || ''}</div>` : ''}
                         ${req.note ? `<div style="margin:-6px 0 10px 0;padding:8px 14px;background:rgba(255,255,255,0.03);border-radius:8px;font-size:12px;color:#888;">📝 ${req.note}</div>` : ''}
                         ${billingHtml}`;
                     }).join('');

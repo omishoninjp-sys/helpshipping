@@ -317,6 +317,7 @@
                                 <th>會員</th>
                                 <th>姓名</th>
                                 <th>包裹內容</th>
+                                <th>寄送地址</th>
                                 <th>客戶備註</th>
                                 <th>申請時間</th>
                                 <th>狀態</th>
@@ -325,7 +326,7 @@
                             </tr>
                         </thead>
                         <tbody id="shipreqTable">
-                            <tr><td colspan="7" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr>
+                            <tr><td colspan="9" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -905,6 +906,8 @@ async function loadShipReqBadge() {
     } catch(e) {}
 }
 
+var allShipReqsData = [];
+
 async function loadShipReqs() {
     const status = document.getElementById('shipreq-filter').value;
     try {
@@ -912,12 +915,15 @@ async function loadShipReqs() {
         const result = await res.json();
         const tbody = document.getElementById('shipreqTable');
         if (!result.success || !result.requests.length) {
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#666;padding:30px;">無出貨申請</td></tr>';
+            allShipReqsData = [];
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#666;padding:30px;">無出貨申請</td></tr>';
             return;
         }
+        allShipReqsData = result.requests;
         tbody.innerHTML = result.requests.map(function(r) {
             var statusColors = {'待處理':'#f39c12','處理中':'#3498db','已出貨':'#27ae60','已拒絕':'#e74c3c'};
             var c = statusColors[r.status] || '#888';
+            var shipInfo = (r.ship_recipient || '') ? '<span style="font-size:12px;color:#fff;">' + r.ship_recipient + '</span><br><span style="font-size:11px;color:#888;">' + (r.ship_phone||'') + '</span><br><span style="font-size:11px;color:#666;">' + (r.ship_address||'') + '</span>' : '-';
             var actions = '';
             if (r.status === '待處理' || r.status === '處理中') {
                 actions = '<button class="btn-edit-sm" onclick="updateShipReq(' + r.id + ',\'處理中\')">⏳ 處理中</button>'
@@ -941,6 +947,7 @@ async function loadShipReqs() {
                 + '<td><span class="g-code">' + r.g_code + '</span></td>'
                 + '<td>' + (r.customer_name || '-') + '</td>'
                 + '<td style="font-size:12px;max-width:300px;line-height:1.8;">' + (r.package_summary || '-').replace(/\n/g, '<br>') + '</td>'
+                + '<td style="font-size:12px;max-width:200px;">' + shipInfo + '</td>'
                 + '<td style="font-size:12px;color:#ccc;">' + (r.note || '-') + '</td>'
                 + '<td style="font-size:12px;">' + r.created_at + '</td>'
                 + '<td><span style="padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;background:' + c + '22;color:' + c + ';">' + r.status + '</span></td>'
@@ -1129,10 +1136,16 @@ function openBillingModal(reqId, gCode, name, summary) {
     var member = membersData.find(function(m) { return m.g_code === gCode; });
     var rate = (member && member.shipping_rate) ? parseInt(member.shipping_rate) : 180;
     document.getElementById('bill-rate').value = rate;
-    // 顯示電話和地址
+    // 顯示寄送地址（從出貨申請資料）
+    var req = allShipReqsData.find(function(r) { return r.id === reqId; });
     var contactParts = [];
-    if (member && member.phone) contactParts.push('📞 ' + member.phone);
-    if (member && member.address) contactParts.push('📍 ' + member.address);
+    if (req && req.ship_recipient) {
+        contactParts.push('📦 寄送至：<strong>' + req.ship_recipient + '</strong> ' + (req.ship_phone || ''));
+        if (req.ship_address) contactParts.push('📍 ' + req.ship_address);
+    } else {
+        if (member && member.phone) contactParts.push('📞 ' + member.phone);
+        if (member && member.address) contactParts.push('📍 ' + member.address);
+    }
     document.getElementById('bill-contact').innerHTML = contactParts.join('<br>');
     document.getElementById('billingModal').classList.add('show');
     document.getElementById('bill-weight').focus();
