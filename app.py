@@ -536,6 +536,8 @@ def verify_customer():
                             "name": c["name"] or "會員",
                             "email": c["email"],
                             "phone": c["phone"],
+                            "phone_raw": c["phone_raw"],
+                            "address": c.get("address", ""),
                             "shipping_rate_twd": rate_twd,
                             "shipping_rate_jpy": rate_jpy
                         }

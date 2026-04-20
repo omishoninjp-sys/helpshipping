@@ -485,6 +485,10 @@
                     <div>
                         <div class="user-name" id="userName">歡迎</div>
                         <div class="user-id">會員編號：<span id="userIdDisplay"></span></div>
+                        <div id="userContactInfo" style="display:none;font-size:12px;color:#888;margin-top:4px;line-height:1.6;">
+                            <span id="userPhone"></span><br>
+                            <span id="userAddress"></span>
+                        </div>
                     </div>
                 </div>
                 <div style="display: flex; align-items: center; gap: 16px;">
@@ -746,6 +750,15 @@
                     document.getElementById('userIdDisplay').textContent = currentCustomer.g_code;
                     document.querySelectorAll('.member-code-placeholder').forEach(el => { el.textContent = currentCustomer.g_code; });
 
+                    // 顯示電話和地址
+                    const phone = currentCustomer.phone_raw || currentCustomer.phone || '';
+                    const addr = currentCustomer.address || '';
+                    if (phone || addr) {
+                        document.getElementById('userPhone').textContent = phone ? '📞 ' + phone : '';
+                        document.getElementById('userAddress').textContent = addr ? '📍 ' + addr : '';
+                        document.getElementById('userContactInfo').style.display = 'block';
+                    }
+
                     // 顯示運費：台幣為主，日幣為輔
                     const rateTwd = currentCustomer.shipping_rate_twd;
                     const rateJpy = currentCustomer.shipping_rate_jpy;
@@ -776,6 +789,7 @@
             document.getElementById('customerId').value = '';
             document.getElementById('password').value = '';
             document.getElementById('shippingRateDisplay').style.display = 'none';
+            document.getElementById('userContactInfo').style.display = 'none';
             document.querySelectorAll('.member-code-placeholder').forEach(el => { el.textContent = '會員編號'; });
             document.getElementById('badge-packages').style.display = 'none';
             document.getElementById('badge-orders').style.display = 'none';
