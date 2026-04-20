@@ -233,7 +233,10 @@
                 <div class="pkg-form-grid">
                     <div class="form-group" style="margin:0;">
                         <label>客戶編號 *</label>
-                        <input type="text" id="pkg-g-code" class="form-control" placeholder="G0001">
+                        <div style="display:flex;align-items:center;">
+                            <span style="padding:11px 12px;background:rgba(243,156,18,.2);border:1px solid rgba(243,156,18,.3);border-radius:9px 0 0 9px;color:#f39c12;font-weight:700;font-size:14px;">G</span>
+                            <input type="text" id="pkg-g-code" class="form-control" placeholder="0001" inputmode="numeric" style="border-radius:0 9px 9px 0;border-left:none;">
+                        </div>
                     </div>
                     <div class="form-group" style="margin:0;">
                         <label>物流號碼</label>
@@ -241,7 +244,7 @@
                     </div>
                     <div class="form-group" style="margin:0;">
                         <label>重量 (kg)</label>
-                        <input type="text" id="pkg-weight" class="form-control" placeholder="1.5">
+                        <input type="text" id="pkg-weight" class="form-control" placeholder="1.5" inputmode="decimal">
                     </div>
                     <div class="form-group" style="margin:0;">
                         <label>商品名稱</label>
@@ -377,10 +380,10 @@
         <div class="modal-title">✏️ 編輯到貨記錄</div>
         <input type="hidden" id="edit-pkg-id">
         <div class="pkg-form-grid" style="grid-template-columns:1fr 1fr;">
-            <div class="form-group" style="margin:0;"><label>客戶編號</label><input type="text" id="edit-g-code" class="form-control"></div>
+            <div class="form-group" style="margin:0;"><label>客戶編號</label><div style="display:flex;align-items:center;"><span style="padding:11px 12px;background:rgba(243,156,18,.2);border:1px solid rgba(243,156,18,.3);border-radius:9px 0 0 9px;color:#f39c12;font-weight:700;font-size:14px;">G</span><input type="text" id="edit-g-code" class="form-control" inputmode="numeric" style="border-radius:0 9px 9px 0;border-left:none;"></div></div>
             <div class="form-group" style="margin:0;"><label>物流號碼</label><input type="text" id="edit-logis" class="form-control" inputmode="numeric"></div>
             <div class="form-group" style="margin:0;"><label>商品名稱</label><input type="text" id="edit-name" class="form-control"></div>
-            <div class="form-group" style="margin:0;"><label>重量 (kg)</label><input type="text" id="edit-weight" class="form-control"></div>
+            <div class="form-group" style="margin:0;"><label>重量 (kg)</label><input type="text" id="edit-weight" class="form-control" inputmode="decimal"></div>
             <div class="form-group" style="margin:0;"><label>狀態</label>
                 <select id="edit-status" class="form-control">
                     <option value="已到貨">✅ 已到貨</option>
@@ -791,7 +794,7 @@ function renderPackages(list) {
 }
 
 async function addPackage() {
-    const g_code       = document.getElementById('pkg-g-code').value.trim();
+    const g_code       = 'G' + document.getElementById('pkg-g-code').value.trim().replace(/^G/i, '');
     const logis_num    = document.getElementById('pkg-logis').value.trim();
     const weight       = document.getElementById('pkg-weight').value.trim();
     const product_name = document.getElementById('pkg-name').value.trim();
@@ -814,7 +817,7 @@ function openEdit(id) {
     const p = allPackages.find(x => x.id === id);
     if (!p) return;
     document.getElementById('edit-pkg-id').value  = p.id;
-    document.getElementById('edit-g-code').value  = p.g_code;
+    document.getElementById('edit-g-code').value  = p.g_code.replace(/^G/i, '');
     document.getElementById('edit-logis').value   = p.logis_num||'';
     document.getElementById('edit-name').value    = p.product_name||'';
     document.getElementById('edit-weight').value  = p.weight||'';
@@ -828,7 +831,7 @@ function closeEditModal() { document.getElementById('editModal').classList.remov
 async function saveEdit() {
     const id = document.getElementById('edit-pkg-id').value;
     const data = {
-        g_code:       document.getElementById('edit-g-code').value.trim(),
+        g_code:       'G' + document.getElementById('edit-g-code').value.trim().replace(/^G/i, ''),
         logis_num:    document.getElementById('edit-logis').value.trim(),
         product_name: document.getElementById('edit-name').value.trim(),
         weight:       document.getElementById('edit-weight').value.trim(),
