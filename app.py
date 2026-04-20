@@ -195,6 +195,10 @@ def get_all_goyoutati_customers():
                                         phone
                                         defaultAddress {
                                             phone
+                                            province
+                                            city
+                                            address1
+                                            address2
                                         }
                                         createdAt
                                         shippingRate: metafield(namespace: "custom", key: "shipping_rate") {
@@ -231,6 +235,12 @@ def get_all_goyoutati_customers():
                 default_address = owner.get("defaultAddress") or {}
                 phone_raw = default_address.get("phone") or owner.get("phone") or ""
                 phone = normalize_phone(phone_raw)
+                address = " ".join(filter(None, [
+                    default_address.get("province", ""),
+                    default_address.get("city", ""),
+                    default_address.get("address1", ""),
+                    default_address.get("address2", "")
+                ])).strip()
                 rate_mf = owner.get("shippingRate")
                 # shipping_rate 現在儲存台幣值
                 shipping_rate_twd = rate_mf["value"] if rate_mf and rate_mf.get("value") else ""
@@ -240,6 +250,7 @@ def get_all_goyoutati_customers():
                     "gid": gid,
                     "name": customer_name,
                     "email": owner.get("email", ""),
+                    "address": address,
                     "phone": phone,
                     "phone_raw": phone_raw,
                     "shipping_rate": shipping_rate_twd,  # 台幣

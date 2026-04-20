@@ -197,7 +197,7 @@
                 </div>
                 <!-- 搜尋框 -->
                 <div class="member-filter-bar">
-                    <input type="text" id="member-search" placeholder="🔍 搜尋會員編號、姓名、Email 或手機..." oninput="onMemberSearch()" autocomplete="off">
+                    <input type="text" id="member-search" placeholder="🔍 搜尋會員編號、姓名、地址或手機..." oninput="onMemberSearch()" autocomplete="off">
                     <span class="member-count" id="member-count"></span>
                 </div>
                 <div class="table-wrap">
@@ -206,7 +206,7 @@
                             <tr>
                                 <th>會員編號</th>
                                 <th>姓名</th>
-                                <th>Email</th>
+                                <th>地址</th>
                                 <th>手機（密碼）</th>
                                 <th>運費 (台幣/kg)</th>
                                 <th>操作</th>
@@ -573,7 +573,7 @@ function applyMemberFilter() {
         filteredMembers = membersData.filter(m =>
             m.g_code.toUpperCase().includes(memberSearchQuery) ||
             (m.name || '').toUpperCase().includes(memberSearchQuery) ||
-            (m.email || '').toUpperCase().includes(memberSearchQuery) ||
+            (m.address || '').toUpperCase().includes(memberSearchQuery) ||
             (m.phone || '').includes(memberSearchQuery)
         );
     } else {
@@ -614,7 +614,7 @@ function renderMembersPage() {
         return `<tr>
             <td><span class="g-code">${m.g_code}</span></td>
             <td>${m.name||'-'}</td>
-            <td style="font-size:12px;">${m.email||'-'}</td>
+            <td style="font-size:12px;">${m.address||'-'}</td>
             <td>${m.phone||'-'}</td>
             <td>
                 <div class="rate-input-wrap">
