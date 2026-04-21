@@ -991,7 +991,7 @@
                         return `
                         <div class="package-item" style="position:relative;">
                             ${canSelect ? `<div style="position:absolute;left:8px;top:50%;transform:translateY(-50%);"><input type="checkbox" class="ship-chk" value="${pkg.id}" data-name="${pkg.product_name||''}" data-weight="${pkg.weight||''}" onchange="updateShipRequestBtn()" style="width:18px;height:18px;accent-color:#f39c12;cursor:pointer;"></div>` : ''}
-                            <div style="${canSelect ? 'padding-left:20px;' : ''}"><div class="label">物流號碼</div><div class="value" style="font-size:13px;">${pkg.logis_num || '-'}</div></div>
+                            <div style="${canSelect ? 'padding-left:20px;' : ''}"><div class="label">物流號碼</div><div class="value" style="font-size:13px;">${formatLogisDisplay(pkg.logis_num)}</div></div>
                             <div><div class="label">商店名稱</div><div class="value">${pkg.product_name || '-'}</div></div>
                             <div><div class="label">重量</div><div class="value">${pkg.weight ? pkg.weight + ' kg' : '待秤重'}</div></div>
                             <div><div class="label">狀態</div><div class="value"><span class="status-badge ${getStatusClass(pkg.status)}">${pkg.status || '待入庫'}</span></div></div>
@@ -1303,7 +1303,7 @@
                 if (result.success && result.orders && result.orders.length > 0) {
                     container.innerHTML = result.orders.map(order => `
                         <div class="package-item">
-                            <div><div class="label">物流單號</div><div class="value">${order.logis_num || '-'}</div></div>
+                            <div><div class="label">物流單號</div><div class="value">${formatLogisDisplay(order.logis_num)}</div></div>
                             <div><div class="label">收件人</div><div class="value">${order.recipient || '-'}</div></div>
                             <div><div class="label">重量</div><div class="value">${order.weight && order.weight !== '0' ? order.weight + ' kg' : '-'}</div></div>
                             <div><div class="label">狀態</div><div class="value"><span class="status-badge status-shipped">${order.status || '-'}</span></div></div>
@@ -1361,6 +1361,11 @@
                     }
                 } else { badgeForecast.style.display = 'none'; }
             } catch(e) { console.log('badge update error', e); }
+        }
+
+        function formatLogisDisplay(val) {
+            if (!val || val === '-') return '-';
+            return val.replace(/\D/g, '').replace(/(.{4})(?=.)/g, '$1-');
         }
 
         function getStatusClass(statusText) {

@@ -240,7 +240,7 @@
                     </div>
                     <div class="form-group" style="margin:0;">
                         <label>物流號碼</label>
-                        <input type="text" id="pkg-logis" class="form-control" placeholder="1234567890" inputmode="numeric">
+                        <input type="text" id="pkg-logis" class="form-control" placeholder="1234-5678-90" inputmode="numeric" oninput="formatLogisNum(this)">
                     </div>
                     <div class="form-group" style="margin:0;">
                         <label>重量 (kg)</label>
@@ -381,7 +381,7 @@
         <input type="hidden" id="edit-pkg-id">
         <div class="pkg-form-grid" style="grid-template-columns:1fr 1fr;">
             <div class="form-group" style="margin:0;"><label>客戶編號</label><div style="display:flex;align-items:center;"><span style="padding:11px 12px;background:rgba(243,156,18,.2);border:1px solid rgba(243,156,18,.3);border-radius:9px 0 0 9px;color:#f39c12;font-weight:700;font-size:14px;">G</span><input type="text" id="edit-g-code" class="form-control" inputmode="numeric" style="border-radius:0 9px 9px 0;border-left:none;"></div></div>
-            <div class="form-group" style="margin:0;"><label>物流號碼</label><input type="text" id="edit-logis" class="form-control" inputmode="numeric"></div>
+            <div class="form-group" style="margin:0;"><label>物流號碼</label><input type="text" id="edit-logis" class="form-control" inputmode="numeric" oninput="formatLogisNum(this)"></div>
             <div class="form-group" style="margin:0;"><label>商品名稱</label><input type="text" id="edit-name" class="form-control"></div>
             <div class="form-group" style="margin:0;"><label>重量 (kg)</label><input type="text" id="edit-weight" class="form-control" inputmode="decimal"></div>
             <div class="form-group" style="margin:0;"><label>狀態</label>
@@ -780,7 +780,7 @@ function renderPackages(list) {
     tbody.innerHTML = list.map(p => `<tr id="row-${p.id}" class="${p.status === '已出貨' ? 'row-shipped' : ''}">
         <td><input type="checkbox" class="pkg-chk" value="${p.id}" onchange="updateShipBtn()" style="accent-color:#f39c12;cursor:pointer;width:15px;height:15px;" ${p.status === '已出貨' ? 'disabled' : ''}></td>
         <td><span class="g-code">${p.g_code}</span></td>
-        <td style="font-size:12px;">${p.logis_num||'-'}</td>
+        <td style="font-size:12px;">${p.logis_num && p.logis_num !== '-' ? formatLogisDisplay(p.logis_num) : '-'}</td>
         <td>${p.product_name||'-'}</td>
         <td>${p.weight ? p.weight+' kg' : '-'}</td>
         <td><span class="status-tag status-${p.status}">${p.status}</span></td>
@@ -795,7 +795,7 @@ function renderPackages(list) {
 
 async function addPackage() {
     const g_code       = 'G' + document.getElementById('pkg-g-code').value.trim().replace(/^G/i, '');
-    const logis_num    = document.getElementById('pkg-logis').value.trim();
+    const logis_num    = document.getElementById('pkg-logis').value.replace(/-/g, '').trim();
     const weight       = document.getElementById('pkg-weight').value.trim();
     const product_name = document.getElementById('pkg-name').value.trim();
     const status       = document.getElementById('pkg-status').value;
@@ -818,7 +818,7 @@ function openEdit(id) {
     if (!p) return;
     document.getElementById('edit-pkg-id').value  = p.id;
     document.getElementById('edit-g-code').value  = p.g_code.replace(/^G/i, '');
-    document.getElementById('edit-logis').value   = p.logis_num||'';
+    document.getElementById('edit-logis').value   = formatLogisDisplay(p.logis_num||'');
     document.getElementById('edit-name').value    = p.product_name||'';
     document.getElementById('edit-weight').value  = p.weight||'';
     document.getElementById('edit-status').value  = p.status;
@@ -832,7 +832,7 @@ async function saveEdit() {
     const id = document.getElementById('edit-pkg-id').value;
     const data = {
         g_code:       'G' + document.getElementById('edit-g-code').value.trim().replace(/^G/i, ''),
-        logis_num:    document.getElementById('edit-logis').value.trim(),
+        logis_num:    document.getElementById('edit-logis').value.replace(/-/g, '').trim(),
         product_name: document.getElementById('edit-name').value.trim(),
         weight:       document.getElementById('edit-weight').value.trim(),
         status:       document.getElementById('edit-status').value,
@@ -884,6 +884,24 @@ async function shipSelected() {
     } else {
         showToast(result.error || '出貨失敗', 'error');
     }
+}
+
+function formatLogisDisplay(val) {
+    var digits = val.replace(/\D/g, '');
+    return digits.replace(/(.{4})(?=.)/g, '$1-');
+}
+
+function formatLogisNum(el) {
+    var pos = el.selectionStart;
+    var oldVal = el.value;
+    var digits = oldVal.replace(/\D/g, '');
+    var formatted = digits.replace(/(.{4})(?=.)/g, '$1-');
+    el.value = formatted;
+    // 修正游標位置
+    var dashesBeforeOld = (oldVal.substring(0, pos).match(/-/g) || []).length;
+    var dashesBeforeNew = (formatted.substring(0, pos).match(/-/g) || []).length;
+    var newPos = pos + (dashesBeforeNew - dashesBeforeOld);
+    el.setSelectionRange(newPos, newPos);
 }
 
 function showToast(message, type='success') {
