@@ -750,6 +750,18 @@
         </div>
     </div>
 
+    <!-- 公告 Modal -->
+    <div id="announcementModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:1100;justify-content:center;align-items:center;">
+        <div style="background:#1a1a2e;border:1px solid rgba(243,156,18,.3);border-radius:14px;padding:28px;width:92%;max-width:480px;max-height:80vh;overflow-y:auto;">
+            <div style="text-align:center;margin-bottom:16px;">
+                <div style="font-size:28px;">📢</div>
+                <h3 style="font-size:18px;font-weight:700;color:#f39c12;">最新公告</h3>
+            </div>
+            <div id="announcementContent"></div>
+            <button onclick="closeAnnouncementModal()" style="display:block;width:100%;margin-top:18px;padding:14px;background:linear-gradient(135deg,#f39c12,#e67e22);border:none;border-radius:10px;color:#fff;font-size:15px;font-weight:700;cursor:pointer;">我知道了 ✓</button>
+        </div>
+    </div>
+
     <!-- 地址簿 Modal -->
     <div id="addressBookModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;justify-content:center;align-items:flex-start;padding-top:60px;">
         <div style="background:#1a1a2e;border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:24px;width:92%;max-width:520px;max-height:80vh;overflow-y:auto;">
@@ -852,6 +864,7 @@
                     localStorage.setItem('gCode', currentCustomer.g_code);
                     updateCustomerBadges();
                     setInterval(updateCustomerBadges, 30000);
+                    checkAnnouncements();
                     showToast('登入成功！', 'success');
                 } else {
                     showToast(result.error || '登入失敗', 'error');
@@ -1361,6 +1374,37 @@
                     }
                 } else { badgeForecast.style.display = 'none'; }
             } catch(e) { console.log('badge update error', e); }
+        }
+
+        // ── 公告 ──
+        async function checkAnnouncements() {
+            try {
+                const res = await fetch('/api/announcements');
+                const data = await res.json();
+                if (!data.success || !data.announcements || !data.announcements.length) return;
+                // 檢查 localStorage 已讀紀錄
+                let readIds = [];
+                try { readIds = JSON.parse(localStorage.getItem('readAnnouncements') || '[]'); } catch(e) { readIds = []; }
+                const unread = data.announcements.filter(a => !readIds.includes(a.id));
+                if (!unread.length) return;
+                // 顯示未讀公告
+                const container = document.getElementById('announcementContent');
+                container.innerHTML = unread.map(a => `
+                    <div style="margin-bottom:14px;padding:16px;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.08);border-radius:10px;">
+                        <div style="font-size:15px;font-weight:700;color:#fff;margin-bottom:8px;">${a.title}</div>
+                        <div style="font-size:13px;color:#ccc;line-height:1.8;white-space:pre-line;">${a.content}</div>
+                        <div style="font-size:11px;color:#666;margin-top:8px;">${a.created_at}</div>
+                    </div>
+                `).join('');
+                document.getElementById('announcementModal').style.display = 'flex';
+                // 標記全部已讀
+                const allIds = data.announcements.map(a => a.id);
+                localStorage.setItem('readAnnouncements', JSON.stringify(allIds));
+            } catch(e) {}
+        }
+
+        function closeAnnouncementModal() {
+            document.getElementById('announcementModal').style.display = 'none';
         }
 
         function formatLogisDisplay(val) {

@@ -102,6 +102,15 @@ def init_db():
             created_at  TEXT    NOT NULL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS announcements (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            title       TEXT    NOT NULL,
+            content     TEXT    NOT NULL,
+            is_active   INTEGER DEFAULT 1,
+            created_at  TEXT    NOT NULL
+        )
+    """)
     # 帳單欄位遷移（已存在的表加欄位）
     for col, default in [
         ("billed_weight", "0"), ("rate_per_kg", "0"),
@@ -678,6 +687,77 @@ def get_orders():
                 })
             return jsonify({"success": True, "orders": formatted})
     return jsonify({"success": False, "error": "查詢失敗"})
+
+
+# ============ 公告 API ============
+
+@app.route("/api/announcements", methods=["GET"])
+def get_announcements():
+    """取得啟用中的公告"""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM announcements WHERE is_active=1 ORDER BY id DESC"
+    ).fetchall()
+    conn.close()
+    return jsonify({"success": True, "announcements": [dict(r) for r in rows]})
+
+
+@app.route("/api/admin/announcements", methods=["GET"])
+def admin_get_announcements():
+    """管理員取得所有公告"""
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM announcements ORDER BY id DESC").fetchall()
+    conn.close()
+    return jsonify({"success": True, "announcements": [dict(r) for r in rows]})
+
+
+@app.route("/api/admin/announcements", methods=["POST"])
+def admin_create_announcement():
+    """管理員新增公告"""
+    data = request.json
+    title = (data.get("title") or "").strip()
+    content = (data.get("content") or "").strip()
+    if not title or not content:
+        return jsonify({"success": False, "error": "標題和內容為必填"})
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_db()
+    cur = conn.execute(
+        "INSERT INTO announcements (title, content, is_active, created_at) VALUES (?, ?, 1, ?)",
+        (title, content, now)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "id": cur.lastrowid})
+
+
+@app.route("/api/admin/announcements/<int:ann_id>", methods=["PUT"])
+def admin_update_announcement(ann_id):
+    """管理員更新公告"""
+    data = request.json
+    conn = get_db()
+    fields = {}
+    for key in ["title", "content"]:
+        if key in data:
+            fields[key] = (data[key] or "").strip()
+    if "is_active" in data:
+        fields["is_active"] = 1 if data["is_active"] else 0
+    if fields:
+        sets = ", ".join(f"{k}=?" for k in fields)
+        vals = list(fields.values()) + [ann_id]
+        conn.execute(f"UPDATE announcements SET {sets} WHERE id=?", vals)
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route("/api/admin/announcements/<int:ann_id>", methods=["DELETE"])
+def admin_delete_announcement(ann_id):
+    """管理員刪除公告"""
+    conn = get_db()
+    conn.execute("DELETE FROM announcements WHERE id=?", (ann_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
 
 
 # ============ 地址簿 API ============

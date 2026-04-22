@@ -168,6 +168,7 @@
             <button class="admin-tab" onclick="switchAdminTab('arrivals')">📦 到貨管理</button>
             <button class="admin-tab" onclick="switchAdminTab('shipreqs')">🚚 出貨申請 <span id="shipreq-badge" style="display:none;background:#e74c3c;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:4px;">0</span></button>
             <button class="admin-tab" onclick="switchAdminTab('forecasts')">📝 預報管理 <span id="forecast-badge" style="display:none;background:#e74c3c;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:4px;">0</span></button>
+            <button class="admin-tab" onclick="switchAdminTab('announcements')">📢 公告管理</button>
         </div>
 
         <!-- 會員管理 -->
@@ -371,10 +372,26 @@
             </div>
         </div>
 
+        <!-- 公告管理 -->
+        <div class="admin-panel" id="panel-announcements">
+            <div class="card">
+                <div class="toolbar">
+                    <h3>📢 公告管理</h3>
+                </div>
+                <!-- 新增公告 -->
+                <div style="padding:16px;background:rgba(255,255,255,.02);border:1px dashed rgba(255,255,255,.1);border-radius:10px;margin-bottom:20px;">
+                    <div style="font-size:13px;font-weight:600;color:#f39c12;margin-bottom:12px;">➕ 新增公告</div>
+                    <div class="form-group"><label>標題</label><input type="text" id="ann-title" class="form-control" placeholder="公告標題"></div>
+                    <div class="form-group"><label>內容</label><textarea id="ann-content" class="form-control" rows="3" placeholder="公告內容（支援換行）" style="resize:vertical;"></textarea></div>
+                    <button class="btn btn-primary" onclick="createAnnouncement()" style="padding:10px 24px;">📢 發布公告</button>
+                </div>
+                <!-- 公告列表 -->
+                <div id="announcementList" style="display:flex;flex-direction:column;gap:12px;"></div>
+            </div>
+        </div>
+
     </div>
 </div>
-
-<!-- 編輯 Modal -->
 <div class="modal-overlay" id="editModal">
     <div class="modal-box">
         <div class="modal-title">✏️ 編輯到貨記錄</div>
@@ -540,6 +557,7 @@ function switchAdminTab(tab) {
     if (tab === 'arrivals') loadPackages();
     if (tab === 'shipreqs') loadShipReqs();
     if (tab === 'forecasts') loadForecasts();
+    if (tab === 'announcements') loadAnnouncements();
 }
 
 // ── 會員管理 ──
@@ -1098,6 +1116,73 @@ async function updateForecast(id, status) {
             showToast('更新失敗', 'error');
         }
     } catch(e) { showToast('網路錯誤', 'error'); }
+}
+
+// ── 公告管理 ──
+async function loadAnnouncements() {
+    try {
+        const res = await fetch('/api/admin/announcements');
+        const result = await res.json();
+        const container = document.getElementById('announcementList');
+        if (!result.success || !result.announcements.length) {
+            container.innerHTML = '<div style="text-align:center;color:#666;padding:30px;">尚無公告</div>';
+            return;
+        }
+        container.innerHTML = result.announcements.map(function(a) {
+            var statusColor = a.is_active ? '#27ae60' : '#888';
+            var statusText = a.is_active ? '啟用中' : '已停用';
+            return '<div style="padding:16px;background:rgba(0,0,0,.2);border:1px solid ' + (a.is_active ? 'rgba(39,174,96,.3)' : 'rgba(255,255,255,.08)') + ';border-radius:10px;">'
+                + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">'
+                + '<div><span style="padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600;background:' + statusColor + '22;color:' + statusColor + ';">' + statusText + '</span>'
+                + ' <strong style="color:#fff;font-size:15px;margin-left:6px;">' + a.title + '</strong>'
+                + '<div style="font-size:11px;color:#666;margin-top:4px;">' + a.created_at + '</div></div>'
+                + '<div style="display:flex;gap:6px;">'
+                + '<button onclick="toggleAnnouncement(' + a.id + ',' + (a.is_active ? 0 : 1) + ')" style="background:rgba(255,255,255,.08);border:none;color:#ccc;padding:6px 10px;border-radius:6px;font-size:11px;cursor:pointer;">' + (a.is_active ? '⏸ 停用' : '▶ 啟用') + '</button>'
+                + '<button onclick="deleteAnnouncement(' + a.id + ')" style="background:rgba(231,76,60,.15);border:none;color:#e74c3c;padding:6px 10px;border-radius:6px;font-size:11px;cursor:pointer;">🗑 刪除</button>'
+                + '</div></div>'
+                + '<div style="font-size:13px;color:#ccc;line-height:1.8;white-space:pre-line;">' + a.content + '</div>'
+                + '</div>';
+        }).join('');
+    } catch(e) {}
+}
+
+async function createAnnouncement() {
+    var title = document.getElementById('ann-title').value.trim();
+    var content = document.getElementById('ann-content').value.trim();
+    if (!title || !content) { showToast('標題和內容為必填', 'error'); return; }
+    try {
+        const res = await fetch('/api/admin/announcements', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({title, content})
+        });
+        const result = await res.json();
+        if (result.success) {
+            showToast('✅ 公告已發布', 'success');
+            document.getElementById('ann-title').value = '';
+            document.getElementById('ann-content').value = '';
+            loadAnnouncements();
+        } else { showToast(result.error || '發布失敗', 'error'); }
+    } catch(e) { showToast('網路錯誤', 'error'); }
+}
+
+async function toggleAnnouncement(id, active) {
+    try {
+        await fetch('/api/admin/announcements/'+id, {
+            method:'PUT', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({is_active: active})
+        });
+        loadAnnouncements();
+        showToast(active ? '✅ 已啟用' : '⏸ 已停用', 'success');
+    } catch(e) {}
+}
+
+async function deleteAnnouncement(id) {
+    if (!confirm('確定刪除此公告？')) return;
+    try {
+        await fetch('/api/admin/announcements/'+id, {method:'DELETE'});
+        loadAnnouncements();
+        showToast('已刪除', 'success');
+    } catch(e) {}
 }
 
 // ── 變更密碼 ──
