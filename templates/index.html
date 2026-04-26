@@ -290,7 +290,7 @@
                         <label>密碼（您的手機號碼）</label>
                         <input type="password" id="password" class="form-control" placeholder="請輸入手機號碼">
                     </div>
-                    <button class="btn btn-primary btn-block" onclick="login()" style="padding: 14px;">登入</button>
+                    <button id="loginBtn" class="btn btn-primary btn-block" onclick="login()" style="padding: 14px;">登入</button>
 
                     <div class="help-box">
                         <div class="help-box-title">📋 申請會員編號</div>
@@ -829,6 +829,10 @@
             if (!password) { showToast('請輸入密碼', 'error'); return; }
             if (!gCode.startsWith('G')) gCode = 'G' + gCode;
 
+            const btn = document.getElementById('loginBtn');
+            btn.disabled = true;
+            btn.textContent = '登入中...';
+
             try {
                 const res = await fetch('/api/verify_customer', {
                     method: 'POST',
@@ -870,9 +874,13 @@
                     showToast('登入成功！', 'success');
                 } else {
                     showToast(result.error || '登入失敗', 'error');
+                    btn.disabled = false;
+                    btn.textContent = '登入';
                 }
             } catch (e) {
                 showToast('網路錯誤，請稍後再試', 'error');
+                btn.disabled = false;
+                btn.textContent = '登入';
             }
         }
 

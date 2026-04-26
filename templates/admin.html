@@ -193,7 +193,7 @@
                     <div class="toolbar-actions">
                         <span class="changes-badge" id="changesBadge">0 項待儲存</span>
                         <button class="btn btn-green" style="padding:8px 16px;font-size:13px;" id="saveAllBtn" onclick="saveAllChanges()" disabled>💾 全部儲存</button>
-                        <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadMembers()">🔄 整理</button>
+                        <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadMembers(true)">🔄 整理</button>
                     </div>
                 </div>
                 <!-- 搜尋框 -->
@@ -561,9 +561,10 @@ function switchAdminTab(tab) {
 }
 
 // ── 會員管理 ──
-async function loadMembers() {
+async function loadMembers(forceRefresh) {
     pendingChanges = {}; updateChangesBadge();
-    const res = await fetch('/api/admin/members');
+    const url = '/api/admin/members' + (forceRefresh ? '?refresh=1' : '');
+    const res = await fetch(url);
     const result = await res.json();
     if (!result.success) { showToast(result.error || '載入失敗', 'error'); return; }
     membersData = result.members;

@@ -11,6 +11,7 @@ import os
 import sqlite3
 import csv
 import io
+import time
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
@@ -205,7 +206,23 @@ def shopify_request(endpoint, method="GET", data=None):
         return {"error": str(e)}
 
 
-def get_all_goyoutati_customers():
+# 會員快取（避免每次登入都打 Shopify API）
+_customers_cache = {"data": None, "time": 0}
+CACHE_TTL = 300  # 5 分鐘
+
+
+def get_all_goyoutati_customers(force_refresh=False):
+    global _customers_cache
+    now = time.time()
+    if not force_refresh and _customers_cache["data"] is not None and (now - _customers_cache["time"]) < CACHE_TTL:
+        return _customers_cache["data"]
+
+    customers = _fetch_customers_from_shopify()
+    _customers_cache = {"data": customers, "time": now}
+    return customers
+
+
+def _fetch_customers_from_shopify():
     graphql_query = """
     {
         metafieldDefinitions(first: 1, ownerType: CUSTOMER, namespace: "custom", key: "goyoutati_id") {
@@ -357,7 +374,8 @@ def admin_change_password():
 @app.route("/api/admin/members", methods=["GET"])
 def get_all_members():
     try:
-        members = get_all_goyoutati_customers()
+        force = request.args.get("refresh") == "1"
+        members = get_all_goyoutati_customers(force_refresh=force)
         members.sort(key=lambda x: x["g_code"])
         used_numbers = set()
         for m in members:
