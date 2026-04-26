@@ -112,15 +112,24 @@ def init_db():
         )
     """)
     # 帳單欄位遷移（已存在的表加欄位）
-    for col, default in [
-        ("billed_weight", "0"), ("rate_per_kg", "0"),
-        ("shipping_fee", "0"), ("handling_fee", "0"), ("total_fee", "0"),
-        ("payment_last5", "''"), ("payment_at", "''"), ("tracking_num", "''"),
-        ("extra_services", "''"),
-        ("ship_recipient", "''"), ("ship_phone", "''"), ("ship_address", "''")
+    for col, col_type, default in [
+        ("admin_note", "TEXT", "''"),
+        ("updated_at", "TEXT", "NULL"),
+        ("billed_weight", "REAL", "0"),
+        ("rate_per_kg", "REAL", "0"),
+        ("shipping_fee", "REAL", "0"),
+        ("handling_fee", "REAL", "0"),
+        ("total_fee", "REAL", "0"),
+        ("payment_last5", "TEXT", "''"),
+        ("payment_at", "TEXT", "''"),
+        ("tracking_num", "TEXT", "''"),
+        ("extra_services", "TEXT", "''"),
+        ("ship_recipient", "TEXT", "''"),
+        ("ship_phone", "TEXT", "''"),
+        ("ship_address", "TEXT", "''"),
     ]:
         try:
-            conn.execute(f"ALTER TABLE shipment_requests ADD COLUMN {col} REAL DEFAULT {default}")
+            conn.execute(f"ALTER TABLE shipment_requests ADD COLUMN {col} {col_type} DEFAULT {default}")
         except:
             pass
     conn.commit()
@@ -994,17 +1003,20 @@ def submit_payment_info(req_id):
 def admin_get_shipment_requests():
     """管理員查看所有出貨申請"""
     status = request.args.get("status", "")
-    conn = get_db()
-    if status:
-        rows = conn.execute(
-            "SELECT * FROM shipment_requests WHERE status=? ORDER BY id DESC", (status,)
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT * FROM shipment_requests ORDER BY id DESC"
-        ).fetchall()
-    conn.close()
-    return jsonify({"success": True, "requests": [dict(r) for r in rows]})
+    try:
+        conn = get_db()
+        if status:
+            rows = conn.execute(
+                "SELECT * FROM shipment_requests WHERE status=? ORDER BY id DESC", (status,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM shipment_requests ORDER BY id DESC"
+            ).fetchall()
+        conn.close()
+        return jsonify({"success": True, "requests": [dict(r) for r in rows]})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e), "requests": []})
 
 
 @app.route("/api/admin/shipment_requests/<int:req_id>", methods=["PUT"])

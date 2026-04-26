@@ -953,7 +953,7 @@ async function loadShipReqs() {
         const res = await fetch('/api/admin/shipment_requests' + (status ? '?status=' + encodeURIComponent(status) : ''));
         const result = await res.json();
         const tbody = document.getElementById('shipreqTable');
-        if (!result.success || !result.requests.length) {
+        if (!result.success || !result.requests || !result.requests.length) {
             allShipReqsData = [];
             tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#666;padding:30px;">無出貨申請</td></tr>';
             return;
@@ -994,7 +994,7 @@ async function loadShipReqs() {
                 + '<td style="white-space:nowrap;">' + actions + '</td>'
                 + '</tr>';
         }).join('');
-    } catch(e) { showToast('載入失敗', 'error'); }
+    } catch(e) { console.error('loadShipReqs error:', e); showToast('載入出貨申請失敗', 'error'); }
 }
 
 async function updateShipReq(id, status) {
