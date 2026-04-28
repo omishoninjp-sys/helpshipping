@@ -132,7 +132,9 @@
         @media (max-width:700px) {
             .stats { grid-template-columns: 1fr; }
             .pkg-form-grid { grid-template-columns: 1fr 1fr; }
-            .admin-tab { font-size: 12px; padding: 10px 6px; }
+            .admin-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; gap: 6px; padding: 6px; scrollbar-width: none; }
+            .admin-tabs::-webkit-scrollbar { display: none; }
+            .admin-tab { flex: none; font-size: 13px; padding: 10px 16px; white-space: nowrap; min-width: auto; }
         }
     </style>
 </head>
@@ -585,7 +587,9 @@ document.getElementById('adminPassword').addEventListener('keypress', e => { if 
 function switchAdminTab(tab) {
     document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.admin-panel').forEach(p => p.classList.remove('active'));
-    document.querySelector(`.admin-tab[onclick="switchAdminTab('${tab}')"]`).classList.add('active');
+    var activeTab = document.querySelector(`.admin-tab[onclick="switchAdminTab('${tab}')"]`);
+    activeTab.classList.add('active');
+    activeTab.scrollIntoView({behavior:'smooth', block:'nearest', inline:'center'});
     document.getElementById(`panel-${tab}`).classList.add('active');
     if (tab === 'arrivals') loadPackages();
     if (tab === 'shipreqs') loadShipReqs();
