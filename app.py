@@ -718,6 +718,50 @@ def get_orders():
 
 # ============ 統計 API ============
 
+@app.route("/api/admin/stats/monthly/detail", methods=["GET"])
+def admin_monthly_detail():
+    """取得指定月份的出貨明細"""
+    month = request.args.get("month", "")
+    if not month:
+        return jsonify({"success": False, "error": "缺少月份"})
+    try:
+        conn = get_db()
+        rows = conn.execute("""
+            SELECT * FROM shipment_requests
+            WHERE status='已出貨' AND total_fee > 0
+            ORDER BY updated_at ASC
+        """).fetchall()
+        conn.close()
+        details = []
+        for r in rows:
+            rd = dict(r)
+            date_str = rd.get("updated_at") or rd.get("created_at") or ""
+            if date_str[:7] != month:
+                continue
+            extras = []
+            try:
+                extras = json.loads(rd.get("extra_services") or "[]")
+            except:
+                pass
+            details.append({
+                "date": date_str[:10],
+                "g_code": rd.get("g_code", ""),
+                "customer_name": rd.get("customer_name", ""),
+                "ship_recipient": rd.get("ship_recipient", ""),
+                "ship_phone": rd.get("ship_phone", ""),
+                "ship_address": rd.get("ship_address", ""),
+                "billed_weight": float(rd.get("billed_weight") or 0),
+                "rate_per_kg": float(rd.get("rate_per_kg") or 0),
+                "shipping_fee": float(rd.get("shipping_fee") or 0),
+                "handling_fee": float(rd.get("handling_fee") or 0),
+                "extra_services": extras,
+                "total_fee": float(rd.get("total_fee") or 0),
+            })
+        return jsonify({"success": True, "details": details})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
 @app.route("/api/admin/stats/monthly/excel", methods=["GET"])
 def admin_monthly_excel():
     """下載指定月份的出貨明細 Excel"""
@@ -736,9 +780,10 @@ def admin_monthly_excel():
         # 篩選指定月份
         filtered = []
         for r in rows:
-            date_str = r["updated_at"] or r["created_at"] or ""
+            rd = dict(r)
+            date_str = rd.get("updated_at") or rd.get("created_at") or ""
             if date_str[:7] == month:
-                filtered.append(r)
+                filtered.append(rd)
 
         wb = Workbook()
         ws = wb.active

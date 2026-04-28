@@ -1199,8 +1199,8 @@ async function loadStats() {
 
         // 月報表格
         document.getElementById('statsTable').innerHTML = data.map(function(m) {
-            return '<tr>'
-                + '<td style="font-weight:700;">' + m.month + '</td>'
+            return '<tr class="stats-month-row" style="cursor:pointer;" onclick="toggleMonthDetail(this,\'' + m.month + '\')">'
+                + '<td style="font-weight:700;">' + m.month + ' <span style="font-size:10px;color:#888;">▶</span></td>'
                 + '<td>' + m.shipments + '</td>'
                 + '<td>' + m.customer_count + '</td>'
                 + '<td style="font-weight:600;color:#f39c12;">' + m.total_kg.toFixed(1) + ' kg</td>'
@@ -1208,7 +1208,7 @@ async function loadStats() {
                 + '<td>NT$ ' + Math.round(m.handling_fee).toLocaleString() + '</td>'
                 + '<td>NT$ ' + Math.round(m.extra_fee).toLocaleString() + '</td>'
                 + '<td style="font-weight:700;color:#27ae60;font-size:15px;">NT$ ' + Math.round(m.total_revenue).toLocaleString() + '</td>'
-                + '<td><a href="/api/admin/stats/monthly/excel?month=' + m.month + '" class="btn-edit-sm" style="background:rgba(52,152,219,.2);border-color:rgba(52,152,219,.3);color:#3498db;text-decoration:none;padding:6px 12px;font-size:11px;">📥 Excel</a></td>'
+                + '<td><a href="/api/admin/stats/monthly/excel?month=' + m.month + '" onclick="event.stopPropagation();" class="btn-edit-sm" style="background:rgba(52,152,219,.2);border-color:rgba(52,152,219,.3);color:#3498db;text-decoration:none;padding:6px 12px;font-size:11px;">📥 Excel</a></td>'
                 + '</tr>';
         }).join('')
         // 合計列
@@ -1224,6 +1224,70 @@ async function loadStats() {
         + '<td></td>'
         + '</tr>';
     } catch(e) { console.error('loadStats error:', e); }
+}
+
+async function toggleMonthDetail(row, month) {
+    // 已展開就收起
+    var next = row.nextElementSibling;
+    if (next && next.classList.contains('stats-detail-row')) {
+        next.remove();
+        row.querySelector('td span').textContent = '▶';
+        return;
+    }
+    // 移除其他展開的
+    document.querySelectorAll('.stats-detail-row').forEach(function(r) { r.remove(); });
+    document.querySelectorAll('.stats-month-row td span').forEach(function(s) { s.textContent = '▶'; });
+
+    row.querySelector('td span').textContent = '▼';
+    // 插入 loading
+    var detailRow = document.createElement('tr');
+    detailRow.className = 'stats-detail-row';
+    detailRow.innerHTML = '<td colspan="9" style="padding:0;"><div style="padding:16px;background:rgba(255,255,255,.02);font-size:12px;color:#888;">載入中...</div></td>';
+    row.after(detailRow);
+
+    try {
+        var res = await fetch('/api/admin/stats/monthly/detail?month=' + month);
+        var result = await res.json();
+        if (!result.success || !result.details.length) {
+            detailRow.innerHTML = '<td colspan="9" style="padding:16px;text-align:center;color:#666;">無明細</td>';
+            return;
+        }
+        var html = '<td colspan="9" style="padding:0;"><div style="padding:12px;background:rgba(255,255,255,.02);overflow-x:auto;">'
+            + '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
+            + '<tr style="color:#888;border-bottom:1px solid rgba(255,255,255,.1);">'
+            + '<th style="padding:6px 8px;text-align:left;">日期</th>'
+            + '<th style="padding:6px 8px;">客編</th>'
+            + '<th style="padding:6px 8px;">姓名</th>'
+            + '<th style="padding:6px 8px;">寄送地址</th>'
+            + '<th style="padding:6px 8px;text-align:right;">公斤</th>'
+            + '<th style="padding:6px 8px;text-align:right;">運費</th>'
+            + '<th style="padding:6px 8px;text-align:right;">理貨費</th>'
+            + '<th style="padding:6px 8px;">加值服務</th>'
+            + '<th style="padding:6px 8px;text-align:right;">合計</th></tr>';
+
+        result.details.forEach(function(d) {
+            var extrasStr = (d.extra_services || []).map(function(e) {
+                var q = e.qty || 1, p = e.price || 0, s = e.subtotal || q*p;
+                return e.name + (q>1 ? '×'+q : '') + ' $'+s;
+            }).join(', ') || '-';
+            var addr = [d.ship_recipient, d.ship_address].filter(Boolean).join(' ') || '-';
+            html += '<tr style="border-bottom:1px solid rgba(255,255,255,.05);">'
+                + '<td style="padding:6px 8px;">' + d.date + '</td>'
+                + '<td style="padding:6px 8px;"><span class="g-code">' + d.g_code + '</span></td>'
+                + '<td style="padding:6px 8px;">' + (d.customer_name||'-') + '</td>'
+                + '<td style="padding:6px 8px;font-size:11px;color:#888;max-width:180px;overflow:hidden;text-overflow:ellipsis;">' + addr + '</td>'
+                + '<td style="padding:6px 8px;text-align:right;color:#f39c12;font-weight:600;">' + d.billed_weight.toFixed(1) + '</td>'
+                + '<td style="padding:6px 8px;text-align:right;">$' + Math.round(d.shipping_fee).toLocaleString() + '</td>'
+                + '<td style="padding:6px 8px;text-align:right;">$' + Math.round(d.handling_fee).toLocaleString() + '</td>'
+                + '<td style="padding:6px 8px;font-size:11px;color:#9b59b6;">' + extrasStr + '</td>'
+                + '<td style="padding:6px 8px;text-align:right;font-weight:700;color:#27ae60;">$' + Math.round(d.total_fee).toLocaleString() + '</td>'
+                + '</tr>';
+        });
+        html += '</table></div></td>';
+        detailRow.innerHTML = html;
+    } catch(e) {
+        detailRow.innerHTML = '<td colspan="9" style="padding:16px;color:#e74c3c;">載入失敗</td>';
+    }
 }
 
 // ── 公告管理 ──
