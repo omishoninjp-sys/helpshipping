@@ -132,9 +132,8 @@
         @media (max-width:700px) {
             .stats { grid-template-columns: 1fr; }
             .pkg-form-grid { grid-template-columns: 1fr 1fr; }
-            .admin-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; gap: 6px; padding: 6px; scrollbar-width: none; }
-            .admin-tabs::-webkit-scrollbar { display: none; }
-            .admin-tab { flex: none; font-size: 13px; padding: 10px 16px; white-space: nowrap; min-width: auto; }
+            .admin-tabs { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; padding: 6px; }
+            .admin-tab { flex: none; font-size: 13px; padding: 12px 8px; white-space: nowrap; }
         }
     </style>
 </head>
