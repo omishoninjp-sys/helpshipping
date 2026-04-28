@@ -414,10 +414,11 @@
                                 <th>理貨費</th>
                                 <th>加值服務</th>
                                 <th>總收入</th>
+                                <th>下載</th>
                             </tr>
                         </thead>
                         <tbody id="statsTable">
-                            <tr><td colspan="8" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr>
+                            <tr><td colspan="9" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1163,7 +1164,7 @@ async function loadStats() {
         const result = await res.json();
         if (!result.success || !result.monthly || !result.monthly.length) {
             document.getElementById('statsOverview').innerHTML = '';
-            document.getElementById('statsTable').innerHTML = '<tr><td colspan="8" style="text-align:center;color:#666;padding:30px;">尚無出貨數據</td></tr>';
+            document.getElementById('statsTable').innerHTML = '<tr><td colspan="9" style="text-align:center;color:#666;padding:30px;">尚無出貨數據</td></tr>';
             return;
         }
         var data = result.monthly;
@@ -1207,6 +1208,7 @@ async function loadStats() {
                 + '<td>NT$ ' + Math.round(m.handling_fee).toLocaleString() + '</td>'
                 + '<td>NT$ ' + Math.round(m.extra_fee).toLocaleString() + '</td>'
                 + '<td style="font-weight:700;color:#27ae60;font-size:15px;">NT$ ' + Math.round(m.total_revenue).toLocaleString() + '</td>'
+                + '<td><a href="/api/admin/stats/monthly/excel?month=' + m.month + '" class="btn-edit-sm" style="background:rgba(52,152,219,.2);border-color:rgba(52,152,219,.3);color:#3498db;text-decoration:none;padding:6px 12px;font-size:11px;">📥 Excel</a></td>'
                 + '</tr>';
         }).join('')
         // 合計列
@@ -1219,6 +1221,7 @@ async function loadStats() {
         + '<td style="font-weight:600;">NT$ ' + Math.round(totalHandling).toLocaleString() + '</td>'
         + '<td style="font-weight:600;">NT$ ' + Math.round(totalExtra).toLocaleString() + '</td>'
         + '<td style="font-weight:700;color:#27ae60;font-size:16px;">NT$ ' + Math.round(totalRevenue).toLocaleString() + '</td>'
+        + '<td></td>'
         + '</tr>';
     } catch(e) { console.error('loadStats error:', e); }
 }

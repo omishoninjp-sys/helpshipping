@@ -718,6 +718,132 @@ def get_orders():
 
 # ============ 統計 API ============
 
+@app.route("/api/admin/stats/monthly/excel", methods=["GET"])
+def admin_monthly_excel():
+    """下載指定月份的出貨明細 Excel"""
+    month = request.args.get("month", "")  # e.g. "2026-04"
+    if not month:
+        return jsonify({"success": False, "error": "缺少月份參數"})
+    try:
+        conn = get_db()
+        rows = conn.execute("""
+            SELECT * FROM shipment_requests
+            WHERE status='已出貨' AND total_fee > 0
+            ORDER BY updated_at ASC
+        """).fetchall()
+        conn.close()
+
+        # 篩選指定月份
+        filtered = []
+        for r in rows:
+            date_str = r["updated_at"] or r["created_at"] or ""
+            if date_str[:7] == month:
+                filtered.append(r)
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = f"{month} 出貨明細"
+
+        # 標題樣式
+        header_font = Font(bold=True, color="FFFFFF", size=11)
+        header_fill = PatternFill(start_color="2C3E50", end_color="2C3E50", fill_type="solid")
+        header_align = Alignment(horizontal="center", vertical="center")
+        thin_border = Border(
+            left=Side(style="thin"), right=Side(style="thin"),
+            top=Side(style="thin"), bottom=Side(style="thin")
+        )
+
+        headers = ["出貨日期", "客戶編號", "客戶姓名", "寄送地址", "計費重量(kg)",
+                    "運費單價", "運費小計", "理貨費", "加值服務明細", "加值服務小計", "合計(台幣)"]
+        for col, h in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=h)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+            cell.border = thin_border
+
+        total_kg = 0
+        total_shipping = 0
+        total_handling = 0
+        total_extra = 0
+        total_all = 0
+
+        for i, r in enumerate(filtered, 2):
+            date_str = r["updated_at"] or r["created_at"] or ""
+            bw = float(r["billed_weight"] or 0)
+            rate = float(r["rate_per_kg"] or 0)
+            sf = float(r["shipping_fee"] or 0)
+            hf = float(r["handling_fee"] or 0)
+            tf = float(r["total_fee"] or 0)
+
+            # 加值服務
+            extra_desc = ""
+            extra_total = 0
+            try:
+                extras = json.loads(r["extra_services"] or "[]")
+                parts = []
+                for e in extras:
+                    qty = int(e.get("qty", 1))
+                    price = int(e.get("price", 0))
+                    sub = int(e.get("subtotal", qty * price))
+                    parts.append(f"{e.get('name','')} ×{qty} = NT${sub}")
+                    extra_total += sub
+                extra_desc = " / ".join(parts)
+            except:
+                pass
+
+            ship_addr = " ".join(filter(None, [r.get("ship_recipient", ""), r.get("ship_phone", ""), r.get("ship_address", "")]))
+
+            ws.cell(row=i, column=1, value=date_str[:10]).border = thin_border
+            ws.cell(row=i, column=2, value=r["g_code"]).border = thin_border
+            ws.cell(row=i, column=3, value=r["customer_name"] or "").border = thin_border
+            ws.cell(row=i, column=4, value=ship_addr).border = thin_border
+            ws.cell(row=i, column=5, value=bw).border = thin_border
+            ws.cell(row=i, column=6, value=rate).border = thin_border
+            ws.cell(row=i, column=7, value=sf).border = thin_border
+            ws.cell(row=i, column=8, value=hf).border = thin_border
+            ws.cell(row=i, column=9, value=extra_desc).border = thin_border
+            ws.cell(row=i, column=10, value=extra_total).border = thin_border
+            ws.cell(row=i, column=11, value=tf).border = thin_border
+
+            total_kg += bw
+            total_shipping += sf
+            total_handling += hf
+            total_extra += extra_total
+            total_all += tf
+
+        # 合計列
+        sum_row = len(filtered) + 2
+        sum_font = Font(bold=True, size=11)
+        sum_fill = PatternFill(start_color="F39C12", end_color="F39C12", fill_type="solid")
+        ws.cell(row=sum_row, column=1, value="合計").font = sum_font
+        ws.cell(row=sum_row, column=1).fill = sum_fill
+        ws.cell(row=sum_row, column=1).border = thin_border
+        for c in range(2, 12):
+            ws.cell(row=sum_row, column=c).border = thin_border
+            ws.cell(row=sum_row, column=c).font = sum_font
+        ws.cell(row=sum_row, column=2, value=f"{len(filtered)} 筆")
+        ws.cell(row=sum_row, column=5, value=total_kg)
+        ws.cell(row=sum_row, column=7, value=total_shipping)
+        ws.cell(row=sum_row, column=8, value=total_handling)
+        ws.cell(row=sum_row, column=10, value=total_extra)
+        ws.cell(row=sum_row, column=11, value=total_all)
+
+        # 欄寬
+        widths = {'A':12, 'B':10, 'C':12, 'D':30, 'E':12, 'F':10, 'G':12, 'H':10, 'I':30, 'J':12, 'K':12}
+        for col_letter, w in widths.items():
+            ws.column_dimensions[col_letter].width = w
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        filename = f"GOYOUTATI_{month}_出貨明細.xlsx"
+        return send_file(buf, as_attachment=True, download_name=filename,
+                         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
 @app.route("/api/admin/stats/monthly", methods=["GET"])
 def admin_monthly_stats():
     """月報統計：每月出貨公斤數、運費、理貨費、加值服務、總收入"""
