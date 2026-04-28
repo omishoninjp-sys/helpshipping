@@ -837,11 +837,11 @@ def admin_monthly_excel():
             except:
                 pass
 
-            ship_addr = " ".join(filter(None, [r.get("ship_recipient", ""), r.get("ship_phone", ""), r.get("ship_address", "")]))
+            ship_addr = " ".join(filter(None, [str(r.get("ship_recipient") or ""), str(r.get("ship_phone") or ""), str(r.get("ship_address") or "")]))
 
             ws.cell(row=i, column=1, value=date_str[:10]).border = thin_border
             ws.cell(row=i, column=2, value=r["g_code"]).border = thin_border
-            ws.cell(row=i, column=3, value=r["customer_name"] or "").border = thin_border
+            ws.cell(row=i, column=3, value=str(r.get("customer_name") or "")).border = thin_border
             ws.cell(row=i, column=4, value=ship_addr).border = thin_border
             ws.cell(row=i, column=5, value=bw).border = thin_border
             ws.cell(row=i, column=6, value=rate).border = thin_border
