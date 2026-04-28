@@ -716,6 +716,68 @@ def get_orders():
     return jsonify({"success": False, "error": "查詢失敗"})
 
 
+# ============ 統計 API ============
+
+@app.route("/api/admin/stats/monthly", methods=["GET"])
+def admin_monthly_stats():
+    """月報統計：每月出貨公斤數、運費、理貨費、加值服務、總收入"""
+    try:
+        conn = get_db()
+        rows = conn.execute("""
+            SELECT * FROM shipment_requests
+            WHERE status='已出貨' AND total_fee > 0
+            ORDER BY updated_at DESC
+        """).fetchall()
+        conn.close()
+
+        monthly = {}
+        for r in rows:
+            date_str = r["updated_at"] or r["created_at"] or ""
+            if not date_str:
+                continue
+            month_key = date_str[:7]  # "2026-04"
+
+            if month_key not in monthly:
+                monthly[month_key] = {
+                    "month": month_key,
+                    "shipments": 0,
+                    "total_kg": 0,
+                    "shipping_fee": 0,
+                    "handling_fee": 0,
+                    "extra_fee": 0,
+                    "total_revenue": 0,
+                    "customers": set()
+                }
+
+            m = monthly[month_key]
+            m["shipments"] += 1
+            m["total_kg"] += float(r["billed_weight"] or 0)
+            m["shipping_fee"] += float(r["shipping_fee"] or 0)
+            m["handling_fee"] += float(r["handling_fee"] or 0)
+            m["total_revenue"] += float(r["total_fee"] or 0)
+            m["customers"].add(r["g_code"])
+
+            # 加值服務小計
+            try:
+                extras = json.loads(r["extra_services"] or "[]")
+                for e in extras:
+                    m["extra_fee"] += int(e.get("subtotal") or e.get("qty", 1) * e.get("price", 0) or 0)
+            except:
+                pass
+
+        # set 轉 count
+        result = []
+        for key in sorted(monthly.keys(), reverse=True):
+            m = monthly[key]
+            m["customer_count"] = len(m["customers"])
+            del m["customers"]
+            result.append(m)
+
+        return jsonify({"success": True, "monthly": result})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
 # ============ 公告 API ============
 
 @app.route("/api/announcements", methods=["GET"])

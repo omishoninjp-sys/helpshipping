@@ -169,6 +169,7 @@
             <button class="admin-tab" onclick="switchAdminTab('shipreqs')">🚚 出貨申請 <span id="shipreq-badge" style="display:none;background:#e74c3c;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:4px;">0</span></button>
             <button class="admin-tab" onclick="switchAdminTab('forecasts')">📝 預報管理 <span id="forecast-badge" style="display:none;background:#e74c3c;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:4px;">0</span></button>
             <button class="admin-tab" onclick="switchAdminTab('announcements')">📢 公告管理</button>
+            <button class="admin-tab" onclick="switchAdminTab('stats')">📊 統計</button>
         </div>
 
         <!-- 會員管理 -->
@@ -390,6 +391,38 @@
             </div>
         </div>
 
+        <!-- 統計 -->
+        <div class="admin-panel" id="panel-stats">
+            <div class="card">
+                <div class="toolbar">
+                    <h3>📊 月報統計</h3>
+                    <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadStats()">🔄 重新整理</button>
+                </div>
+                <!-- 總覽卡片 -->
+                <div id="statsOverview" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:24px;"></div>
+                <!-- 月報表格 -->
+                <div style="overflow-x:auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>月份</th>
+                                <th>出貨單數</th>
+                                <th>客戶數</th>
+                                <th>總公斤數</th>
+                                <th>運費收入</th>
+                                <th>理貨費</th>
+                                <th>加值服務</th>
+                                <th>總收入</th>
+                            </tr>
+                        </thead>
+                        <tbody id="statsTable">
+                            <tr><td colspan="8" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
     </div>
 </div>
 <div class="modal-overlay" id="editModal">
@@ -558,6 +591,7 @@ function switchAdminTab(tab) {
     if (tab === 'shipreqs') loadShipReqs();
     if (tab === 'forecasts') loadForecasts();
     if (tab === 'announcements') loadAnnouncements();
+    if (tab === 'stats') loadStats();
 }
 
 // ── 會員管理 ──
@@ -1117,6 +1151,73 @@ async function updateForecast(id, status) {
             showToast('更新失敗', 'error');
         }
     } catch(e) { showToast('網路錯誤', 'error'); }
+}
+
+// ── 統計 ──
+async function loadStats() {
+    try {
+        const res = await fetch('/api/admin/stats/monthly');
+        const result = await res.json();
+        if (!result.success || !result.monthly || !result.monthly.length) {
+            document.getElementById('statsOverview').innerHTML = '';
+            document.getElementById('statsTable').innerHTML = '<tr><td colspan="8" style="text-align:center;color:#666;padding:30px;">尚無出貨數據</td></tr>';
+            return;
+        }
+        var data = result.monthly;
+        // 總覽：全部累計
+        var totalKg = 0, totalRevenue = 0, totalShipments = 0, totalShipping = 0, totalHandling = 0, totalExtra = 0;
+        data.forEach(function(m) {
+            totalKg += m.total_kg;
+            totalRevenue += m.total_revenue;
+            totalShipments += m.shipments;
+            totalShipping += m.shipping_fee;
+            totalHandling += m.handling_fee;
+            totalExtra += m.extra_fee;
+        });
+        // 本月
+        var now = new Date();
+        var thisMonth = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
+        var cm = data.find(function(m) { return m.month === thisMonth; }) || {shipments:0, total_kg:0, total_revenue:0};
+
+        document.getElementById('statsOverview').innerHTML = ''
+            + '<div style="padding:20px;background:rgba(243,156,18,.08);border:1px solid rgba(243,156,18,.2);border-radius:12px;text-align:center;">'
+            + '<div style="font-size:28px;font-weight:700;color:#f39c12;">' + cm.total_kg.toFixed(1) + ' kg</div>'
+            + '<div style="font-size:12px;color:#888;margin-top:4px;">本月出貨</div></div>'
+            + '<div style="padding:20px;background:rgba(39,174,96,.08);border:1px solid rgba(39,174,96,.2);border-radius:12px;text-align:center;">'
+            + '<div style="font-size:28px;font-weight:700;color:#27ae60;">NT$ ' + Math.round(cm.total_revenue).toLocaleString() + '</div>'
+            + '<div style="font-size:12px;color:#888;margin-top:4px;">本月收入</div></div>'
+            + '<div style="padding:20px;background:rgba(52,152,219,.08);border:1px solid rgba(52,152,219,.2);border-radius:12px;text-align:center;">'
+            + '<div style="font-size:28px;font-weight:700;color:#3498db;">' + cm.shipments + '</div>'
+            + '<div style="font-size:12px;color:#888;margin-top:4px;">本月出貨單數</div></div>'
+            + '<div style="padding:20px;background:rgba(155,89,182,.08);border:1px solid rgba(155,89,182,.2);border-radius:12px;text-align:center;">'
+            + '<div style="font-size:28px;font-weight:700;color:#9b59b6;">NT$ ' + Math.round(totalRevenue).toLocaleString() + '</div>'
+            + '<div style="font-size:12px;color:#888;margin-top:4px;">累計總收入</div></div>';
+
+        // 月報表格
+        document.getElementById('statsTable').innerHTML = data.map(function(m) {
+            return '<tr>'
+                + '<td style="font-weight:700;">' + m.month + '</td>'
+                + '<td>' + m.shipments + '</td>'
+                + '<td>' + m.customer_count + '</td>'
+                + '<td style="font-weight:600;color:#f39c12;">' + m.total_kg.toFixed(1) + ' kg</td>'
+                + '<td>NT$ ' + Math.round(m.shipping_fee).toLocaleString() + '</td>'
+                + '<td>NT$ ' + Math.round(m.handling_fee).toLocaleString() + '</td>'
+                + '<td>NT$ ' + Math.round(m.extra_fee).toLocaleString() + '</td>'
+                + '<td style="font-weight:700;color:#27ae60;font-size:15px;">NT$ ' + Math.round(m.total_revenue).toLocaleString() + '</td>'
+                + '</tr>';
+        }).join('')
+        // 合計列
+        + '<tr style="border-top:2px solid rgba(255,255,255,.15);background:rgba(255,255,255,.03);">'
+        + '<td style="font-weight:700;color:#f39c12;">合計</td>'
+        + '<td style="font-weight:700;">' + totalShipments + '</td>'
+        + '<td>-</td>'
+        + '<td style="font-weight:700;color:#f39c12;">' + totalKg.toFixed(1) + ' kg</td>'
+        + '<td style="font-weight:600;">NT$ ' + Math.round(totalShipping).toLocaleString() + '</td>'
+        + '<td style="font-weight:600;">NT$ ' + Math.round(totalHandling).toLocaleString() + '</td>'
+        + '<td style="font-weight:600;">NT$ ' + Math.round(totalExtra).toLocaleString() + '</td>'
+        + '<td style="font-weight:700;color:#27ae60;font-size:16px;">NT$ ' + Math.round(totalRevenue).toLocaleString() + '</td>'
+        + '</tr>';
+    } catch(e) { console.error('loadStats error:', e); }
 }
 
 // ── 公告管理 ──
