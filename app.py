@@ -207,38 +207,46 @@ def shopify_request(endpoint, method="GET", data=None):
 
 
 # 會員快取（避免每次登入都打 Shopify API）
+import threading
 _customers_cache = {"data": None, "time": 0}
+_customers_lock = threading.Lock()
 CACHE_TTL = 600  # 10 分鐘
 
 
 def get_all_goyoutati_customers(force_refresh=False):
     global _customers_cache
     now = time.time()
+    # 快取有效就直接回
     if not force_refresh and _customers_cache["data"] is not None and (now - _customers_cache["time"]) < CACHE_TTL:
         return _customers_cache["data"]
 
-    customers = _fetch_customers_from_shopify()
-    if customers:  # 只在成功時更新快取
-        _customers_cache = {"data": customers, "time": now}
-    elif _customers_cache["data"] is not None:
-        return _customers_cache["data"]  # 失敗時用舊快取
-    return customers
+    # 用鎖防止同時多個請求都去打 Shopify
+    acquired = _customers_lock.acquire(timeout=60)
+    try:
+        # 再檢查一次（可能另一個線程剛拉完）
+        now2 = time.time()
+        if not force_refresh and _customers_cache["data"] is not None and (now2 - _customers_cache["time"]) < CACHE_TTL:
+            return _customers_cache["data"]
+
+        print("[Shopify] 🔄 開始拉取會員資料...", flush=True)
+        customers = _fetch_customers_from_shopify()
+        if customers:
+            _customers_cache = {"data": customers, "time": time.time()}
+            print(f"[Shopify] ✅ 拉取完成，共 {len(customers)} 位會員", flush=True)
+        elif _customers_cache["data"] is not None:
+            print("[Shopify] ⚠️ 拉取失敗，使用舊快取", flush=True)
+            return _customers_cache["data"]
+        return customers
+    finally:
+        if acquired:
+            _customers_lock.release()
 
 
 def _preload_customers():
     """啟動時背景預載會員資料"""
-    import threading
     def _load():
-        time.sleep(2)  # 等 gunicorn 完全啟動
-        print("[Shopify] 🔄 背景預載會員資料...", flush=True)
-        try:
-            customers = _fetch_customers_from_shopify()
-            if customers:
-                global _customers_cache
-                _customers_cache = {"data": customers, "time": time.time()}
-                print(f"[Shopify] ✅ 預載完成，共 {len(customers)} 位會員", flush=True)
-        except Exception as e:
-            print(f"[Shopify] ❌ 預載失敗: {e}", flush=True)
+        time.sleep(2)
+        get_all_goyoutati_customers(force_refresh=True)
     t = threading.Thread(target=_load, daemon=True)
     t.start()
 
