@@ -602,10 +602,17 @@ function switchAdminTab(tab) {
 async function loadMembers(forceRefresh) {
     pendingChanges = {}; updateChangesBadge();
     const url = '/api/admin/members' + (forceRefresh ? '?refresh=1' : '');
-    const res = await fetch(url);
-    const result = await res.json();
-    if (!result.success) { showToast(result.error || '載入失敗', 'error'); return; }
-    membersData = result.members;
+    try {
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), 45000);
+        const res = await fetch(url, {signal: controller.signal});
+        clearTimeout(tid);
+        const result = await res.json();
+        if (!result.success) { showToast(result.error || '載入失敗', 'error'); return; }
+        if (!result.members || !result.members.length) {
+            showToast('會員資料載入中，請稍後按「整理」重試', 'error'); return;
+        }
+        membersData = result.members;
     if (result.twd_to_jpy_rate) twd_to_jpy_rate = result.twd_to_jpy_rate;
     document.getElementById('totalMembers').textContent = result.total;
     document.getElementById('maxNumber').textContent = result.max_number > 0 ? `G${String(result.max_number).padStart(4,'0')}` : '-';
@@ -622,6 +629,10 @@ async function loadMembers(forceRefresh) {
     memberPage = 1;
     memberSearchQuery = document.getElementById('member-search').value.trim().toUpperCase();
     applyMemberFilter();
+    } catch(e) {
+        if (e.name === 'AbortError') { showToast('載入超時，請按「整理」重試', 'error'); }
+        else { showToast('載入失敗: ' + e.message, 'error'); }
+    }
 }
 
 function onMemberSearch() {

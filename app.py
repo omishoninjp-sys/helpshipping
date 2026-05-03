@@ -183,7 +183,7 @@ def shopify_graphql(query, variables=None):
     if variables:
         payload["variables"] = variables
     try:
-        response = requests.post(graphql_url, headers=headers, json=payload, timeout=30)
+        response = requests.post(graphql_url, headers=headers, json=payload, timeout=15)
         return response.json()
     except Exception as e:
         print(f"❌ GraphQL 錯誤: {e}")
