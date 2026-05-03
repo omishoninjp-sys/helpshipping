@@ -223,88 +223,106 @@ def get_all_goyoutati_customers(force_refresh=False):
 
 
 def _fetch_customers_from_shopify():
-    graphql_query = """
-    {
-        metafieldDefinitions(first: 1, ownerType: CUSTOMER, namespace: "custom", key: "goyoutati_id") {
-            edges {
-                node {
-                    id
-                    name
-                    metafieldsCount
-                    metafields(first: 100) {
-                        edges {
-                            node {
-                                value
-                                owner {
-                                    ... on Customer {
-                                        id
-                                        firstName
-                                        lastName
-                                        email
-                                        phone
-                                        defaultAddress {
+    customers = []
+    cursor = None
+    has_next = True
+
+    while has_next:
+        after_clause = f', after: "{cursor}"' if cursor else ''
+        graphql_query = """
+        {
+            metafieldDefinitions(first: 1, ownerType: CUSTOMER, namespace: "custom", key: "goyoutati_id") {
+                edges {
+                    node {
+                        id
+                        metafields(first: 100%s) {
+                            edges {
+                                node {
+                                    value
+                                    owner {
+                                        ... on Customer {
+                                            id
+                                            firstName
+                                            lastName
+                                            email
                                             phone
-                                            province
-                                            city
-                                            address1
-                                            address2
-                                        }
-                                        createdAt
-                                        shippingRate: metafield(namespace: "custom", key: "shipping_rate") {
-                                            value
+                                            defaultAddress {
+                                                phone
+                                                province
+                                                city
+                                                address1
+                                                address2
+                                            }
+                                            createdAt
+                                            shippingRate: metafield(namespace: "custom", key: "shipping_rate") {
+                                                value
+                                            }
                                         }
                                     }
                                 }
+                                cursor
+                            }
+                            pageInfo {
+                                hasNextPage
                             }
                         }
                     }
                 }
             }
         }
-    }
-    """
-    result = shopify_graphql(graphql_query)
-    customers = []
+        """ % after_clause
 
-    if "data" in result:
+        result = shopify_graphql(graphql_query)
+        has_next = False
+
+        if "data" not in result:
+            break
+
         definitions = result["data"].get("metafieldDefinitions", {}).get("edges", [])
-        if definitions:
-            metafields = definitions[0]["node"].get("metafields", {}).get("edges", [])
-            for mf in metafields:
-                node = mf["node"]
-                g_code = node.get("value", "")
-                owner = node.get("owner", {})
-                if not g_code or not owner:
-                    continue
-                gid = owner.get("id", "")
-                customer_id = gid.split("/")[-1] if "/" in gid else gid
-                customer_name = f"{owner.get('lastName', '')}{owner.get('firstName', '')}".strip()
-                if not customer_name:
-                    customer_name = owner.get("email", "")
-                default_address = owner.get("defaultAddress") or {}
-                phone_raw = default_address.get("phone") or owner.get("phone") or ""
-                phone = normalize_phone(phone_raw)
-                address = " ".join(filter(None, [
-                    default_address.get("province", ""),
-                    default_address.get("city", ""),
-                    default_address.get("address1", ""),
-                    default_address.get("address2", "")
-                ])).strip()
-                rate_mf = owner.get("shippingRate")
-                # shipping_rate 現在儲存台幣值
-                shipping_rate_twd = rate_mf["value"] if rate_mf and rate_mf.get("value") else ""
-                customers.append({
-                    "g_code": g_code,
-                    "customer_id": customer_id,
-                    "gid": gid,
-                    "name": customer_name,
-                    "email": owner.get("email", ""),
-                    "address": address,
-                    "phone": phone,
-                    "phone_raw": phone_raw,
-                    "shipping_rate": shipping_rate_twd,  # 台幣
-                    "created_at": owner.get("createdAt", "")
-                })
+        if not definitions:
+            break
+
+        metafields_data = definitions[0]["node"].get("metafields", {})
+        edges = metafields_data.get("edges", [])
+        page_info = metafields_data.get("pageInfo", {})
+        has_next = page_info.get("hasNextPage", False)
+
+        for mf in edges:
+            node = mf["node"]
+            cursor = mf.get("cursor")
+            g_code = node.get("value", "")
+            owner = node.get("owner", {})
+            if not g_code or not owner:
+                continue
+            gid = owner.get("id", "")
+            customer_id = gid.split("/")[-1] if "/" in gid else gid
+            customer_name = f"{owner.get('lastName', '')}{owner.get('firstName', '')}".strip()
+            if not customer_name:
+                customer_name = owner.get("email", "")
+            default_address = owner.get("defaultAddress") or {}
+            phone_raw = default_address.get("phone") or owner.get("phone") or ""
+            phone = normalize_phone(phone_raw)
+            address = " ".join(filter(None, [
+                default_address.get("province", ""),
+                default_address.get("city", ""),
+                default_address.get("address1", ""),
+                default_address.get("address2", "")
+            ])).strip()
+            rate_mf = owner.get("shippingRate")
+            # shipping_rate 現在儲存台幣值
+            shipping_rate_twd = rate_mf["value"] if rate_mf and rate_mf.get("value") else ""
+            customers.append({
+                "g_code": g_code,
+                "customer_id": customer_id,
+                "gid": gid,
+                "name": customer_name,
+                "email": owner.get("email", ""),
+                "address": address,
+                "phone": phone,
+                "phone_raw": phone_raw,
+                "shipping_rate": shipping_rate_twd,  # 台幣
+                "created_at": owner.get("createdAt", "")
+            })
     return customers
 
 
