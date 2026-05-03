@@ -226,66 +226,31 @@ def _fetch_customers_from_shopify():
     customers = []
     cursor = None
     has_next = True
+    page = 0
 
-    while has_next:
-        after_clause = f', after: "{cursor}"' if cursor else ''
-        graphql_query = """
-        {
-            metafieldDefinitions(first: 1, ownerType: CUSTOMER, namespace: "custom", key: "goyoutati_id") {
-                edges {
-                    node {
-                        id
-                        metafields(first: 100%s) {
-                            edges {
-                                node {
-                                    value
-                                    owner {
-                                        ... on Customer {
-                                            id
-                                            firstName
-                                            lastName
-                                            email
-                                            phone
-                                            defaultAddress {
-                                                phone
-                                                province
-                                                city
-                                                address1
-                                                address2
-                                            }
-                                            createdAt
-                                            shippingRate: metafield(namespace: "custom", key: "shipping_rate") {
-                                                value
-                                            }
-                                        }
-                                    }
-                                }
-                                cursor
-                            }
-                            pageInfo {
-                                hasNextPage
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        """ % after_clause
+    while has_next and page < 10:  # 最多 10 頁 = 1000 會員
+        page += 1
+        after_arg = f', after: "{cursor}"' if cursor else ''
+        graphql_query = '{metafieldDefinitions(first:1,ownerType:CUSTOMER,namespace:"custom",key:"goyoutati_id"){edges{node{id metafields(first:100' + after_arg + '){edges{node{value owner{...on Customer{id firstName lastName email phone defaultAddress{phone province city address1 address2} createdAt shippingRate:metafield(namespace:"custom",key:"shipping_rate"){value}}}} cursor} pageInfo{hasNextPage}}}}}}'
 
+        print(f"[Shopify] Fetching customers page {page}, cursor={cursor}", flush=True)
         result = shopify_graphql(graphql_query)
         has_next = False
 
         if "data" not in result:
+            print(f"[Shopify] Error: {result}", flush=True)
             break
 
         definitions = result["data"].get("metafieldDefinitions", {}).get("edges", [])
         if not definitions:
+            print("[Shopify] No metafieldDefinitions found", flush=True)
             break
 
         metafields_data = definitions[0]["node"].get("metafields", {})
         edges = metafields_data.get("edges", [])
         page_info = metafields_data.get("pageInfo", {})
         has_next = page_info.get("hasNextPage", False)
+        print(f"[Shopify] Page {page}: got {len(edges)} metafields, hasNextPage={has_next}", flush=True)
 
         for mf in edges:
             node = mf["node"]
