@@ -207,9 +207,7 @@ def shopify_request(endpoint, method="GET", data=None):
 
 
 # 會員快取（避免每次登入都打 Shopify API）
-import threading
-_customers_cache = {"data": None, "time": 0}
-_customers_lock = threading.Lock()
+_customers_cache = {"data": None, "time": 0, "loading": False}
 CACHE_TTL = 600  # 10 分鐘
 
 
@@ -220,41 +218,26 @@ def get_all_goyoutati_customers(force_refresh=False):
     if not force_refresh and _customers_cache["data"] is not None and (now - _customers_cache["time"]) < CACHE_TTL:
         return _customers_cache["data"]
 
-    # 嘗試拿鎖（不阻塞），拿不到就用舊快取
-    acquired = _customers_lock.acquire(blocking=False)
-    if not acquired:
-        print("[Shopify] ⏳ 另一個請求正在拉取，使用現有快取", flush=True)
+    # 防止重複拉取
+    if _customers_cache["loading"]:
         return _customers_cache["data"] or []
-
+    
+    _customers_cache["loading"] = True
     try:
-        # 拿到鎖後再檢查一次（可能另一個線程剛拉完）
-        now2 = time.time()
-        if not force_refresh and _customers_cache["data"] is not None and (now2 - _customers_cache["time"]) < CACHE_TTL:
-            return _customers_cache["data"]
-
         print("[Shopify] 🔄 開始拉取會員資料...", flush=True)
         customers = _fetch_customers_from_shopify()
         if customers:
-            _customers_cache = {"data": customers, "time": time.time()}
+            _customers_cache = {"data": customers, "time": time.time(), "loading": False}
             print(f"[Shopify] ✅ 拉取完成，共 {len(customers)} 位會員", flush=True)
-        elif _customers_cache["data"] is not None:
-            print("[Shopify] ⚠️ 拉取失敗，使用舊快取", flush=True)
-            return _customers_cache["data"]
+        else:
+            _customers_cache["loading"] = False
+            if _customers_cache["data"] is not None:
+                return _customers_cache["data"]
         return customers
-    finally:
-        _customers_lock.release()
-
-
-def _preload_customers():
-    """啟動時背景預載會員資料"""
-    def _load():
-        time.sleep(3)
-        get_all_goyoutati_customers(force_refresh=True)
-    t = threading.Thread(target=_load, daemon=True)
-    t.start()
-
-
-_preload_customers()
+    except Exception as e:
+        print(f"[Shopify] ❌ 拉取失敗: {e}", flush=True)
+        _customers_cache["loading"] = False
+        return _customers_cache["data"] or []
 
 
 def _fetch_customers_from_shopify():
