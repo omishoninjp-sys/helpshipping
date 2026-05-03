@@ -220,10 +220,14 @@ def get_all_goyoutati_customers(force_refresh=False):
     if not force_refresh and _customers_cache["data"] is not None and (now - _customers_cache["time"]) < CACHE_TTL:
         return _customers_cache["data"]
 
-    # 用鎖防止同時多個請求都去打 Shopify
-    acquired = _customers_lock.acquire(timeout=60)
+    # 嘗試拿鎖（不阻塞），拿不到就用舊快取
+    acquired = _customers_lock.acquire(blocking=False)
+    if not acquired:
+        print("[Shopify] ⏳ 另一個請求正在拉取，使用現有快取", flush=True)
+        return _customers_cache["data"] or []
+
     try:
-        # 再檢查一次（可能另一個線程剛拉完）
+        # 拿到鎖後再檢查一次（可能另一個線程剛拉完）
         now2 = time.time()
         if not force_refresh and _customers_cache["data"] is not None and (now2 - _customers_cache["time"]) < CACHE_TTL:
             return _customers_cache["data"]
@@ -238,14 +242,13 @@ def get_all_goyoutati_customers(force_refresh=False):
             return _customers_cache["data"]
         return customers
     finally:
-        if acquired:
-            _customers_lock.release()
+        _customers_lock.release()
 
 
 def _preload_customers():
     """啟動時背景預載會員資料"""
     def _load():
-        time.sleep(2)
+        time.sleep(3)
         get_all_goyoutati_customers(force_refresh=True)
     t = threading.Thread(target=_load, daemon=True)
     t.start()
