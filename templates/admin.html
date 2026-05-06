@@ -514,6 +514,18 @@
                 <div style="font-size:11px;color:#888;margin-top:2px;">每kg 11元，0.5kg尾數+6元</div>
             </div>
         </div>
+        <!-- 合箱費 -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
+            <div class="form-group" style="margin:0;">
+                <label>包裹數</label>
+                <input type="number" id="bill-pkg-count" class="form-control" min="0" readonly style="background:rgba(255,255,255,.03);">
+            </div>
+            <div class="form-group" style="margin:0;">
+                <label>合箱費</label>
+                <input type="number" id="bill-consolidation" class="form-control" min="0" oninput="calcTotal()">
+                <div style="font-size:11px;color:#888;margin-top:2px;">3個內免費，超過每個+NT$14</div>
+            </div>
+        </div>
         <!-- 加值服務 -->
         <div style="margin-top:14px;padding:14px;background:rgba(155,89,182,0.08);border:1px solid rgba(155,89,182,0.2);border-radius:8px;">
             <div style="font-size:13px;font-weight:600;color:#9b59b6;margin-bottom:10px;">⭐ 加值服務（選填）</div>
@@ -1436,6 +1448,15 @@ function openBillingModal(reqId, gCode, name, summary) {
         if (member && member.address) contactParts.push('📍 ' + member.address);
     }
     document.getElementById('bill-contact').innerHTML = contactParts.join('<br>');
+    // 計算合箱費
+    var pkgCount = (summary.match(/\d+\.\s/g) || []).length || (summary.split(/\d+\./).length - 1);
+    if (!pkgCount) pkgCount = summary.split('合計約')[0].split('/').length > 1 ? Math.floor(summary.split('/').length / 3) : 1;
+    // 用更可靠的方式：數 "序號. " 的數量
+    var matches = summary.match(/\b\d+\.\s/g);
+    pkgCount = matches ? matches.length : 1;
+    document.getElementById('bill-pkg-count').value = pkgCount;
+    var consolidation = pkgCount > 3 ? (pkgCount - 3) * 14 : 0;
+    document.getElementById('bill-consolidation').value = consolidation;
     document.getElementById('billingModal').classList.add('show');
     document.getElementById('bill-weight').focus();
 }
@@ -1513,9 +1534,10 @@ function calcHandling() {
 function calcTotal() {
     var shipping = parseInt(document.getElementById('bill-shipping').value) || 0;
     var handling = parseInt(document.getElementById('bill-handling').value) || 0;
+    var consolidation = parseInt(document.getElementById('bill-consolidation').value) || 0;
     var extras = getExtraServices();
     var extrasTotal = extras.reduce(function(sum, e) { return sum + e.subtotal; }, 0);
-    document.getElementById('bill-total').value = shipping + handling + extrasTotal;
+    document.getElementById('bill-total').value = shipping + handling + consolidation + extrasTotal;
 }
 
 async function submitBilling() {
