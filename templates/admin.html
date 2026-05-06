@@ -242,8 +242,8 @@
                         </div>
                     </div>
                     <div class="form-group" style="margin:0;">
-                        <label>物流號碼</label>
-                        <input type="text" id="pkg-logis" class="form-control" placeholder="1234-5678-90" inputmode="numeric" oninput="formatLogisNum(this)">
+                        <label>物流號末四碼</label>
+                        <input type="text" id="pkg-logis" class="form-control" placeholder="末4碼" inputmode="numeric" maxlength="4">
                     </div>
                     <div class="form-group" style="margin:0;">
                         <label>重量 (kg)</label>
@@ -280,7 +280,7 @@
                     </div>
                 </div>
                 <div class="filter-bar">
-                    <input type="text" id="pkg-filter" placeholder="🔍 搜尋客戶編號、物流號或商品名稱..." oninput="filterPackages()">
+                    <input type="text" id="pkg-filter" placeholder="🔍 搜尋客戶編號、末四碼或商品名稱..." oninput="filterPackages()">
                     <span class="pkg-count" id="pkg-count"></span>
                 </div>
                 <div class="table-wrap">
@@ -288,7 +288,7 @@
                         <thead>
                             <tr>
                                 <th style="width:36px;"><input type="checkbox" id="chk-all" onchange="toggleAll(this)" style="accent-color:#f39c12;cursor:pointer;width:15px;height:15px;"></th>
-                                <th>客戶編號</th><th>物流號碼</th><th>商品名稱</th><th>重量</th>
+                                <th>客戶編號</th><th>末四碼</th><th>商品名稱</th><th>重量</th>
                                 <th>狀態</th><th>到貨日期</th><th>備註</th><th>操作</th>
                             </tr>
                         </thead>
@@ -433,7 +433,7 @@
         <input type="hidden" id="edit-pkg-id">
         <div class="pkg-form-grid" style="grid-template-columns:1fr 1fr;">
             <div class="form-group" style="margin:0;"><label>客戶編號</label><div style="display:flex;align-items:center;"><span style="padding:11px 12px;background:rgba(243,156,18,.2);border:1px solid rgba(243,156,18,.3);border-radius:9px 0 0 9px;color:#f39c12;font-weight:700;font-size:14px;">G</span><input type="text" id="edit-g-code" class="form-control" inputmode="numeric" style="border-radius:0 9px 9px 0;border-left:none;"></div></div>
-            <div class="form-group" style="margin:0;"><label>物流號碼</label><input type="text" id="edit-logis" class="form-control" inputmode="numeric" oninput="formatLogisNum(this)"></div>
+            <div class="form-group" style="margin:0;"><label>物流號末四碼</label><input type="text" id="edit-logis" class="form-control" inputmode="numeric" maxlength="4"></div>
             <div class="form-group" style="margin:0;"><label>商品名稱</label><input type="text" id="edit-name" class="form-control"></div>
             <div class="form-group" style="margin:0;"><label>重量 (kg)</label><input type="text" id="edit-weight" class="form-control" inputmode="decimal"></div>
             <div class="form-group" style="margin:0;"><label>狀態</label>
@@ -848,7 +848,7 @@ function renderPackages(list) {
     tbody.innerHTML = list.map(p => `<tr id="row-${p.id}" class="${p.status === '已出貨' ? 'row-shipped' : ''}">
         <td><input type="checkbox" class="pkg-chk" value="${p.id}" onchange="updateShipBtn()" style="accent-color:#f39c12;cursor:pointer;width:15px;height:15px;" ${p.status === '已出貨' ? 'disabled' : ''}></td>
         <td><span class="g-code">${p.g_code}</span></td>
-        <td style="font-size:12px;">${p.logis_num && p.logis_num !== '-' ? formatLogisDisplay(p.logis_num) : '-'}</td>
+        <td style="font-size:12px;">${p.logis_num || '-'}</td>
         <td>${p.product_name||'-'}</td>
         <td>${p.weight ? p.weight+' kg' : '-'}</td>
         <td><span class="status-tag status-${p.status}">${p.status}</span></td>
@@ -863,7 +863,7 @@ function renderPackages(list) {
 
 async function addPackage() {
     const g_code       = 'G' + document.getElementById('pkg-g-code').value.trim().replace(/^G/i, '');
-    const logis_num    = document.getElementById('pkg-logis').value.replace(/-/g, '').trim();
+    const logis_num    = document.getElementById('pkg-logis').value.trim();
     const weight       = document.getElementById('pkg-weight').value.trim();
     const product_name = document.getElementById('pkg-name').value.trim();
     const status       = document.getElementById('pkg-status').value;
@@ -886,7 +886,7 @@ function openEdit(id) {
     if (!p) return;
     document.getElementById('edit-pkg-id').value  = p.id;
     document.getElementById('edit-g-code').value  = p.g_code.replace(/^G/i, '');
-    document.getElementById('edit-logis').value   = formatLogisDisplay(p.logis_num||'');
+    document.getElementById('edit-logis').value   = p.logis_num||'';
     document.getElementById('edit-name').value    = p.product_name||'';
     document.getElementById('edit-weight').value  = p.weight||'';
     document.getElementById('edit-status').value  = p.status;
@@ -900,7 +900,7 @@ async function saveEdit() {
     const id = document.getElementById('edit-pkg-id').value;
     const data = {
         g_code:       'G' + document.getElementById('edit-g-code').value.trim().replace(/^G/i, ''),
-        logis_num:    document.getElementById('edit-logis').value.replace(/-/g, '').trim(),
+        logis_num:    document.getElementById('edit-logis').value.trim(),
         product_name: document.getElementById('edit-name').value.trim(),
         weight:       document.getElementById('edit-weight').value.trim(),
         status:       document.getElementById('edit-status').value,
