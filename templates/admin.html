@@ -1042,6 +1042,7 @@ async function loadShipReqs() {
             var actions = '';
             if (r.status === '待處理' || r.status === '處理中') {
                 actions = '<button class="btn-edit-sm" onclick="updateShipReq(' + r.id + ',\'處理中\')">⏳ 處理中</button>'
+                    + ' <button class="btn-edit-sm" style="background:rgba(52,152,219,.2);border-color:rgba(52,152,219,.3);color:#3498db;" onclick="createJpdOrder(' + r.id + ')">📦 JPD建單</button>'
                     + ' <button class="btn-edit-sm" style="background:rgba(39,174,96,.2);border-color:rgba(39,174,96,.3);color:#27ae60;" onclick="openBillingModal(' + r.id + ',\'' + (r.g_code||'') + '\',\'' + (r.customer_name||'').replace(/'/g,'') + '\',\'' + (r.package_summary||'').replace(/'/g,'').replace(/\n/g,' ') + '\')">✅ 已出貨</button>'
                     + ' <button class="btn-danger-sm" onclick="updateShipReq(' + r.id + ',\'已拒絕\')">✗ 拒絕</button>';
             } else {
@@ -1137,6 +1138,28 @@ async function showCustomerForecasts(gCode, name) {
         document.getElementById('forecastPreviewContent').innerHTML = html;
         document.getElementById('forecastPreviewModal').classList.add('show');
     } catch(e) { console.error(e); }
+}
+
+async function createJpdOrder(reqId) {
+    if (!confirm('確定要在 JPD 雲倉建立運單？')) return;
+    showToast('📦 正在建立 JPD 運單...', 'info');
+    try {
+        const res = await fetch('/api/admin/shipment_requests/' + reqId + '/jpd_create', {
+            method: 'POST', headers: {'Content-Type':'application/json'}
+        });
+        const result = await res.json();
+        if (result.success) {
+            showToast('✅ JPD 運單已建立！\n物流號: ' + (result.jpd_logis_num || '-') + '\n客戶運單號: ' + (result.customer_order_id || '-'), 'success');
+            // 自動更新為處理中
+            await fetch('/api/admin/shipment_requests/' + reqId, {
+                method: 'PUT', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({status: '處理中', admin_note: 'JPD: ' + (result.jpd_logis_num || '')})
+            });
+            loadShipReqs();
+        } else {
+            showToast('❌ JPD 建單失敗: ' + (result.error || '未知錯誤'), 'error');
+        }
+    } catch(e) { showToast('網路錯誤', 'error'); }
 }
 
 async function revertShipReq(id) {

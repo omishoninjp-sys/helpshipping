@@ -19,9 +19,10 @@ app = Flask(__name__)
 
 # ============ 設定區（從環境變數讀取）============
 JPD_BASE_URL = "https://biz.cloudwh.jp"
-JPD_EMAIL = os.environ.get("JPD_EMAIL", "")
-JPD_PASSWORD = os.environ.get("JPD_PASSWORD", "")
+JPD_EMAIL = os.environ.get("JPD_EMAIL", "omishoninjp@gmail.com")
+JPD_PASSWORD = os.environ.get("JPD_PASSWORD", "omi0131")
 JPD_WAREHOUSE_ID = int(os.environ.get("JPD_WAREHOUSE_ID", "1"))
+JPD_DELIV_ID = int(os.environ.get("JPD_DELIV_ID", "40"))  # 台灣空運線
 
 SHOPIFY_STORE = os.environ.get("SHOPIFY_STORE", "")
 SHOPIFY_ACCESS_TOKEN = os.environ.get("SHOPIFY_ACCESS_TOKEN", "")
@@ -948,6 +949,134 @@ def admin_monthly_stats():
         return jsonify({"success": True, "monthly": result})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
+
+
+# ============ JPD 自動建單 ============
+
+@app.route("/api/admin/shipment_requests/<int:req_id>/jpd_create", methods=["POST"])
+def admin_create_jpd_order(req_id):
+    """從出貨申請自動在 JPD 建立運單"""
+    conn = get_db()
+    req = conn.execute("SELECT * FROM shipment_requests WHERE id=?", (req_id,)).fetchone()
+    if not req:
+        conn.close()
+        return jsonify({"success": False, "error": "找不到出貨申請"})
+    req = dict(req)
+    g_code = req.get("g_code", "")
+    
+    # 收件人資訊
+    recipient = str(req.get("ship_recipient") or "")
+    phone = str(req.get("ship_phone") or "")
+    address = str(req.get("ship_address") or "")
+    note = str(req.get("note") or "")
+    
+    if not recipient or not phone or not address:
+        conn.close()
+        return jsonify({"success": False, "error": "缺少寄送地址資訊"})
+    
+    # 從預報取得申報品項
+    forecasts = conn.execute(
+        "SELECT * FROM forecasts WHERE g_code=? AND status='待處理' ORDER BY id", (g_code,)
+    ).fetchall()
+    
+    declare_list = []
+    for fc in forecasts:
+        fc = dict(fc)
+        try:
+            items = json.loads(fc.get("items_json") or "[]")
+            for item in items:
+                declare_list.append({
+                    "name": item.get("name", "雑貨"),
+                    "amount": int(item.get("quantity", 1)),
+                    "price": int(item.get("price", 0)),
+                    "material": "",
+                    "origin": "Japan",
+                    "url": item.get("url", "")
+                })
+        except:
+            pass
+    
+    # 如果沒有預報品項，用包裹摘要當品名
+    if not declare_list:
+        declare_list = [{"name": "雑貨", "amount": 1, "price": 0, "material": "", "origin": "Japan", "url": ""}]
+    
+    # 搜尋 JPD 倉庫包裹
+    pkg_result = jpd_request("TSearchPackages", {
+        "stock_date_from": "2026-01-01 00:00:00"
+    })
+    
+    jpd_package_ids = []
+    if "OperationResult" in pkg_result:
+        op = pkg_result["OperationResult"]
+        if op.get("Request", {}).get("IsValid") == "True":
+            all_pkgs = op.get("Result", {}).get("Data", [])
+            # 找沒有被分配到運單的包裹（order_id 為 0）
+            for p in all_pkgs:
+                cid = str(p.get("customer_id") or "")
+                oid = str(p.get("order_id") or "0")
+                if oid == "0":
+                    jpd_package_ids.append(int(p["package_id"]))
+    
+    # 客戶運單號
+    today_str = datetime.now().strftime("%m%d")
+    customer_order_id = f"{g_code}-{today_str}"
+    
+    # 建立 JPD 運單
+    order_data = {
+        "customer_order_id": customer_order_id,
+        "deliv_id": JPD_DELIV_ID,
+        "recipient": recipient,
+        "id_issure": "",
+        "area": 3,
+        "addr1": address,
+        "addr2": "",
+        "addr3": "",
+        "addr4": "",
+        "tel": phone,
+        "memo": note,
+        "create_order_pdf": "y",
+        "warehouse_id": JPD_WAREHOUSE_ID,
+        "create_package": "y",
+        "create_sender": "y",
+        "packages": [{"package_id": pid, "declare_list": declare_list} for pid in jpd_package_ids[:1]] if jpd_package_ids else []
+    }
+    
+    print(f"[JPD] 建立運單: {customer_order_id}, 收件人: {recipient}, 包裹數: {len(jpd_package_ids)}", flush=True)
+    result = jpd_request("TCreateOrder", order_data)
+    
+    jpd_order_id = ""
+    jpd_logis_num = ""
+    
+    if "OperationResult" in result:
+        op = result["OperationResult"]
+        if op.get("Request", {}).get("IsValid") == "True":
+            res_data = op.get("Result", {})
+            if res_data.get("Result") == "SUCCESS":
+                data = res_data.get("Data", {})
+                jpd_order_id = str(data.get("order_id", ""))
+                jpd_logis_num = str(data.get("logis_num", ""))
+                print(f"[JPD] ✅ 建單成功: order_id={jpd_order_id}, logis_num={jpd_logis_num}", flush=True)
+                conn.close()
+                return jsonify({
+                    "success": True,
+                    "jpd_order_id": jpd_order_id,
+                    "jpd_logis_num": jpd_logis_num,
+                    "customer_order_id": customer_order_id,
+                    "message": f"JPD 運單已建立！物流號: {jpd_logis_num}"
+                })
+            else:
+                error_msg = res_data.get("ErrorMsg", str(res_data))
+                print(f"[JPD] ❌ 建單失敗: {error_msg}", flush=True)
+                conn.close()
+                return jsonify({"success": False, "error": f"JPD: {error_msg}"})
+        else:
+            errors = op.get("Request", {}).get("Errors", {})
+            print(f"[JPD] ❌ 請求無效: {errors}", flush=True)
+            conn.close()
+            return jsonify({"success": False, "error": f"JPD: {errors}"})
+    
+    conn.close()
+    return jsonify({"success": False, "error": "JPD API 無回應", "raw": str(result)[:200]})
 
 
 # ============ 公告 API ============
