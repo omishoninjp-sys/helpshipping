@@ -157,6 +157,7 @@
                 <input type="password" id="adminPassword" class="form-control" placeholder="密碼" autocomplete="new-password">
             </div>
             <button class="btn btn-red btn-block" onclick="adminLogin()">登入</button>
+            <div id="loginError" style="display:none;margin-top:12px;padding:12px;background:rgba(231,76,60,.15);border:1px solid rgba(231,76,60,.3);border-radius:8px;color:#e74c3c;font-size:14px;font-weight:600;text-align:center;"></div>
         </div>
     </div>
 
@@ -611,23 +612,31 @@ var currentAdmin = {username: '', role: ''};
 async function adminLogin() {
     const username = document.getElementById('adminUsername').value.trim();
     const password = document.getElementById('adminPassword').value;
-    if (!password) { showToast('請輸入密碼', 'error'); return; }
-    const res = await fetch('/api/admin/verify', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username, password}) });
-    const result = await res.json();
-    if (result.success) {
-        currentAdmin = {username: result.username || 'admin', role: result.role || 'admin'};
-        document.getElementById('loginSection').classList.add('hidden');
-        document.getElementById('mainContent').classList.add('active');
-        fetch('/api/config').then(r => r.json()).then(cfg => {
-            twd_to_jpy_rate = cfg.twd_to_jpy_rate || 5.0;
-        });
-        loadMembers();
-        loadShipReqBadge();
-        loadForecastBadge();
-        document.getElementById('member-search').value = '';
-        showToast('歡迎，' + currentAdmin.username, 'success');
-    } else {
-        showToast(result.error || '登入失敗', 'error');
+    var errBox = document.getElementById('loginError');
+    errBox.style.display = 'none';
+    if (!password) { errBox.textContent = '❌ 請輸入密碼'; errBox.style.display = 'block'; return; }
+    try {
+        const res = await fetch('/api/admin/verify', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username, password}) });
+        const result = await res.json();
+        if (result.success) {
+            currentAdmin = {username: result.username || 'admin', role: result.role || 'admin'};
+            document.getElementById('loginSection').classList.add('hidden');
+            document.getElementById('mainContent').classList.add('active');
+            fetch('/api/config').then(r => r.json()).then(cfg => {
+                twd_to_jpy_rate = cfg.twd_to_jpy_rate || 5.0;
+            });
+            loadMembers();
+            loadShipReqBadge();
+            loadForecastBadge();
+            document.getElementById('member-search').value = '';
+            showToast('歡迎，' + currentAdmin.username, 'success');
+        } else {
+            errBox.textContent = '❌ ' + (result.error || '帳號或密碼錯誤');
+            errBox.style.display = 'block';
+        }
+    } catch(e) {
+        errBox.textContent = '❌ 網路錯誤，請稍後再試';
+        errBox.style.display = 'block';
     }
 }
 document.getElementById('adminPassword').addEventListener('keypress', e => { if (e.key === 'Enter') adminLogin(); });
