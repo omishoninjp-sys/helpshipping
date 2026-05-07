@@ -113,6 +113,15 @@ def init_db():
             created_at  TEXT    NOT NULL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS admin_users (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            username    TEXT    UNIQUE NOT NULL,
+            password    TEXT    NOT NULL,
+            role        TEXT    DEFAULT 'admin',
+            created_at  TEXT    NOT NULL
+        )
+    """)
     # 帳單欄位遷移（已存在的表加欄位）
     for col, col_type, default in [
         ("admin_note", "TEXT", "''"),
@@ -343,37 +352,124 @@ def get_admin_password():
     return "admin123"
 
 
+def _ensure_super_admin():
+    """確保至少有一個超級管理員"""
+    conn = get_db()
+    count = conn.execute("SELECT COUNT(*) as c FROM admin_users").fetchone()["c"]
+    if count == 0:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        pwd = get_admin_password()
+        conn.execute(
+            "INSERT INTO admin_users (username, password, role, created_at) VALUES (?, ?, 'super', ?)",
+            ("admin", pwd, now)
+        )
+        conn.commit()
+        print(f"[Admin] 已建立超級管理員帳號: admin", flush=True)
+    else:
+        # 同步環境變數密碼到 super admin
+        env_pw = os.environ.get("ADMIN_PASSWORD", "")
+        if env_pw:
+            conn.execute("UPDATE admin_users SET password=? WHERE role='super'", (env_pw,))
+            conn.commit()
+    conn.close()
+
+_ensure_super_admin()
+
+
 @app.route("/api/admin/verify", methods=["POST"])
 def admin_verify():
     data = request.json
+    username = (data.get("username") or "").strip()
     password = data.get("password", "")
-    if password == get_admin_password():
-        return jsonify({"success": True})
-    return jsonify({"success": False, "error": "密碼錯誤"})
+
+    conn = get_db()
+    if username:
+        user = conn.execute(
+            "SELECT * FROM admin_users WHERE username=? AND password=?", (username, password)
+        ).fetchone()
+    else:
+        # 相容舊的純密碼登入：找密碼匹配的任一帳號
+        user = conn.execute(
+            "SELECT * FROM admin_users WHERE password=?", (password,)
+        ).fetchone()
+    conn.close()
+
+    if user:
+        return jsonify({"success": True, "username": user["username"], "role": user["role"]})
+    return jsonify({"success": False, "error": "帳號或密碼錯誤"})
 
 
 @app.route("/api/admin/change_password", methods=["POST"])
 def admin_change_password():
     data = request.json
+    username = (data.get("username") or "admin").strip()
     current = data.get("current", "")
     new_pwd = data.get("new_password", "").strip()
     confirm = data.get("confirm", "").strip()
 
-    if current != get_admin_password():
+    conn = get_db()
+    user = conn.execute("SELECT * FROM admin_users WHERE username=?", (username,)).fetchone()
+    if not user or user["password"] != current:
+        conn.close()
         return jsonify({"success": False, "error": "目前密碼錯誤"})
     if not new_pwd or len(new_pwd) < 4:
+        conn.close()
         return jsonify({"success": False, "error": "新密碼至少 4 個字元"})
     if new_pwd != confirm:
+        conn.close()
         return jsonify({"success": False, "error": "兩次密碼不一致"})
 
-    conn = get_db()
-    conn.execute(
-        "INSERT OR REPLACE INTO admin_settings (key, value) VALUES ('admin_password', ?)",
-        (new_pwd,)
-    )
+    conn.execute("UPDATE admin_users SET password=? WHERE username=?", (new_pwd, username))
     conn.commit()
     conn.close()
     return jsonify({"success": True, "message": "密碼已更新"})
+
+
+# ── 管理員帳號管理 ──
+
+@app.route("/api/admin/users", methods=["GET"])
+def admin_list_users():
+    conn = get_db()
+    rows = conn.execute("SELECT id, username, role, created_at FROM admin_users ORDER BY id").fetchall()
+    conn.close()
+    return jsonify({"success": True, "users": [dict(r) for r in rows]})
+
+@app.route("/api/admin/users", methods=["POST"])
+def admin_create_user():
+    data = request.json
+    username = (data.get("username") or "").strip()
+    password = (data.get("password") or "").strip()
+    role = data.get("role", "admin")
+    if not username or not password:
+        return jsonify({"success": False, "error": "帳號和密碼為必填"})
+    if len(password) < 4:
+        return jsonify({"success": False, "error": "密碼至少 4 個字元"})
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_db()
+    try:
+        conn.execute("INSERT INTO admin_users (username, password, role, created_at) VALUES (?, ?, ?, ?)",
+                     (username, password, role, now))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True})
+    except:
+        conn.close()
+        return jsonify({"success": False, "error": "帳號已存在"})
+
+@app.route("/api/admin/users/<int:user_id>", methods=["DELETE"])
+def admin_delete_user(user_id):
+    conn = get_db()
+    user = conn.execute("SELECT role FROM admin_users WHERE id=?", (user_id,)).fetchone()
+    if not user:
+        conn.close()
+        return jsonify({"success": False, "error": "找不到"})
+    if user["role"] == "super":
+        conn.close()
+        return jsonify({"success": False, "error": "無法刪除超級管理員"})
+    conn.execute("DELETE FROM admin_users WHERE id=?", (user_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
 
 
 @app.route("/api/admin/members", methods=["GET"])

@@ -149,8 +149,12 @@
         <div class="card">
             <h3 style="margin-bottom:20px;text-align:center;">🔐 管理員登入</h3>
             <div class="form-group">
-                <label>管理員密碼</label>
-                <input type="password" id="adminPassword" class="form-control" placeholder="請輸入管理員密碼" autocomplete="new-password">
+                <label>帳號</label>
+                <input type="text" id="adminUsername" class="form-control" placeholder="帳號" autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label>密碼</label>
+                <input type="password" id="adminPassword" class="form-control" placeholder="密碼" autocomplete="new-password">
             </div>
             <button class="btn btn-red btn-block" onclick="adminLogin()">登入</button>
         </div>
@@ -389,6 +393,20 @@
                 </div>
                 <!-- 公告列表 -->
                 <div id="announcementList" style="display:flex;flex-direction:column;gap:12px;"></div>
+
+                <!-- 管理員帳號 -->
+                <div style="margin-top:30px;padding-top:20px;border-top:1px solid rgba(255,255,255,.08);">
+                    <h3 style="margin-bottom:16px;">👤 管理員帳號</h3>
+                    <div id="adminUserList" style="margin-bottom:16px;"></div>
+                    <div id="adminUserAdd" style="padding:16px;background:rgba(255,255,255,.02);border:1px dashed rgba(255,255,255,.1);border-radius:10px;">
+                        <div style="font-size:13px;font-weight:600;color:#f39c12;margin-bottom:12px;">➕ 新增管理員</div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+                            <div><label style="font-size:11px;color:#888;">帳號</label><input type="text" id="new-admin-user" class="form-control" placeholder="帳號" style="padding:8px 10px;font-size:13px;"></div>
+                            <div><label style="font-size:11px;color:#888;">密碼</label><input type="text" id="new-admin-pwd" class="form-control" placeholder="密碼（至少4字）" style="padding:8px 10px;font-size:13px;"></div>
+                            <div style="display:flex;align-items:flex-end;"><button class="btn btn-primary" onclick="addAdminUser()" style="padding:8px 16px;width:100%;">新增</button></div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -588,12 +606,16 @@ function jpyPreview(twd) {
     return `≈ ¥${Math.round(parseFloat(twd) * twd_to_jpy_rate).toLocaleString()}`;
 }
 
+var currentAdmin = {username: '', role: ''};
+
 async function adminLogin() {
+    const username = document.getElementById('adminUsername').value.trim();
     const password = document.getElementById('adminPassword').value;
     if (!password) { showToast('請輸入密碼', 'error'); return; }
-    const res = await fetch('/api/admin/verify', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({password}) });
+    const res = await fetch('/api/admin/verify', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username, password}) });
     const result = await res.json();
     if (result.success) {
+        currentAdmin = {username: result.username || 'admin', role: result.role || 'admin'};
         document.getElementById('loginSection').classList.add('hidden');
         document.getElementById('mainContent').classList.add('active');
         fetch('/api/config').then(r => r.json()).then(cfg => {
@@ -603,12 +625,13 @@ async function adminLogin() {
         loadShipReqBadge();
         loadForecastBadge();
         document.getElementById('member-search').value = '';
-        showToast('登入成功', 'success');
+        showToast('歡迎，' + currentAdmin.username, 'success');
     } else {
-        showToast(result.error || '密碼錯誤', 'error');
+        showToast(result.error || '登入失敗', 'error');
     }
 }
 document.getElementById('adminPassword').addEventListener('keypress', e => { if (e.key === 'Enter') adminLogin(); });
+document.getElementById('adminUsername').addEventListener('keypress', e => { if (e.key === 'Enter') document.getElementById('adminPassword').focus(); });
 
 function switchAdminTab(tab) {
     document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
@@ -1401,8 +1424,59 @@ async function toggleMonthDetail(row, month) {
     }
 }
 
+// ── 管理員帳號 ──
+async function loadAdminUsers() {
+    try {
+        const res = await fetch('/api/admin/users');
+        const result = await res.json();
+        const container = document.getElementById('adminUserList');
+        if (!result.success || !result.users.length) {
+            container.innerHTML = '<div style="color:#666;padding:10px;">無管理員帳號</div>';
+            return;
+        }
+        container.innerHTML = result.users.map(function(u) {
+            var roleLabel = u.role === 'super' ? '<span style="font-size:10px;padding:2px 8px;background:rgba(243,156,18,.2);color:#f39c12;border-radius:8px;">超級管理員</span>' : '<span style="font-size:10px;padding:2px 8px;background:rgba(52,152,219,.2);color:#3498db;border-radius:8px;">管理員</span>';
+            var deleteBtn = u.role !== 'super' ? '<button onclick="deleteAdminUser('+u.id+')" style="background:rgba(231,76,60,.15);border:none;color:#e74c3c;padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer;">🗑 刪除</button>' : '';
+            return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:rgba(0,0,0,.15);border-radius:8px;margin-bottom:6px;">'
+                + '<div>' + roleLabel + ' <strong style="color:#fff;margin-left:6px;">' + u.username + '</strong> <span style="font-size:11px;color:#666;margin-left:8px;">' + u.created_at + '</span></div>'
+                + '<div>' + deleteBtn + '</div>'
+                + '</div>';
+        }).join('');
+    } catch(e) {}
+}
+
+async function addAdminUser() {
+    var username = document.getElementById('new-admin-user').value.trim();
+    var password = document.getElementById('new-admin-pwd').value.trim();
+    if (!username || !password) { showToast('帳號和密碼為必填', 'error'); return; }
+    try {
+        const res = await fetch('/api/admin/users', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({username, password, role: 'admin'})
+        });
+        const result = await res.json();
+        if (result.success) {
+            showToast('✅ 管理員已新增', 'success');
+            document.getElementById('new-admin-user').value = '';
+            document.getElementById('new-admin-pwd').value = '';
+            loadAdminUsers();
+        } else { showToast(result.error || '新增失敗', 'error'); }
+    } catch(e) { showToast('網路錯誤', 'error'); }
+}
+
+async function deleteAdminUser(id) {
+    if (!confirm('確定刪除此管理員？')) return;
+    try {
+        const res = await fetch('/api/admin/users/' + id, {method:'DELETE'});
+        const result = await res.json();
+        if (result.success) { showToast('已刪除', 'success'); loadAdminUsers(); }
+        else { showToast(result.error || '刪除失敗', 'error'); }
+    } catch(e) {}
+}
+
 // ── 公告管理 ──
 async function loadAnnouncements() {
+    loadAdminUsers();
     try {
         const res = await fetch('/api/admin/announcements');
         const result = await res.json();
