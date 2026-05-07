@@ -613,8 +613,8 @@ async function adminLogin() {
     const username = document.getElementById('adminUsername').value.trim();
     const password = document.getElementById('adminPassword').value;
     var errBox = document.getElementById('loginError');
-    errBox.style.display = 'none';
-    if (!password) { errBox.textContent = '❌ 請輸入密碼'; errBox.style.display = 'block'; return; }
+    if (errBox) errBox.style.display = 'none';
+    if (!password) { if(errBox){errBox.textContent='❌ 請輸入密碼';errBox.style.display='block';} return; }
     try {
         const res = await fetch('/api/admin/verify', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username, password}) });
         const result = await res.json();
@@ -631,16 +631,17 @@ async function adminLogin() {
             document.getElementById('member-search').value = '';
             showToast('歡迎，' + currentAdmin.username, 'success');
         } else {
-            errBox.textContent = '❌ ' + (result.error || '帳號或密碼錯誤');
-            errBox.style.display = 'block';
+            if(errBox){errBox.textContent='❌ '+(result.error||'帳號或密碼錯誤');errBox.style.display='block';}
+            else { alert('❌ '+(result.error||'帳號或密碼錯誤')); }
         }
     } catch(e) {
-        errBox.textContent = '❌ 網路錯誤，請稍後再試';
-        errBox.style.display = 'block';
+        if(errBox){errBox.textContent='❌ 網路錯誤: '+e.message;errBox.style.display='block';}
+        else { alert('❌ 網路錯誤: '+e.message); }
     }
 }
 document.getElementById('adminPassword').addEventListener('keypress', e => { if (e.key === 'Enter') adminLogin(); });
-document.getElementById('adminUsername').addEventListener('keypress', e => { if (e.key === 'Enter') document.getElementById('adminPassword').focus(); });
+var usernameEl = document.getElementById('adminUsername');
+if (usernameEl) usernameEl.addEventListener('keypress', e => { if (e.key === 'Enter') document.getElementById('adminPassword').focus(); });
 
 function switchAdminTab(tab) {
     document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
