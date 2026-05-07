@@ -1305,20 +1305,34 @@ def admin_update_shipment_request(req_id):
             (status, admin_note, now, req_id)
         )
 
-    # 如果管理員標記為「已出貨」，同步更新包裹狀態
+    # 如果管理員標記為「已出貨」，同步更新包裹狀態 + 預報標為已處理
+    g_code_val = ""
+    customer_name_val = ""
     if status == "已出貨":
-        req = conn.execute("SELECT package_ids FROM shipment_requests WHERE id=?", (req_id,)).fetchone()
+        req = conn.execute("SELECT package_ids, g_code, customer_name FROM shipment_requests WHERE id=?", (req_id,)).fetchone()
         if req:
+            g_code_val = req["g_code"]
+            customer_name_val = req["customer_name"] or ""
             pkg_ids = [int(x.strip()) for x in req["package_ids"].split(",") if x.strip()]
             if pkg_ids:
                 placeholders = ",".join(["?"] * len(pkg_ids))
                 conn.execute(
                     f"UPDATE packages SET status='已出貨' WHERE id IN ({placeholders})", pkg_ids
                 )
+            # 自動把該客戶的待處理預報標為已處理
+            conn.execute(
+                "UPDATE forecasts SET status='已處理' WHERE g_code=? AND status='待處理'",
+                (g_code_val,)
+            )
+    else:
+        req = conn.execute("SELECT g_code, customer_name FROM shipment_requests WHERE id=?", (req_id,)).fetchone()
+        if req:
+            g_code_val = req["g_code"]
+            customer_name_val = req["customer_name"] or ""
 
     conn.commit()
     conn.close()
-    return jsonify({"success": True})
+    return jsonify({"success": True, "g_code": g_code_val, "customer_name": customer_name_val})
 
 
 @app.route("/api/admin/shipment_requests/<int:req_id>/revert", methods=["POST"])
@@ -1414,8 +1428,17 @@ def get_my_forecasts():
 def admin_get_forecasts():
     """管理員查看所有預報"""
     status = request.args.get("status", "")
+    g_code = request.args.get("g_code", "").upper()
     conn = get_db()
-    if status:
+    if g_code and status:
+        rows = conn.execute(
+            "SELECT * FROM forecasts WHERE g_code=? AND status=? ORDER BY id DESC", (g_code, status)
+        ).fetchall()
+    elif g_code:
+        rows = conn.execute(
+            "SELECT * FROM forecasts WHERE g_code=? ORDER BY id DESC", (g_code,)
+        ).fetchall()
+    elif status:
         rows = conn.execute(
             "SELECT * FROM forecasts WHERE status=? ORDER BY id DESC", (status,)
         ).fetchall()
