@@ -331,13 +331,16 @@ def get_config():
 
 
 def get_admin_password():
-    """取得管理員密碼：DB 優先，否則環境變數"""
+    """取得管理員密碼：環境變數優先，否則 DB，最後預設"""
+    env_pw = os.environ.get("ADMIN_PASSWORD", "")
+    if env_pw:
+        return env_pw
     conn = get_db()
     row = conn.execute("SELECT value FROM admin_settings WHERE key='admin_password'").fetchone()
     conn.close()
     if row:
         return row["value"]
-    return os.environ.get("ADMIN_PASSWORD", "admin123")
+    return "admin123"
 
 
 @app.route("/api/admin/verify", methods=["POST"])
