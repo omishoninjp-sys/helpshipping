@@ -354,26 +354,30 @@ def get_admin_password():
 
 def _ensure_super_admin():
     """確保至少有一個超級管理員"""
-    conn = get_db()
-    count = conn.execute("SELECT COUNT(*) as c FROM admin_users").fetchone()["c"]
-    if count == 0:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        pwd = get_admin_password()
-        conn.execute(
-            "INSERT INTO admin_users (username, password, role, created_at) VALUES (?, ?, 'super', ?)",
-            ("admin", pwd, now)
-        )
-        conn.commit()
-        print(f"[Admin] 已建立超級管理員帳號: admin", flush=True)
-    else:
-        # 同步環境變數密碼到 super admin
-        env_pw = os.environ.get("ADMIN_PASSWORD", "")
-        if env_pw:
-            conn.execute("UPDATE admin_users SET password=? WHERE role='super'", (env_pw,))
+    try:
+        conn = get_db()
+        count = conn.execute("SELECT COUNT(*) as c FROM admin_users").fetchone()["c"]
+        if count == 0:
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            pwd = get_admin_password()
+            conn.execute(
+                "INSERT INTO admin_users (username, password, role, created_at) VALUES (?, ?, 'super', ?)",
+                ("admin", pwd, now)
+            )
             conn.commit()
-    conn.close()
+            print(f"[Admin] ✅ 已建立超級管理員帳號: admin / {pwd}", flush=True)
+        else:
+            env_pw = os.environ.get("ADMIN_PASSWORD", "")
+            if env_pw:
+                conn.execute("UPDATE admin_users SET password=? WHERE role='super'", (env_pw,))
+                conn.commit()
+            print(f"[Admin] ✅ 已有 {count} 個管理員帳號", flush=True)
+        conn.close()
+    except Exception as e:
+        print(f"[Admin] ❌ 初始化失敗: {e}", flush=True)
 
 _ensure_super_admin()
+print("[App] ✅ 啟動完成", flush=True)
 
 
 @app.route("/api/admin/verify", methods=["POST"])
@@ -381,6 +385,7 @@ def admin_verify():
     data = request.json
     username = (data.get("username") or "").strip()
     password = data.get("password", "")
+    print(f"[Login] 嘗試登入: username='{username}'", flush=True)
 
     conn = get_db()
     if username:
@@ -395,7 +400,9 @@ def admin_verify():
     conn.close()
 
     if user:
+        print(f"[Login] ✅ 登入成功: {user['username']} ({user['role']})", flush=True)
         return jsonify({"success": True, "username": user["username"], "role": user["role"]})
+    print(f"[Login] ❌ 登入失敗", flush=True)
     return jsonify({"success": False, "error": "帳號或密碼錯誤"})
 
 
