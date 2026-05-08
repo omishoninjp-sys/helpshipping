@@ -298,7 +298,7 @@
                             </tr>
                         </thead>
                         <tbody id="packagesTable">
-                            <tr><td colspan="9" style="text-align:center;color:#666;padding:30px;">切換至「到貨管理」頁籤以載入</td></tr>
+                            <tr><td colspan="10" style="text-align:center;color:#666;padding:30px;">切換至「到貨管理」頁籤以載入</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -337,7 +337,7 @@
                             </tr>
                         </thead>
                         <tbody id="shipreqTable">
-                            <tr><td colspan="9" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr>
+                            <tr><td colspan="10" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -431,13 +431,14 @@
                                 <th>總公斤數</th>
                                 <th>運費收入</th>
                                 <th>理貨費</th>
+                                <th>合箱費</th>
                                 <th>加值服務</th>
                                 <th>總收入</th>
                                 <th>下載</th>
                             </tr>
                         </thead>
                         <tbody id="statsTable">
-                            <tr><td colspan="9" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr>
+                            <tr><td colspan="10" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -903,7 +904,7 @@ function filterPackages() {
 function renderPackages(list) {
     document.getElementById('pkg-count').textContent = `共 ${list.length} 筆`;
     const tbody = document.getElementById('packagesTable');
-    if (!list.length) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#666;padding:30px;">暫無記錄</td></tr>'; return; }
+    if (!list.length) { tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#666;padding:30px;">暫無記錄</td></tr>'; return; }
     tbody.innerHTML = list.map(p => `<tr id="row-${p.id}" class="${p.status === '已出貨' ? 'row-shipped' : ''}">
         <td><input type="checkbox" class="pkg-chk" value="${p.id}" onchange="updateShipBtn()" style="accent-color:#f39c12;cursor:pointer;width:15px;height:15px;" ${p.status === '已出貨' ? 'disabled' : ''}></td>
         <td><span class="g-code">${p.g_code}</span></td>
@@ -1064,7 +1065,7 @@ async function loadShipReqs() {
         const tbody = document.getElementById('shipreqTable');
         if (!result.success || !result.requests || !result.requests.length) {
             allShipReqsData = [];
-            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#666;padding:30px;">無出貨申請</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#666;padding:30px;">無出貨申請</td></tr>';
             return;
         }
         allShipReqsData = result.requests;
@@ -1308,18 +1309,19 @@ async function loadStats() {
         const result = await res.json();
         if (!result.success || !result.monthly || !result.monthly.length) {
             document.getElementById('statsOverview').innerHTML = '';
-            document.getElementById('statsTable').innerHTML = '<tr><td colspan="9" style="text-align:center;color:#666;padding:30px;">尚無出貨數據</td></tr>';
+            document.getElementById('statsTable').innerHTML = '<tr><td colspan="10" style="text-align:center;color:#666;padding:30px;">尚無出貨數據</td></tr>';
             return;
         }
         var data = result.monthly;
         // 總覽：全部累計
-        var totalKg = 0, totalRevenue = 0, totalShipments = 0, totalShipping = 0, totalHandling = 0, totalExtra = 0;
+        var totalKg = 0, totalRevenue = 0, totalShipments = 0, totalShipping = 0, totalHandling = 0, totalConsolidation = 0, totalExtra = 0;
         data.forEach(function(m) {
             totalKg += m.total_kg;
             totalRevenue += m.total_revenue;
             totalShipments += m.shipments;
             totalShipping += m.shipping_fee;
             totalHandling += m.handling_fee;
+            totalConsolidation += m.consolidation_fee || 0;
             totalExtra += m.extra_fee;
         });
         // 本月
@@ -1350,6 +1352,7 @@ async function loadStats() {
                 + '<td style="font-weight:600;color:#f39c12;">' + m.total_kg.toFixed(1) + ' kg</td>'
                 + '<td>NT$ ' + Math.round(m.shipping_fee).toLocaleString() + '</td>'
                 + '<td>NT$ ' + Math.round(m.handling_fee).toLocaleString() + '</td>'
+                + '<td>NT$ ' + Math.round(m.consolidation_fee||0).toLocaleString() + '</td>'
                 + '<td>NT$ ' + Math.round(m.extra_fee).toLocaleString() + '</td>'
                 + '<td style="font-weight:700;color:#27ae60;font-size:15px;">NT$ ' + Math.round(m.total_revenue).toLocaleString() + '</td>'
                 + '<td><a href="/api/admin/stats/monthly/excel?month=' + m.month + '" onclick="event.stopPropagation();" class="btn-edit-sm" style="background:rgba(52,152,219,.2);border-color:rgba(52,152,219,.3);color:#3498db;text-decoration:none;padding:6px 12px;font-size:11px;">📥 Excel</a></td>'
@@ -1363,6 +1366,7 @@ async function loadStats() {
         + '<td style="font-weight:700;color:#f39c12;">' + totalKg.toFixed(1) + ' kg</td>'
         + '<td style="font-weight:600;">NT$ ' + Math.round(totalShipping).toLocaleString() + '</td>'
         + '<td style="font-weight:600;">NT$ ' + Math.round(totalHandling).toLocaleString() + '</td>'
+        + '<td style="font-weight:600;">NT$ ' + Math.round(totalConsolidation).toLocaleString() + '</td>'
         + '<td style="font-weight:600;">NT$ ' + Math.round(totalExtra).toLocaleString() + '</td>'
         + '<td style="font-weight:700;color:#27ae60;font-size:16px;">NT$ ' + Math.round(totalRevenue).toLocaleString() + '</td>'
         + '<td></td>'
@@ -1386,17 +1390,17 @@ async function toggleMonthDetail(row, month) {
     // 插入 loading
     var detailRow = document.createElement('tr');
     detailRow.className = 'stats-detail-row';
-    detailRow.innerHTML = '<td colspan="9" style="padding:0;"><div style="padding:16px;background:rgba(255,255,255,.02);font-size:12px;color:#888;">載入中...</div></td>';
+    detailRow.innerHTML = '<td colspan="10" style="padding:0;"><div style="padding:16px;background:rgba(255,255,255,.02);font-size:12px;color:#888;">載入中...</div></td>';
     row.after(detailRow);
 
     try {
         var res = await fetch('/api/admin/stats/monthly/detail?month=' + month);
         var result = await res.json();
         if (!result.success || !result.details.length) {
-            detailRow.innerHTML = '<td colspan="9" style="padding:16px;text-align:center;color:#666;">無明細</td>';
+            detailRow.innerHTML = '<td colspan="10" style="padding:16px;text-align:center;color:#666;">無明細</td>';
             return;
         }
-        var html = '<td colspan="9" style="padding:0;"><div style="padding:12px;background:rgba(255,255,255,.02);overflow-x:auto;">'
+        var html = '<td colspan="10" style="padding:0;"><div style="padding:12px;background:rgba(255,255,255,.02);overflow-x:auto;">'
             + '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
             + '<tr style="color:#888;border-bottom:1px solid rgba(255,255,255,.1);">'
             + '<th style="padding:6px 8px;text-align:left;">日期</th>'
@@ -1406,6 +1410,7 @@ async function toggleMonthDetail(row, month) {
             + '<th style="padding:6px 8px;text-align:right;">公斤</th>'
             + '<th style="padding:6px 8px;text-align:right;">運費</th>'
             + '<th style="padding:6px 8px;text-align:right;">理貨費</th>'
+            + '<th style="padding:6px 8px;text-align:right;">合箱費</th>'
             + '<th style="padding:6px 8px;">加值服務</th>'
             + '<th style="padding:6px 8px;text-align:right;">合計</th></tr>';
 
@@ -1423,6 +1428,7 @@ async function toggleMonthDetail(row, month) {
                 + '<td style="padding:6px 8px;text-align:right;color:#f39c12;font-weight:600;">' + d.billed_weight.toFixed(1) + '</td>'
                 + '<td style="padding:6px 8px;text-align:right;">$' + Math.round(d.shipping_fee).toLocaleString() + '</td>'
                 + '<td style="padding:6px 8px;text-align:right;">$' + Math.round(d.handling_fee).toLocaleString() + '</td>'
+                + '<td style="padding:6px 8px;text-align:right;">$' + Math.round(d.consolidation_fee||0).toLocaleString() + '</td>'
                 + '<td style="padding:6px 8px;font-size:11px;color:#9b59b6;">' + extrasStr + '</td>'
                 + '<td style="padding:6px 8px;text-align:right;font-weight:700;color:#27ae60;">$' + Math.round(d.total_fee).toLocaleString() + '</td>'
                 + '</tr>';
@@ -1430,7 +1436,7 @@ async function toggleMonthDetail(row, month) {
         html += '</table></div></td>';
         detailRow.innerHTML = html;
     } catch(e) {
-        detailRow.innerHTML = '<td colspan="9" style="padding:16px;color:#e74c3c;">載入失敗</td>';
+        detailRow.innerHTML = '<td colspan="10" style="padding:16px;color:#e74c3c;">載入失敗</td>';
     }
 }
 
@@ -1718,6 +1724,7 @@ async function submitBilling() {
     var rate = parseInt(document.getElementById('bill-rate').value);
     var shipping = parseInt(document.getElementById('bill-shipping').value);
     var handling = parseInt(document.getElementById('bill-handling').value);
+    var consolidation = parseInt(document.getElementById('bill-consolidation').value) || 0;
     var total = parseInt(document.getElementById('bill-total').value);
     var adminNote = document.getElementById('bill-admin-note').value;
     var trackingNum = document.getElementById('bill-tracking').value.trim();
@@ -1736,6 +1743,7 @@ async function submitBilling() {
                 rate_per_kg: rate,
                 shipping_fee: shipping,
                 handling_fee: handling,
+                consolidation_fee: consolidation,
                 total_fee: total,
                 tracking_num: trackingNum,
                 extra_services: extras

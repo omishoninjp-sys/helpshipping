@@ -138,6 +138,7 @@ def init_db():
         ("ship_recipient", "TEXT", "''"),
         ("ship_phone", "TEXT", "''"),
         ("ship_address", "TEXT", "''"),
+        ("consolidation_fee", "REAL", "0"),
     ]:
         try:
             conn.execute(f"ALTER TABLE shipment_requests ADD COLUMN {col} {col_type} DEFAULT {default}")
@@ -862,6 +863,7 @@ def admin_monthly_detail():
                 "rate_per_kg": float(rd.get("rate_per_kg") or 0),
                 "shipping_fee": float(rd.get("shipping_fee") or 0),
                 "handling_fee": float(rd.get("handling_fee") or 0),
+                "consolidation_fee": float(rd.get("consolidation_fee") or 0),
                 "extra_services": extras,
                 "total_fee": float(rd.get("total_fee") or 0),
             })
@@ -1023,6 +1025,7 @@ def admin_monthly_stats():
                     "total_kg": 0,
                     "shipping_fee": 0,
                     "handling_fee": 0,
+                    "consolidation_fee": 0,
                     "extra_fee": 0,
                     "total_revenue": 0,
                     "customers": set()
@@ -1033,6 +1036,7 @@ def admin_monthly_stats():
             m["total_kg"] += float(r["billed_weight"] or 0)
             m["shipping_fee"] += float(r["shipping_fee"] or 0)
             m["handling_fee"] += float(r["handling_fee"] or 0)
+            m["consolidation_fee"] += float(r.get("consolidation_fee") or 0)
             m["total_revenue"] += float(r["total_fee"] or 0)
             m["customers"].add(r["g_code"])
 
@@ -1521,6 +1525,7 @@ def admin_update_shipment_request(req_id):
     rate_per_kg = data.get("rate_per_kg", 0)
     shipping_fee = data.get("shipping_fee", 0)
     handling_fee = data.get("handling_fee", 0)
+    consolidation_fee = data.get("consolidation_fee", 0)
     total_fee = data.get("total_fee", 0)
     tracking_num = data.get("tracking_num", "")
     extra_services = json.dumps(data.get("extra_services", []), ensure_ascii=False)
@@ -1529,10 +1534,10 @@ def admin_update_shipment_request(req_id):
         conn.execute(
             """UPDATE shipment_requests 
                SET status=?, admin_note=?, updated_at=?,
-                   billed_weight=?, rate_per_kg=?, shipping_fee=?, handling_fee=?, total_fee=?,
+                   billed_weight=?, rate_per_kg=?, shipping_fee=?, handling_fee=?, consolidation_fee=?, total_fee=?,
                    tracking_num=?, extra_services=?
                WHERE id=?""",
-            (status, admin_note, now, billed_weight, rate_per_kg, shipping_fee, handling_fee, total_fee, tracking_num, extra_services, req_id)
+            (status, admin_note, now, billed_weight, rate_per_kg, shipping_fee, handling_fee, consolidation_fee, total_fee, tracking_num, extra_services, req_id)
         )
     else:
         conn.execute(
