@@ -1252,7 +1252,18 @@
                                     <div>運費單價：<strong style="color:#fff;">${req.rate_per_kg || 0} 台幣/kg</strong></div>
                                     <div>運費小計：<strong style="color:#fff;">NT$ ${Math.round(req.shipping_fee || 0).toLocaleString()}</strong></div>
                                     <div>理貨費：<strong style="color:#fff;">NT$ ${Math.round(req.handling_fee || 0).toLocaleString()}</strong></div>
-                                    ${req.consolidation_fee ? `<div>合箱費：<strong style="color:#fff;">NT$ ${Math.round(req.consolidation_fee).toLocaleString()}</strong></div>` : ''}
+                                    ${(() => {
+                                        let cf = Math.round(req.consolidation_fee || 0);
+                                        if (!cf) {
+                                            let extras_total = 0;
+                                            try {
+                                                let ex = typeof req.extra_services === 'string' ? JSON.parse(req.extra_services || '[]') : (req.extra_services || []);
+                                                ex.forEach(e => { extras_total += (e.subtotal || e.qty * e.price || e.price || 0); });
+                                            } catch(e){}
+                                            cf = Math.round((req.total_fee || 0) - (req.shipping_fee || 0) - (req.handling_fee || 0) - extras_total);
+                                        }
+                                        return cf > 0 ? '<div>合箱費：<strong style="color:#fff;">NT$ ' + cf.toLocaleString() + '</strong></div>' : '';
+                                    })()}
                                 </div>
                                 ${(() => {
                                     try {
