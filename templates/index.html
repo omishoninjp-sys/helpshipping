@@ -1400,7 +1400,7 @@
                 container.innerHTML = unread.map(a => `
                     <div style="margin-bottom:14px;padding:16px;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.08);border-radius:10px;">
                         <div style="font-size:15px;font-weight:700;color:#fff;margin-bottom:8px;">${a.title}</div>
-                        <div style="font-size:13px;color:#ccc;line-height:1.8;white-space:pre-line;">${a.content}</div>
+                        <div style="font-size:13px;color:#ccc;line-height:1.8;white-space:pre-line;">${a.content.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" style="color:#3498db;word-break:break-all;">$1</a>')}</div>
                         <div style="font-size:11px;color:#666;margin-top:8px;">${a.created_at}</div>
                     </div>
                 `).join('');
