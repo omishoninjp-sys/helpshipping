@@ -1497,13 +1497,21 @@ def admin_get_shipment_requests():
     status = request.args.get("status", "")
     try:
         conn = get_db()
-        if status:
+        if status == "已付款":
+            rows = conn.execute(
+                "SELECT * FROM shipment_requests WHERE status='已出貨' AND payment_last5 != '' AND payment_last5 IS NOT NULL ORDER BY payment_at DESC, id DESC"
+            ).fetchall()
+        elif status == "recent":
+            rows = conn.execute(
+                "SELECT * FROM shipment_requests ORDER BY id DESC LIMIT 50"
+            ).fetchall()
+        elif status:
             rows = conn.execute(
                 "SELECT * FROM shipment_requests WHERE status=? ORDER BY id DESC", (status,)
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM shipment_requests ORDER BY id DESC"
+                "SELECT * FROM shipment_requests ORDER BY id DESC LIMIT 50"
             ).fetchall()
         conn.close()
         return jsonify({"success": True, "requests": [dict(r) for r in rows]})

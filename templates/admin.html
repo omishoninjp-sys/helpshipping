@@ -312,11 +312,12 @@
                     <h3>🚚 出貨申請列表</h3>
                     <div class="toolbar-actions">
                         <select id="shipreq-filter" class="form-control" style="width:auto;padding:6px 12px;font-size:13px;" onchange="loadShipReqs()">
-                            <option value="">全部</option>
                             <option value="待處理" selected>待處理</option>
                             <option value="處理中">處理中</option>
+                            <option value="已付款">💰 已付款待出貨</option>
                             <option value="已出貨">已出貨</option>
                             <option value="已拒絕">已拒絕</option>
+                            <option value="recent">最近 50 筆</option>
                         </select>
                         <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadShipReqs()">🔄 重新整理</button>
                     </div>
@@ -1043,12 +1044,27 @@ function showToast(message, type='success') {
 // ── 出貨申請管理 ──
 async function loadShipReqBadge() {
     try {
+        // 待處理數量
         const res = await fetch('/api/admin/shipment_requests?status=待處理');
         const result = await res.json();
         const badge = document.getElementById('shipreq-badge');
-        if (result.success && result.requests.length > 0) {
-            badge.textContent = result.requests.length;
+        var pendingCount = (result.success && result.requests) ? result.requests.length : 0;
+        
+        // 已付款待出貨數量
+        const res2 = await fetch('/api/admin/shipment_requests?status=已付款');
+        const result2 = await res2.json();
+        var paidCount = (result2.success && result2.requests) ? result2.requests.length : 0;
+        
+        var totalBadge = pendingCount + paidCount;
+        if (totalBadge > 0) {
+            badge.textContent = totalBadge;
             badge.style.display = 'inline';
+            // 有已付款的用綠色提示
+            if (paidCount > 0) {
+                badge.style.background = '#27ae60';
+            } else {
+                badge.style.background = '#e74c3c';
+            }
         } else {
             badge.style.display = 'none';
         }
