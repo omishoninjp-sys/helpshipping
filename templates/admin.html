@@ -1153,7 +1153,7 @@ async function showCustomerForecasts(gCode, name) {
             html += '<div style="padding:12px;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.08);border-radius:8px;margin-bottom:8px;">'
                 + '<div style="display:flex;justify-content:space-between;align-items:center;">'
                 + '<span style="font-size:13px;font-weight:600;color:#fff;">預報 #' + fc.id + '</span>'
-                + '<a href="javascript:void(0)" onclick="openInSheets(\'/api/admin/forecasts/' + fc.id + '/excel\')" style="font-size:11px;color:#3498db;text-decoration:none;">📊 Sheets</a>'
+                + '<a href="javascript:void(0)" onclick="openForecastSheet(' + fc.id + ')" style="font-size:11px;color:#3498db;text-decoration:none;">📊 Sheets</a>'
                 + '</div>';
             items.forEach(function(item) {
                 html += '<div style="font-size:12px;color:#ccc;margin-top:4px;padding:4px 8px;background:rgba(255,255,255,.03);border-radius:4px;">'
@@ -1258,10 +1258,10 @@ async function loadForecasts() {
 
             var actions = '';
             if (fc.status === '待處理') {
-                actions = '<a class="btn-edit-sm" href="javascript:void(0)" onclick="openInSheets(&quot;/api/admin/forecasts/' + fc.id + '/excel&quot;)" style="text-decoration:none;">📊 Sheets</a>'
+                actions = '<a class="btn-edit-sm" href="javascript:void(0)" onclick="openForecastSheet(' + fc.id + ')" style="text-decoration:none;">📊 Sheets</a>'
                     + ' <button class="btn-edit-sm" style="background:rgba(39,174,96,.2);border-color:rgba(39,174,96,.3);color:#27ae60;" onclick="updateForecast(' + fc.id + ',\'已處理\')">✅ 已處理</button>';
             } else {
-                actions = '<a class="btn-edit-sm" href="javascript:void(0)" onclick="openInSheets(&quot;/api/admin/forecasts/' + fc.id + '/excel&quot;)" style="text-decoration:none;">📊 Sheets</a>';
+                actions = '<a class="btn-edit-sm" href="javascript:void(0)" onclick="openForecastSheet(' + fc.id + ')" style="text-decoration:none;">📊 Sheets</a>';
             }
 
             return '<tr>'
@@ -1301,6 +1301,10 @@ function openInSheets(path) {
     var fullUrl = window.location.origin + path;
     var sheetsUrl = 'https://docs.google.com/gview?url=' + encodeURIComponent(fullUrl);
     window.open(sheetsUrl, '_blank');
+}
+
+function openForecastSheet(fcId) {
+    openInSheets('/api/admin/forecasts/' + fcId + '/excel');
 }
 
 async function loadStats() {
