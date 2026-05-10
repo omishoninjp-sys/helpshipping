@@ -1012,8 +1012,9 @@ def admin_monthly_stats():
         conn.close()
 
         monthly = {}
-        for r in rows:
-            date_str = r["updated_at"] or r["created_at"] or ""
+        for row in rows:
+            r = dict(row)
+            date_str = r.get("updated_at") or r.get("created_at") or ""
             if not date_str:
                 continue
             month_key = date_str[:7]  # "2026-04"
