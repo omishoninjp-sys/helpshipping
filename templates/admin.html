@@ -155,31 +155,33 @@
 
         /* 包裹/明細折疊（FAQ 風格、展開為跨欄列） */
         .pkg-toggle {
-            cursor: pointer; padding: 12px 14px;
+            cursor: pointer; padding: 6px 12px;
             background: rgba(255,255,255,.04);
             border: 1px solid rgba(255,255,255,.1);
-            border-radius: 8px;
-            font-size: 14px; font-weight: 600;
-            color: #fff;
+            border-radius: 6px;
+            font-size: 12px; font-weight: 500;
+            color: #ccc;
             user-select: none; width: 100%;
-            display: flex; align-items: center; gap: 12px;
+            display: flex; align-items: center; gap: 8px;
             transition: background .15s, border-color .15s;
             font-family: inherit;
         }
         .pkg-toggle::before {
             content: '＋';
-            font-size: 18px; font-weight: 400;
+            font-size: 14px; font-weight: 400;
             color: #f39c12;
-            width: 18px; flex-shrink: 0; text-align: center;
+            width: 14px; flex-shrink: 0; text-align: center;
         }
         .pkg-toggle.open::before { content: '−'; }
         .pkg-toggle:hover {
             background: rgba(255,255,255,.07);
             border-color: rgba(243,156,18,.35);
+            color: #fff;
         }
         .pkg-toggle.open {
             background: rgba(243,156,18,.08);
             border-color: rgba(243,156,18,.35);
+            color: #fff;
         }
         .pkg-detail-row > td {
             padding: 0 !important;
