@@ -152,6 +152,32 @@
             .admin-sidebar .sidebar-divider { display: none; }
             .admin-main { padding: 0; }
         }
+
+        /* 列印樣式 */
+        @media print {
+            @page { size: A4 landscape; margin: 10mm; }
+            body, html { background: #fff !important; color: #000 !important; }
+            header, .admin-sidebar, .login-section, .toolbar-actions, .no-print,
+            .modal-overlay, .toast { display: none !important; }
+            .container { max-width: 100% !important; padding: 0 !important; }
+            .admin-layout { display: block !important; min-height: auto !important; }
+            .admin-main { padding: 0 !important; }
+            .admin-panel { display: none !important; }
+            .admin-panel#panel-billing { display: block !important; }
+            .card { background: #fff !important; border: none !important; box-shadow: none !important; padding: 0 !important; margin: 0 !important; }
+            .toolbar { border-bottom: 2px solid #000 !important; padding-bottom: 8px !important; margin-bottom: 12px !important; }
+            .toolbar h3 { color: #000 !important; }
+            .data-table { width: 100% !important; border-collapse: collapse !important; font-size: 11px !important; }
+            .data-table th { background: #eee !important; color: #000 !important; border: 1px solid #999 !important; padding: 6px !important; text-align: left !important; font-weight: 700 !important; }
+            .data-table td { color: #000 !important; border: 1px solid #ccc !important; padding: 5px !important; background: transparent !important; }
+            .data-table td * { color: #000 !important; }
+            .data-table td span, .data-table td div, .data-table td a { color: #000 !important; }
+            .g-code { color: #000 !important; font-weight: 700 !important; }
+            .data-table tr:nth-child(even) td { background: #f7f7f7 !important; }
+            .print-summary { display: block !important; margin-bottom: 10px; font-size: 12px; color: #000; }
+            .print-summary strong { font-weight: 700; }
+        }
+        .print-summary { display: none; }
     </style>
 </head>
 <body>
@@ -476,12 +502,14 @@
                             <option value="all">全部帳單</option>
                         </select>
                         <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadBilling()">🔄 重新整理</button>
+                        <button class="btn" style="background:#3498db;color:#fff;padding:8px 16px;font-size:13px;font-weight:700;" onclick="printBilling()">🖨 列印</button>
                     </div>
                 </div>
+                <div id="billing-print-summary" class="print-summary"></div>
                 <div style="overflow-x:auto;">
                     <table class="data-table">
                         <thead>
-                            <tr><th>客戶</th><th>出貨日</th><th>公斤</th><th>運費</th><th>理貨</th><th>合箱</th><th>加值</th><th>合計</th><th>匯款</th><th>追蹤號</th><th>操作</th></tr>
+                            <tr><th>客戶</th><th>出貨日</th><th>公斤</th><th>運費</th><th>理貨</th><th>合箱</th><th>加值</th><th>合計</th><th>匯款</th><th>追蹤號</th><th class="no-print">操作</th></tr>
                         </thead>
                         <tbody id="billingTable"><tr><td colspan="11" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr></tbody>
                     </table>
@@ -1366,8 +1394,10 @@ async function loadBilling() {
         var res = await fetch('/api/admin/shipment_requests?status=已出貨');
         var result = await res.json();
         var tbody = document.getElementById('billingTable');
+        var summary = document.getElementById('billing-print-summary');
         if (!result.success || !result.requests || !result.requests.length) {
             tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#666;padding:30px;">無帳單</td></tr>';
+            if (summary) summary.innerHTML = '';
             return;
         }
         var list = result.requests;
@@ -1376,8 +1406,10 @@ async function loadBilling() {
 
         if (!list.length) {
             tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#666;padding:30px;">無符合帳單</td></tr>';
+            if (summary) summary.innerHTML = '';
             return;
         }
+        var sumTotal = 0, sumWeight = 0;
         tbody.innerHTML = list.map(function(r) {
             var payHtml = r.payment_last5
                 ? '<span style="color:#27ae60;font-weight:700;font-size:12px;">✅ ' + r.payment_last5 + '</span><div style="font-size:10px;color:#888;">' + (r.payment_at||'').slice(5,16) + '</div>'
@@ -1390,9 +1422,10 @@ async function loadBilling() {
             var cf = Math.round(r.consolidation_fee || 0);
             var tracking = (r.tracking_num||'').toString().split(/[\n,]+/).filter(Boolean);
             var trackHtml = tracking.length ? tracking.map(function(t,i){return '<a href="https://www.sgxpress.com/query/?logic_num='+t.trim()+'" target="_blank" style="color:#3498db;font-size:11px;white-space:nowrap;">📍'+(i+1)+'箱</a>';}).join('<br>') : '-';
-            // 出貨日：取 updated_at 的 MM-DD（status 改為已出貨時寫入）
             var shipDate = (r.updated_at||'').slice(5,10) || '-';
             var customerHtml = '<div style="line-height:1.4;"><span class="g-code" style="font-size:12px;">' + r.g_code + '</span><div style="font-size:12px;color:#fff;margin-top:2px;">' + (r.customer_name||'-') + '</div></div>';
+            sumTotal += Math.round(r.total_fee || 0);
+            sumWeight += parseFloat(r.billed_weight || 0);
             return '<tr>'
                 + '<td style="white-space:nowrap;">' + customerHtml + '</td>'
                 + '<td style="font-size:12px;color:#aaa;white-space:nowrap;">' + shipDate + '</td>'
@@ -1404,10 +1437,24 @@ async function loadBilling() {
                 + '<td style="font-weight:700;color:#27ae60;font-size:13px;">$' + Math.round(r.total_fee||0).toLocaleString() + '</td>'
                 + '<td>' + payHtml + '</td>'
                 + '<td>' + trackHtml + '</td>'
-                + '<td>' + actionHtml + '</td>'
+                + '<td class="no-print">' + actionHtml + '</td>'
                 + '</tr>';
         }).join('');
+        if (summary) {
+            var filterLabel = filter === 'unpaid' ? '💰 待付款' : (filter === 'paid' ? '✅ 已付款' : '全部帳單');
+            var today = new Date().toISOString().slice(0,10);
+            summary.innerHTML = '<strong>帳單列印</strong>　|　篩選：' + filterLabel + '　|　列印日：' + today
+                + '　|　筆數：<strong>' + list.length + '</strong>'
+                + '　|　總公斤：<strong>' + sumWeight.toFixed(1) + ' kg</strong>'
+                + '　|　總金額：<strong>$' + sumTotal.toLocaleString() + '</strong>';
+        }
     } catch(e) { console.error('loadBilling:', e); }
+}
+
+async function printBilling() {
+    // 列印前先重新整理確保資料是最新的
+    await loadBilling();
+    setTimeout(function(){ window.print(); }, 200);
 }
 
 async function adminConfirmPayment(reqId) {
