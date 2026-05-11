@@ -1406,22 +1406,44 @@
             } catch(e) { console.log('badge update error', e); }
         }
 
-        // ── 公告 ──（每次登入都顯示所有公告，不再用 localStorage 過濾「已讀」）
+        // ── 公告 ──（每次登入都顯示，可勾選「不要再顯示這則」單獨靜音）
         async function checkAnnouncements() {
             try {
                 const res = await fetch('/api/announcements');
                 const data = await res.json();
                 if (!data.success || !data.announcements || !data.announcements.length) return;
+                // 過濾被勾選「不要再顯示」的公告
+                let mutedIds = [];
+                try { mutedIds = JSON.parse(localStorage.getItem('mutedAnnouncements') || '[]'); } catch(e) { mutedIds = []; }
+                const toShow = data.announcements.filter(a => !mutedIds.includes(a.id));
+                if (!toShow.length) return;
                 const container = document.getElementById('announcementContent');
-                container.innerHTML = data.announcements.map(a => `
+                container.innerHTML = toShow.map(a => `
                     <div style="margin-bottom:14px;padding:16px;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.08);border-radius:10px;">
                         <div style="font-size:15px;font-weight:700;color:#fff;margin-bottom:8px;">${a.title}</div>
                         <div style="font-size:13px;color:#ccc;line-height:1.8;white-space:pre-line;">${a.content.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" style="color:#3498db;word-break:break-all;">$1</a>')}</div>
-                        <div style="font-size:11px;color:#666;margin-top:8px;">${a.created_at}</div>
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.06);">
+                            <span style="font-size:11px;color:#666;">${a.created_at}</span>
+                            <label style="font-size:12px;color:#888;cursor:pointer;user-select:none;display:inline-flex;align-items:center;gap:6px;">
+                                <input type="checkbox" onchange="muteAnnouncement(${a.id}, this.checked)" style="accent-color:#f39c12;cursor:pointer;width:14px;height:14px;">
+                                🔕 不要再顯示這則
+                            </label>
+                        </div>
                     </div>
                 `).join('');
                 document.getElementById('announcementModal').style.display = 'flex';
             } catch(e) {}
+        }
+
+        function muteAnnouncement(id, muted) {
+            let list = [];
+            try { list = JSON.parse(localStorage.getItem('mutedAnnouncements') || '[]'); } catch(e) { list = []; }
+            if (muted) {
+                if (!list.includes(id)) list.push(id);
+            } else {
+                list = list.filter(function(x){ return x !== id; });
+            }
+            localStorage.setItem('mutedAnnouncements', JSON.stringify(list));
         }
 
         function closeAnnouncementModal() {
