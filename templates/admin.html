@@ -481,9 +481,9 @@
                 <div style="overflow-x:auto;">
                     <table class="data-table">
                         <thead>
-                            <tr><th>客編</th><th>姓名</th><th>寄送地址</th><th>公斤</th><th>運費</th><th>理貨</th><th>合箱</th><th>加值</th><th>合計</th><th>匯款</th><th>追蹤號</th></tr>
+                            <tr><th>客編</th><th>姓名</th><th>寄送地址</th><th>公斤</th><th>運費</th><th>理貨</th><th>合箱</th><th>加值</th><th>合計</th><th>匯款</th><th>追蹤號</th><th>操作</th></tr>
                         </thead>
-                        <tbody id="billingTable"><tr><td colspan="11" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr></tbody>
+                        <tbody id="billingTable"><tr><td colspan="12" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr></tbody>
                     </table>
                 </div>
             </div>
@@ -1367,7 +1367,7 @@ async function loadBilling() {
         var result = await res.json();
         var tbody = document.getElementById('billingTable');
         if (!result.success || !result.requests || !result.requests.length) {
-            tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#666;padding:30px;">無帳單</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:#666;padding:30px;">無帳單</td></tr>';
             return;
         }
         var list = result.requests;
@@ -1375,7 +1375,7 @@ async function loadBilling() {
         else if (filter === 'paid') list = list.filter(function(r){ return !!r.payment_last5; });
 
         if (!list.length) {
-            tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#666;padding:30px;">無符合帳單</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:#666;padding:30px;">無符合帳單</td></tr>';
             return;
         }
         tbody.innerHTML = list.map(function(r) {
@@ -1383,6 +1383,9 @@ async function loadBilling() {
             var payHtml = r.payment_last5
                 ? '<span style="color:#27ae60;font-weight:700;">✅ ' + r.payment_last5 + '</span><br><span style="font-size:10px;color:#888;">' + (r.payment_at||'') + '</span>'
                 : '<span style="color:#e74c3c;">未付款</span>';
+            var actionHtml = r.payment_last5
+                ? '<button class="btn" style="background:rgba(231,76,60,.15);color:#e74c3c;padding:5px 10px;font-size:11px;border:1px solid rgba(231,76,60,.3);" onclick="adminUnconfirmPayment(' + r.id + ')">↩ 取消</button>'
+                : '<button class="btn" style="background:#27ae60;color:#fff;padding:5px 10px;font-size:11px;font-weight:700;" onclick="adminConfirmPayment(' + r.id + ')">✓ 確認付款</button>';
             var extras = 0;
             try { var ex = JSON.parse(r.extra_services||'[]'); ex.forEach(function(e){extras+=(e.subtotal||e.price||0);}); } catch(e){}
             var cf = Math.round(r.consolidation_fee || 0);
@@ -1400,9 +1403,53 @@ async function loadBilling() {
                 + '<td style="font-weight:700;color:#27ae60;">$' + Math.round(r.total_fee||0).toLocaleString() + '</td>'
                 + '<td>' + payHtml + '</td>'
                 + '<td>' + trackHtml + '</td>'
+                + '<td>' + actionHtml + '</td>'
                 + '</tr>';
         }).join('');
     } catch(e) { console.error('loadBilling:', e); }
+}
+
+async function adminConfirmPayment(reqId) {
+    var last5 = prompt('請輸入匯款帳號後五碼\n（如無需記錄，直接按確定即可）', '');
+    if (last5 === null) return;  // 使用者按取消
+    last5 = (last5 || '').trim();
+    if (last5 && (last5.length !== 5 || !/^\d+$/.test(last5))) {
+        showToast('後五碼必須為 5 位數字，或留空', 'error');
+        return;
+    }
+    try {
+        var res = await fetch('/api/admin/shipment_requests/' + reqId + '/confirm_payment', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({last5: last5})
+        });
+        var result = await res.json();
+        if (result.success) {
+            showToast('已確認匯款', 'success');
+            loadBilling();
+            loadBillingBadge();
+        } else {
+            showToast(result.error || '確認失敗', 'error');
+        }
+    } catch(e) { showToast('網路錯誤', 'error'); }
+}
+
+async function adminUnconfirmPayment(reqId) {
+    if (!confirm('確定要取消此筆匯款確認？')) return;
+    try {
+        var res = await fetch('/api/admin/shipment_requests/' + reqId + '/unconfirm_payment', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        });
+        var result = await res.json();
+        if (result.success) {
+            showToast('已取消確認', 'success');
+            loadBilling();
+            loadBillingBadge();
+        } else {
+            showToast(result.error || '取消失敗', 'error');
+        }
+    } catch(e) { showToast('網路錯誤', 'error'); }
 }
 
 async function loadBillingBadge() {

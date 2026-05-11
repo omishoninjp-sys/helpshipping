@@ -1491,6 +1491,51 @@ def submit_payment_info(req_id):
     return jsonify({"success": True, "message": "匯款回報成功！"})
 
 
+@app.route("/api/admin/shipment_requests/<int:req_id>/confirm_payment", methods=["POST"])
+def admin_confirm_payment(req_id):
+    """管理員確認匯款已收到"""
+    data = request.json or {}
+    last5 = (data.get("last5") or "").strip()
+
+    # 允許留空（純確認）或輸入 5 位數字（記錄帳號末碼）
+    if last5 and (len(last5) != 5 or not last5.isdigit()):
+        return jsonify({"success": False, "error": "後五碼必須為 5 位數字，或留空"})
+    if not last5:
+        last5 = "管確認"
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_db()
+    row = conn.execute("SELECT id FROM shipment_requests WHERE id=?", (req_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"success": False, "error": "找不到該申請"})
+
+    conn.execute(
+        "UPDATE shipment_requests SET payment_last5=?, payment_at=? WHERE id=?",
+        (last5, now, req_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "message": "已確認匯款"})
+
+
+@app.route("/api/admin/shipment_requests/<int:req_id>/unconfirm_payment", methods=["POST"])
+def admin_unconfirm_payment(req_id):
+    """管理員取消已確認的匯款（誤按時用）"""
+    conn = get_db()
+    row = conn.execute("SELECT id FROM shipment_requests WHERE id=?", (req_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"success": False, "error": "找不到該申請"})
+    conn.execute(
+        "UPDATE shipment_requests SET payment_last5='', payment_at='' WHERE id=?",
+        (req_id,)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "message": "已取消匯款確認"})
+
+
 @app.route("/api/admin/shipment_requests", methods=["GET"])
 def admin_get_shipment_requests():
     """管理員查看所有出貨申請"""
