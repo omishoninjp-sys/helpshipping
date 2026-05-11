@@ -417,6 +417,10 @@
                         <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadShipReqs()">🔄 重新整理</button>
                     </div>
                 </div>
+                <div class="filter-bar">
+                    <input type="text" id="shipreq-search" placeholder="🔍 搜尋客戶編號、姓名、地址、追蹤號或備註..." oninput="filterShipReqs()">
+                    <span class="pkg-count" id="shipreq-count"></span>
+                </div>
                 <div class="table-wrap">
                     <table>
                         <thead>
@@ -1238,75 +1242,99 @@ async function loadShipReqs() {
     try {
         const res = await fetch('/api/admin/shipment_requests' + (status ? '?status=' + encodeURIComponent(status) : ''));
         const result = await res.json();
-        const tbody = document.getElementById('shipreqTable');
-        if (!result.success || !result.requests || !result.requests.length) {
-            allShipReqsData = [];
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#666;padding:30px;">無出貨申請</td></tr>';
-            return;
-        }
-        allShipReqsData = result.requests;
-        tbody.innerHTML = result.requests.map(function(r) {
-            var statusColors = {'待處理':'#f39c12','處理中':'#3498db','已出貨':'#27ae60','已拒絕':'#e74c3c'};
-            var c = statusColors[r.status] || '#888';
-            var shipInfo = (r.ship_recipient || '') ? '<div style="font-size:12px;color:#fff;line-height:1.4;">' + r.ship_recipient + '</div><div style="font-size:11px;color:#888;">' + (r.ship_phone||'') + '</div><div style="font-size:11px;color:#666;line-height:1.4;">' + (r.ship_address||'') + '</div>' : '-';
-            var actions = '';
-            if (r.status === '待處理' || r.status === '處理中') {
-                actions = '<button class="btn-edit-sm" style="padding:4px 8px;font-size:11px;" onclick="updateShipReq(' + r.id + ',\'處理中\')">⏳ 處理</button>'
-                    + ' <button class="btn-edit-sm" style="background:rgba(52,152,219,.2);border-color:rgba(52,152,219,.3);color:#3498db;padding:4px 8px;font-size:11px;" onclick="createJpdOrder(' + r.id + ')">📦 JPD</button>'
-                    + ' <button class="btn-edit-sm" style="background:rgba(39,174,96,.2);border-color:rgba(39,174,96,.3);color:#27ae60;padding:4px 8px;font-size:11px;" onclick="openBillingModal(' + r.id + ',\'' + (r.g_code||'') + '\',\'' + (r.customer_name||'').replace(/'/g,'') + '\',\'' + (r.package_summary||'').replace(/'/g,'').replace(/\n/g,' ') + '\')">✅ 出貨</button>'
-                    + ' <button class="btn-danger-sm" style="padding:4px 8px;font-size:11px;" onclick="updateShipReq(' + r.id + ',\'已拒絕\')">✗</button>';
-            } else {
-                actions = r.total_fee ? '<span style="font-size:12px;color:#27ae60;font-weight:700;">NT$' + Math.round(r.total_fee).toLocaleString() + '</span><br><span style="font-size:11px;color:#888;">' + (r.billed_weight||0) + 'kg × ' + (r.rate_per_kg||0) + ' + 理貨' + (r.handling_fee||0) + '</span>' : '<span style="font-size:12px;color:#666;">' + (r.updated_at || '-') + '</span>';
-                if (r.status === '已出貨' || r.status === '已拒絕') {
-                    actions += '<br><button class="btn-danger-sm" style="padding:4px 8px;font-size:11px;margin-top:4px;" onclick="revertShipReq(' + r.id + ')">↩ 還原</button>';
-                }
-            }
-            var paymentHtml = '';
-            if (r.payment_last5) {
-                paymentHtml = '<span style="font-size:12px;color:#27ae60;font-weight:600;white-space:nowrap;">✅ ' + r.payment_last5 + '</span><div style="font-size:10px;color:#888;">' + (r.payment_at||'').slice(5,16) + '</div>';
-            } else if (r.total_fee && r.total_fee > 0) {
-                paymentHtml = '<span style="font-size:11px;color:#e74c3c;white-space:nowrap;">未回報</span>';
-            } else {
-                paymentHtml = '-';
-            }
-            var customerHtml = '<div style="line-height:1.4;white-space:nowrap;"><span class="g-code" style="font-size:13px;">' + r.g_code + '</span><div style="font-size:13px;color:#fff;margin-top:2px;">' + (r.customer_name || '-') + '</div></div>';
-
-            // 申請時間：拆兩行（日期 / 時間）避免換行擠
-            var ts = (r.created_at || '').toString();
-            var tsDate = ts.slice(0, 10);
-            var tsTime = ts.slice(11, 16);
-            var tsHtml = '<div style="font-size:12px;white-space:nowrap;line-height:1.4;">' + tsDate + '</div><div style="font-size:11px;color:#888;white-space:nowrap;">' + tsTime + '</div>';
-
-            // 包裹折疊
-            var summary = (r.package_summary || '').trim();
-            var pkgHtml = '-';
-            var detailRow = '';
-            if (summary) {
-                var lines = summary.split('\n').filter(Boolean);
-                var totalLine = lines.find(function(l){ return /合計/.test(l); }) || '';
-                var itemLines = lines.filter(function(l){ return !/合計/.test(l); });
-                var itemCount = itemLines.length;
-                var summaryText = '📦 ' + itemCount + ' 件' + (totalLine ? '　' + totalLine : '');
-                var rowId = 'pkg-row-' + r.id;
-                pkgHtml = '<button type="button" class="pkg-toggle" onclick="togglePkgDetail(this,\'' + rowId + '\')">' + summaryText + '</button>';
-                detailRow = '<tr class="pkg-detail-row" id="' + rowId + '" style="display:none;">'
-                    + '<td colspan="8"><div class="pkg-details-content">' + summary.replace(/\n/g, '<br>') + '</div></td>'
-                    + '</tr>';
-            }
-
-            return '<tr>'
-                + '<td>' + customerHtml + '</td>'
-                + '<td style="min-width:180px;">' + pkgHtml + '</td>'
-                + '<td style="max-width:150px;">' + shipInfo + '</td>'
-                + '<td style="font-size:12px;color:#ccc;max-width:120px;">' + (r.note || '-') + '</td>'
-                + '<td>' + tsHtml + '</td>'
-                + '<td><span style="padding:3px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap;background:' + c + '22;color:' + c + ';">' + r.status + '</span></td>'
-                + '<td>' + paymentHtml + '</td>'
-                + '<td style="white-space:nowrap;">' + actions + '</td>'
-                + '</tr>'
-                + detailRow;
-        }).join('');
+        if (!result.success) { showToast('載入失敗', 'error'); return; }
+        allShipReqsData = result.requests || [];
+        filterShipReqs();  // 套用搜尋（若有）並渲染
     } catch(e) { console.error('loadShipReqs error:', e); showToast('載入出貨申請失敗', 'error'); }
+}
+
+function filterShipReqs() {
+    var q = ((document.getElementById('shipreq-search') || {}).value || '').trim().toUpperCase();
+    var list = allShipReqsData || [];
+    if (q) {
+        list = list.filter(function(r){
+            if (r.g_code && r.g_code.toUpperCase().includes(q)) return true;
+            if (r.customer_name && r.customer_name.toUpperCase().includes(q)) return true;
+            if (r.ship_recipient && r.ship_recipient.toUpperCase().includes(q)) return true;
+            if (r.ship_phone && r.ship_phone.toUpperCase().includes(q)) return true;
+            if (r.ship_address && r.ship_address.toUpperCase().includes(q)) return true;
+            if (r.note && r.note.toUpperCase().includes(q)) return true;
+            if (r.tracking_num && r.tracking_num.toUpperCase().includes(q)) return true;
+            if (r.package_summary && r.package_summary.toUpperCase().includes(q)) return true;
+            if (r.payment_last5 && r.payment_last5.toUpperCase().includes(q)) return true;
+            return false;
+        });
+    }
+    renderShipReqs(list);
+}
+
+function renderShipReqs(list) {
+    var countEl = document.getElementById('shipreq-count');
+    if (countEl) countEl.textContent = '共 ' + list.length + ' 筆';
+    var tbody = document.getElementById('shipreqTable');
+    if (!list.length) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#666;padding:30px;">無出貨申請</td></tr>';
+        return;
+    }
+    tbody.innerHTML = list.map(function(r) {
+        var statusColors = {'待處理':'#f39c12','處理中':'#3498db','已出貨':'#27ae60','已拒絕':'#e74c3c'};
+        var c = statusColors[r.status] || '#888';
+        var shipInfo = (r.ship_recipient || '') ? '<div style="font-size:12px;color:#fff;line-height:1.4;">' + r.ship_recipient + '</div><div style="font-size:11px;color:#888;">' + (r.ship_phone||'') + '</div><div style="font-size:11px;color:#666;line-height:1.4;">' + (r.ship_address||'') + '</div>' : '-';
+        var actions = '';
+        if (r.status === '待處理' || r.status === '處理中') {
+            actions = '<button class="btn-edit-sm" style="padding:4px 8px;font-size:11px;" onclick="updateShipReq(' + r.id + ',\'處理中\')">⏳ 處理</button>'
+                + ' <button class="btn-edit-sm" style="background:rgba(52,152,219,.2);border-color:rgba(52,152,219,.3);color:#3498db;padding:4px 8px;font-size:11px;" onclick="createJpdOrder(' + r.id + ')">📦 JPD</button>'
+                + ' <button class="btn-edit-sm" style="background:rgba(39,174,96,.2);border-color:rgba(39,174,96,.3);color:#27ae60;padding:4px 8px;font-size:11px;" onclick="openBillingModal(' + r.id + ',\'' + (r.g_code||'') + '\',\'' + (r.customer_name||'').replace(/'/g,'') + '\',\'' + (r.package_summary||'').replace(/'/g,'').replace(/\n/g,' ') + '\')">✅ 出貨</button>'
+                + ' <button class="btn-danger-sm" style="padding:4px 8px;font-size:11px;" onclick="updateShipReq(' + r.id + ',\'已拒絕\')">✗</button>';
+        } else {
+            actions = r.total_fee ? '<span style="font-size:12px;color:#27ae60;font-weight:700;">NT$' + Math.round(r.total_fee).toLocaleString() + '</span><br><span style="font-size:11px;color:#888;">' + (r.billed_weight||0) + 'kg × ' + (r.rate_per_kg||0) + ' + 理貨' + (r.handling_fee||0) + '</span>' : '<span style="font-size:12px;color:#666;">' + (r.updated_at || '-') + '</span>';
+            if (r.status === '已出貨' || r.status === '已拒絕') {
+                actions += '<br><button class="btn-danger-sm" style="padding:4px 8px;font-size:11px;margin-top:4px;" onclick="revertShipReq(' + r.id + ')">↩ 還原</button>';
+            }
+        }
+        var paymentHtml = '';
+        if (r.payment_last5) {
+            paymentHtml = '<span style="font-size:12px;color:#27ae60;font-weight:600;white-space:nowrap;">✅ ' + r.payment_last5 + '</span><div style="font-size:10px;color:#888;">' + (r.payment_at||'').slice(5,16) + '</div>';
+        } else if (r.total_fee && r.total_fee > 0) {
+            paymentHtml = '<span style="font-size:11px;color:#e74c3c;white-space:nowrap;">未回報</span>';
+        } else {
+            paymentHtml = '-';
+        }
+        var customerHtml = '<div style="line-height:1.4;white-space:nowrap;"><span class="g-code" style="font-size:13px;">' + r.g_code + '</span><div style="font-size:13px;color:#fff;margin-top:2px;">' + (r.customer_name || '-') + '</div></div>';
+
+        var ts = (r.created_at || '').toString();
+        var tsDate = ts.slice(0, 10);
+        var tsTime = ts.slice(11, 16);
+        var tsHtml = '<div style="font-size:12px;white-space:nowrap;line-height:1.4;">' + tsDate + '</div><div style="font-size:11px;color:#888;white-space:nowrap;">' + tsTime + '</div>';
+
+        var summary = (r.package_summary || '').trim();
+        var pkgHtml = '-';
+        var detailRow = '';
+        if (summary) {
+            var lines = summary.split('\n').filter(Boolean);
+            var totalLine = lines.find(function(l){ return /合計/.test(l); }) || '';
+            var itemLines = lines.filter(function(l){ return !/合計/.test(l); });
+            var itemCount = itemLines.length;
+            var summaryText = '📦 ' + itemCount + ' 件' + (totalLine ? '　' + totalLine : '');
+            var rowId = 'pkg-row-' + r.id;
+            pkgHtml = '<button type="button" class="pkg-toggle" onclick="togglePkgDetail(this,\'' + rowId + '\')">' + summaryText + '</button>';
+            detailRow = '<tr class="pkg-detail-row" id="' + rowId + '" style="display:none;">'
+                + '<td colspan="8"><div class="pkg-details-content">' + summary.replace(/\n/g, '<br>') + '</div></td>'
+                + '</tr>';
+        }
+
+        return '<tr>'
+            + '<td>' + customerHtml + '</td>'
+            + '<td style="min-width:180px;">' + pkgHtml + '</td>'
+            + '<td style="max-width:150px;">' + shipInfo + '</td>'
+            + '<td style="font-size:12px;color:#ccc;max-width:120px;">' + (r.note || '-') + '</td>'
+            + '<td>' + tsHtml + '</td>'
+            + '<td><span style="padding:3px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap;background:' + c + '22;color:' + c + ';">' + r.status + '</span></td>'
+            + '<td>' + paymentHtml + '</td>'
+            + '<td style="white-space:nowrap;">' + actions + '</td>'
+            + '</tr>'
+            + detailRow;
+    }).join('');
 }
 
 function togglePkgDetail(btn, rowId) {
