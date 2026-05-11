@@ -339,8 +339,8 @@
                         <input type="text" id="pkg-weight" class="form-control" placeholder="1.5" inputmode="decimal">
                     </div>
                     <div class="form-group" style="margin:0;">
-                        <label>商品名稱</label>
-                        <input type="text" id="pkg-name" class="form-control" placeholder="Nike 球鞋">
+                        <label>寄送者</label>
+                        <input type="text" id="pkg-name" class="form-control" placeholder="例：Amazon、ZOZOTOWN、Yahoo">
                     </div>
                     <div class="form-group" style="margin:0;">
                         <label>狀態</label>
@@ -369,7 +369,7 @@
                     </div>
                 </div>
                 <div class="filter-bar">
-                    <input type="text" id="pkg-filter" placeholder="🔍 搜尋客戶編號、末四碼或商品名稱..." oninput="filterPackages()">
+                    <input type="text" id="pkg-filter" placeholder="🔍 搜尋客戶編號、末四碼或寄送者..." oninput="filterPackages()">
                     <span class="pkg-count" id="pkg-count"></span>
                 </div>
                 <div class="table-wrap">
@@ -377,7 +377,7 @@
                         <thead>
                             <tr>
                                 <th style="width:36px;"><input type="checkbox" id="chk-all" onchange="toggleAll(this)" style="accent-color:#f39c12;cursor:pointer;width:15px;height:15px;"></th>
-                                <th>客戶編號</th><th>末四碼</th><th>商品名稱</th><th>重量</th>
+                                <th>客戶編號</th><th>末四碼</th><th>寄送者</th><th>重量</th>
                                 <th>狀態</th><th>到貨日期</th><th>備註</th><th>操作</th>
                             </tr>
                         </thead>
@@ -567,7 +567,7 @@
         <div class="pkg-form-grid" style="grid-template-columns:1fr 1fr;">
             <div class="form-group" style="margin:0;"><label>客戶編號</label><div style="display:flex;align-items:center;"><span style="padding:11px 12px;background:rgba(243,156,18,.2);border:1px solid rgba(243,156,18,.3);border-radius:9px 0 0 9px;color:#f39c12;font-weight:700;font-size:14px;">G</span><input type="text" id="edit-g-code" class="form-control" inputmode="numeric" style="border-radius:0 9px 9px 0;border-left:none;"></div></div>
             <div class="form-group" style="margin:0;"><label>物流號末四碼</label><input type="text" id="edit-logis" class="form-control" inputmode="numeric" maxlength="4"></div>
-            <div class="form-group" style="margin:0;"><label>商品名稱</label><input type="text" id="edit-name" class="form-control"></div>
+            <div class="form-group" style="margin:0;"><label>寄送者</label><input type="text" id="edit-name" class="form-control"></div>
             <div class="form-group" style="margin:0;"><label>重量 (kg)</label><input type="text" id="edit-weight" class="form-control" inputmode="decimal"></div>
             <div class="form-group" style="margin:0;"><label>狀態</label>
                 <select id="edit-status" class="form-control">
