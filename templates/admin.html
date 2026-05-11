@@ -153,6 +153,28 @@
             .admin-main { padding: 0; }
         }
 
+        /* 包裹/明細折疊 */
+        .pkg-details { width: 100%; }
+        .pkg-details > summary {
+            cursor: pointer; padding: 6px 10px; background: rgba(243,156,18,.08);
+            border: 1px solid rgba(243,156,18,.2); border-radius: 6px;
+            font-size: 12px; color: #f39c12; font-weight: 600;
+            list-style: none; user-select: none;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .pkg-details > summary::-webkit-details-marker { display: none; }
+        .pkg-details > summary::before {
+            content: '▶'; font-size: 9px; color: #f39c12; transition: transform .15s;
+        }
+        .pkg-details[open] > summary::before { transform: rotate(90deg); }
+        .pkg-details > summary:hover { background: rgba(243,156,18,.15); }
+        .pkg-details-content {
+            padding: 10px 12px; margin-top: 6px;
+            background: rgba(0,0,0,.25); border-radius: 6px;
+            font-size: 12px; color: #ddd; line-height: 1.7;
+            border: 1px solid rgba(255,255,255,.06);
+        }
+
         /* 列印樣式 */
         @media print {
             @page { size: A4 landscape; margin: 10mm; }
@@ -256,8 +278,7 @@
                     <table>
                         <thead>
                             <tr>
-                                <th>會員編號</th>
-                                <th>姓名</th>
+                                <th>客戶</th>
                                 <th>地址</th>
                                 <th>手機（密碼）</th>
                                 <th>運費 (台幣/kg)</th>
@@ -265,7 +286,7 @@
                             </tr>
                         </thead>
                         <tbody id="membersTable">
-                            <tr><td colspan="6" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr>
+                            <tr><td colspan="5" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -370,8 +391,7 @@
                     <table>
                         <thead>
                             <tr>
-                                <th>會員</th>
-                                <th>姓名</th>
+                                <th>客戶</th>
                                 <th>包裹內容</th>
                                 <th>寄送地址</th>
                                 <th>客戶備註</th>
@@ -382,7 +402,7 @@
                             </tr>
                         </thead>
                         <tbody id="shipreqTable">
-                            <tr><td colspan="10" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr>
+                            <tr><td colspan="8" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -407,8 +427,7 @@
                     <table>
                         <thead>
                             <tr>
-                                <th>會員</th>
-                                <th>姓名</th>
+                                <th>客戶</th>
                                 <th>商品明細</th>
                                 <th>備註</th>
                                 <th>提交時間</th>
@@ -417,7 +436,7 @@
                             </tr>
                         </thead>
                         <tbody id="forecastTable">
-                            <tr><td colspan="7" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr>
+                            <tr><td colspan="6" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -812,7 +831,7 @@ function renderMembersPage() {
     const defaultRate = document.getElementById('totalMembers').textContent; // just for placeholder
 
     if (!pageMembers.length) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#666;padding:30px;">無符合的會員</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#666;padding:30px;">無符合的會員</td></tr>';
         document.getElementById('memberPagination').innerHTML = '';
         return;
     }
@@ -822,8 +841,7 @@ function renderMembersPage() {
         const globalIdx = membersData.indexOf(m);
         const rateDisplay = m.shipping_rate || '';
         return `<tr>
-            <td><span class="g-code">${m.g_code}</span></td>
-            <td>${m.name||'-'}</td>
+            <td style="white-space:nowrap;"><div style="line-height:1.4;"><span class="g-code" style="font-size:13px;">${m.g_code}</span><div style="font-size:13px;color:#fff;margin-top:2px;">${m.name||'-'}</div></div></td>
             <td style="font-size:12px;">${m.address||'-'}</td>
             <td>${m.phone||'-'}</td>
             <td>
@@ -1157,7 +1175,7 @@ async function loadShipReqs() {
         const tbody = document.getElementById('shipreqTable');
         if (!result.success || !result.requests || !result.requests.length) {
             allShipReqsData = [];
-            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#666;padding:30px;">無出貨申請</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#666;padding:30px;">無出貨申請</td></tr>';
             return;
         }
         allShipReqsData = result.requests;
@@ -1185,10 +1203,28 @@ async function loadShipReqs() {
             } else {
                 paymentHtml = '-';
             }
+            // 客戶單元（客編在上、姓名在下）
+            var customerHtml = '<div style="line-height:1.4;white-space:nowrap;"><span class="g-code" style="font-size:13px;">' + r.g_code + '</span><div style="font-size:13px;color:#fff;margin-top:2px;">' + (r.customer_name || '-') + '</div></div>';
+
+            // 包裹內容折疊
+            var summary = (r.package_summary || '').trim();
+            var pkgHtml = '-';
+            if (summary) {
+                var lines = summary.split('\n').filter(Boolean);
+                // 嘗試抓 "合計約 X kg" 那行
+                var totalLine = lines.find(function(l){ return /合計/.test(l); }) || '';
+                var itemLines = lines.filter(function(l){ return !/合計/.test(l); });
+                var itemCount = itemLines.length;
+                var summaryText = '📦 ' + itemCount + ' 件' + (totalLine ? '　' + totalLine : '');
+                pkgHtml = '<details class="pkg-details">'
+                    + '<summary>' + summaryText + '</summary>'
+                    + '<div class="pkg-details-content">' + summary.replace(/\n/g, '<br>') + '</div>'
+                    + '</details>';
+            }
+
             return '<tr>'
-                + '<td><span class="g-code">' + r.g_code + '</span></td>'
-                + '<td>' + (r.customer_name || '-') + '</td>'
-                + '<td style="font-size:12px;max-width:300px;line-height:1.8;">' + (r.package_summary || '-').replace(/\n/g, '<br>') + '</td>'
+                + '<td>' + customerHtml + '</td>'
+                + '<td style="font-size:12px;max-width:280px;">' + pkgHtml + '</td>'
                 + '<td style="font-size:12px;max-width:200px;">' + shipInfo + '</td>'
                 + '<td style="font-size:12px;color:#ccc;">' + (r.note || '-') + '</td>'
                 + '<td style="font-size:12px;">' + r.created_at + '</td>'
@@ -1332,13 +1368,15 @@ async function loadForecasts() {
         const result = await res.json();
         const tbody = document.getElementById('forecastTable');
         if (!result.success || !result.forecasts.length) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#666;padding:30px;">無預報記錄</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#666;padding:30px;">無預報記錄</td></tr>';
             return;
         }
         tbody.innerHTML = result.forecasts.map(function(fc) {
             var statusColors = {'待處理':'#f39c12','已處理':'#27ae60'};
             var c = statusColors[fc.status] || '#888';
             var items = fc.items || [];
+            var totalQty = items.reduce(function(s, i){ return s + (parseInt(i.quantity)||1); }, 0);
+            var totalAmt = items.reduce(function(s, i){ return s + ((parseInt(i.price)||0) * (parseInt(i.quantity)||1)); }, 0);
             var itemsHtml = items.map(function(i) {
                 return '<div style="padding:2px 0;font-size:12px;">'
                     + '<span style="color:#fff;">' + (i.name || '-') + '</span>'
@@ -1347,6 +1385,9 @@ async function loadForecasts() {
                     + (i.url ? ' <a href="' + i.url + '" target="_blank" style="color:#3498db;font-size:11px;">🔗</a>' : '')
                     + '</div>';
             }).join('');
+            var itemsCollapse = items.length
+                ? '<details class="pkg-details"><summary>📝 ' + items.length + ' 件　共 ' + totalQty + ' 個　¥' + totalAmt.toLocaleString() + '</summary><div class="pkg-details-content">' + itemsHtml + '</div></details>'
+                : '-';
 
             var actions = '';
             if (fc.status === '待處理') {
@@ -1356,10 +1397,11 @@ async function loadForecasts() {
                 actions = '<a class="btn-edit-sm" href="javascript:void(0)" onclick="openForecastSheet(' + fc.id + ')" style="text-decoration:none;">📊 Sheets</a>';
             }
 
+            var customerHtml = '<div style="line-height:1.4;white-space:nowrap;"><span class="g-code" style="font-size:13px;">' + fc.g_code + '</span><div style="font-size:13px;color:#fff;margin-top:2px;">' + (fc.customer_name || '-') + '</div></div>';
+
             return '<tr>'
-                + '<td><span class="g-code">' + fc.g_code + '</span></td>'
-                + '<td>' + (fc.customer_name || '-') + '</td>'
-                + '<td style="max-width:300px;">' + itemsHtml + '</td>'
+                + '<td>' + customerHtml + '</td>'
+                + '<td style="max-width:300px;">' + itemsCollapse + '</td>'
                 + '<td style="font-size:12px;color:#ccc;">' + (fc.note || '-') + '</td>'
                 + '<td style="font-size:12px;">' + fc.created_at + '</td>'
                 + '<td><span style="padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;background:' + c + '22;color:' + c + ';">' + fc.status + '</span></td>'
