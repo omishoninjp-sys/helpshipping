@@ -1406,20 +1406,14 @@
             } catch(e) { console.log('badge update error', e); }
         }
 
-        // ── 公告 ──
+        // ── 公告 ──（每次登入都顯示所有公告，不再用 localStorage 過濾「已讀」）
         async function checkAnnouncements() {
             try {
                 const res = await fetch('/api/announcements');
                 const data = await res.json();
                 if (!data.success || !data.announcements || !data.announcements.length) return;
-                // 檢查 localStorage 已讀紀錄
-                let readIds = [];
-                try { readIds = JSON.parse(localStorage.getItem('readAnnouncements') || '[]'); } catch(e) { readIds = []; }
-                const unread = data.announcements.filter(a => !readIds.includes(a.id));
-                if (!unread.length) return;
-                // 顯示未讀公告
                 const container = document.getElementById('announcementContent');
-                container.innerHTML = unread.map(a => `
+                container.innerHTML = data.announcements.map(a => `
                     <div style="margin-bottom:14px;padding:16px;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.08);border-radius:10px;">
                         <div style="font-size:15px;font-weight:700;color:#fff;margin-bottom:8px;">${a.title}</div>
                         <div style="font-size:13px;color:#ccc;line-height:1.8;white-space:pre-line;">${a.content.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" style="color:#3498db;word-break:break-all;">$1</a>')}</div>
@@ -1427,9 +1421,6 @@
                     </div>
                 `).join('');
                 document.getElementById('announcementModal').style.display = 'flex';
-                // 標記全部已讀
-                const allIds = data.announcements.map(a => a.id);
-                localStorage.setItem('readAnnouncements', JSON.stringify(allIds));
             } catch(e) {}
         }
 
