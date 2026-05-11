@@ -371,7 +371,16 @@
                     </div>
                 </div>
                 <div class="filter-bar">
-                    <input type="text" id="pkg-filter" placeholder="🔍 搜尋客戶編號、末四碼或寄送者..." oninput="filterPackages()">
+                    <input type="text" id="pkg-filter" placeholder="🔍 搜尋客戶編號、末四碼或寄送者（會搜全部含已出貨）..." oninput="filterPackages()">
+                    <select id="pkg-status-filter" class="form-control" style="width:auto;padding:9px 12px;font-size:13px;" onchange="filterPackages()">
+                        <option value="已到貨" selected>📦 已到貨</option>
+                        <option value="待入庫">⏳ 待入庫</option>
+                        <option value="已入庫">🏷 已入庫</option>
+                        <option value="未出貨">未出貨（全部）</option>
+                        <option value="已出貨">🚚 已出貨</option>
+                        <option value="全部">全部</option>
+                        <option value="最近50">最近 50 筆</option>
+                    </select>
                     <span class="pkg-count" id="pkg-count"></span>
                 </div>
                 <div class="table-wrap">
@@ -384,7 +393,7 @@
                             </tr>
                         </thead>
                         <tbody id="packagesTable">
-                            <tr><td colspan="10" style="text-align:center;color:#666;padding:30px;">切換至「到貨管理」頁籤以載入</td></tr>
+                            <tr><td colspan="9" style="text-align:center;color:#666;padding:30px;">切換至「到貨管理」頁籤以載入</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1006,35 +1015,67 @@ async function loadPackages() {
     const result = await res.json();
     if (!result.success) { showToast('載入失敗', 'error'); return; }
     allPackages = result.packages;
-    renderPackages(allPackages);
+    filterPackages();  // 套用預設「已到貨」篩選
+}
+
+// 從 membersData 建客戶姓名查找表
+function getMemberNameMap() {
+    var map = {};
+    if (Array.isArray(membersData)) {
+        membersData.forEach(function(m){ map[m.g_code] = m.name || ''; });
+    }
+    return map;
 }
 
 function filterPackages() {
-    const q = document.getElementById('pkg-filter').value.trim().toUpperCase();
-    if (!q) { renderPackages(allPackages); return; }
-    renderPackages(allPackages.filter(p =>
-        p.g_code.includes(q) || (p.logis_num||'').toUpperCase().includes(q) || (p.product_name||'').toUpperCase().includes(q)
-    ));
+    var q = (document.getElementById('pkg-filter').value || '').trim().toUpperCase();
+    var statusFilter = (document.getElementById('pkg-status-filter') || {}).value || '已到貨';
+    var list = allPackages || [];
+
+    if (q) {
+        // 搜尋時忽略狀態篩選、跨所有記錄（含已出貨）
+        list = list.filter(function(p){
+            return p.g_code.toUpperCase().includes(q)
+                || (p.logis_num||'').toUpperCase().includes(q)
+                || (p.product_name||'').toUpperCase().includes(q);
+        });
+    } else {
+        if (statusFilter === '最近50') {
+            list = list.slice(0, 50);
+        } else if (statusFilter === '未出貨') {
+            list = list.filter(function(p){ return p.status !== '已出貨'; });
+        } else if (statusFilter && statusFilter !== '全部') {
+            list = list.filter(function(p){ return p.status === statusFilter; });
+        }
+    }
+    renderPackages(list);
 }
 
 function renderPackages(list) {
     document.getElementById('pkg-count').textContent = `共 ${list.length} 筆`;
-    const tbody = document.getElementById('packagesTable');
-    if (!list.length) { tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#666;padding:30px;">暫無記錄</td></tr>'; return; }
-    tbody.innerHTML = list.map(p => `<tr id="row-${p.id}" class="${p.status === '已出貨' ? 'row-shipped' : ''}">
-        <td><input type="checkbox" class="pkg-chk" value="${p.id}" onchange="updateShipBtn()" style="accent-color:#f39c12;cursor:pointer;width:15px;height:15px;" ${p.status === '已出貨' ? 'disabled' : ''}></td>
-        <td><span class="g-code">${p.g_code}</span></td>
-        <td style="font-size:12px;">${p.logis_num || '-'}</td>
-        <td>${p.product_name||'-'}</td>
-        <td>${p.weight ? p.weight+' kg' : '-'}</td>
-        <td><span class="status-tag status-${p.status}">${p.status}</span></td>
-        <td style="font-size:12px;">${p.in_date||'-'}</td>
-        <td style="font-size:12px;color:#888;">${p.note||'-'}</td>
-        <td style="white-space:nowrap;">
-            <button class="btn-edit-sm" onclick="openEdit(${p.id})">✏️</button>
-            <button class="btn-danger-sm" onclick="deletePackage(${p.id})" style="margin-left:4px;">🗑️</button>
-        </td>
-    </tr>`).join('');
+    var tbody = document.getElementById('packagesTable');
+    if (!list.length) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#666;padding:30px;">暫無記錄</td></tr>'; return; }
+    var nameMap = getMemberNameMap();
+    tbody.innerHTML = list.map(function(p){
+        var name = nameMap[p.g_code] || '';
+        var customerHtml = '<div style="line-height:1.4;white-space:nowrap;"><span class="g-code" style="font-size:13px;">' + p.g_code + '</span>'
+            + (name ? '<div style="font-size:12px;color:#fff;margin-top:2px;">' + name + '</div>' : '')
+            + '</div>';
+        return '<tr id="row-' + p.id + '" class="' + (p.status === '已出貨' ? 'row-shipped' : '') + '">'
+            + '<td><input type="checkbox" class="pkg-chk" value="' + p.id + '" onchange="updateShipBtn()" style="accent-color:#f39c12;cursor:pointer;width:15px;height:15px;" ' + (p.status === '已出貨' ? 'disabled' : '') + '></td>'
+            + '<td>' + customerHtml + '</td>'
+            + '<td style="font-size:12px;">' + (p.logis_num || '-') + '</td>'
+            + '<td>' + (p.product_name || '-') + '</td>'
+            + '<td>' + (p.weight ? p.weight + ' kg' : '-') + '</td>'
+            + '<td><span class="status-tag status-' + p.status + '">' + p.status + '</span></td>'
+            + '<td style="font-size:12px;">' + (p.in_date || '-') + '</td>'
+            + '<td style="font-size:12px;color:#888;">' + (p.note || '-') + '</td>'
+            + '<td style="white-space:nowrap;">'
+                + '<button class="btn-edit-sm" onclick="openEdit(' + p.id + ')">✏️</button>'
+                + ' <button class="btn-danger-sm" onclick="deletePackage(' + p.id + ')">🗑️</button>'
+            + '</td>'
+            + '</tr>';
+    }).join('');
 }
 
 async function addPackage() {
