@@ -1111,28 +1111,43 @@ def admin_create_jpd_order(req_id):
     if not declare_list:
         declare_list = [{"name": "雑貨", "amount": 1, "price": 0, "material": "", "origin": "Japan", "url": ""}]
     
-    # 搜尋 JPD 倉庫包裹
+    # 搜尋 JPD 倉庫包裹（依 client_cid=g_code 過濾、只取未指派的）
     pkg_result = jpd_request("TSearchPackages", {
+        "client_cid": g_code,
+        "warehouse_id": JPD_WAREHOUSE_ID,
         "stock_date_from": "2026-01-01 00:00:00"
     })
-    
+
     jpd_package_ids = []
     if "OperationResult" in pkg_result:
         op = pkg_result["OperationResult"]
         if op.get("Request", {}).get("IsValid") == "True":
-            all_pkgs = op.get("Result", {}).get("Data", [])
-            # 找沒有被分配到運單的包裹（order_id 為 0）
+            all_pkgs = op.get("Result", {}).get("Data", []) or []
             for p in all_pkgs:
-                cid = str(p.get("customer_id") or "")
+                # 雙重保險：用回傳的 client_cid 再過濾一次（防 API 沒套用 filter）
+                cc = str(p.get("client_cid") or "").strip().upper()
                 oid = str(p.get("order_id") or "0")
+                if cc and cc != g_code.upper():
+                    continue
                 if oid == "0":
-                    jpd_package_ids.append(int(p["package_id"]))
-    
+                    try:
+                        jpd_package_ids.append(int(p["package_id"]))
+                    except (KeyError, ValueError, TypeError):
+                        pass
+
+    # 沒有可指派的包裹 → 直接回錯誤，不要送空陣列給 JPD（JPD 會拒絕）
+    if not jpd_package_ids:
+        conn.close()
+        return jsonify({
+            "success": False,
+            "error": f"JPD 倉庫找不到 {g_code} 的未指派包裹。請確認包裹已在 JPD 預報入庫，或包裹是否已綁定到其他運單。"
+        })
+
     # 客戶運單號
     today_str = datetime.now().strftime("%m%d")
     customer_order_id = f"{g_code}-{today_str}"
-    
-    # 建立 JPD 運單
+
+    # 建立 JPD 運單（把所有該客戶未指派的包裹全部納入）
     order_data = {
         "customer_order_id": customer_order_id,
         "deliv_id": JPD_DELIV_ID,
@@ -1149,10 +1164,10 @@ def admin_create_jpd_order(req_id):
         "warehouse_id": JPD_WAREHOUSE_ID,
         "create_package": "y",
         "create_sender": "y",
-        "packages": [{"package_id": pid, "declare_list": declare_list} for pid in jpd_package_ids[:1]] if jpd_package_ids else []
+        "packages": [{"package_id": pid, "declare_list": declare_list} for pid in jpd_package_ids]
     }
-    
-    print(f"[JPD] 建立運單: {customer_order_id}, 收件人: {recipient}, 包裹數: {len(jpd_package_ids)}", flush=True)
+
+    print(f"[JPD] 建立運單: {customer_order_id}, 收件人: {recipient}, 包裹數: {len(jpd_package_ids)} (ids={jpd_package_ids})", flush=True)
     result = jpd_request("TCreateOrder", order_data)
     
     jpd_order_id = ""
