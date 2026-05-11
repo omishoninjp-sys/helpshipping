@@ -453,6 +453,10 @@
                         <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadForecasts()">🔄 重新整理</button>
                     </div>
                 </div>
+                <div class="filter-bar">
+                    <input type="text" id="forecast-search" placeholder="🔍 搜尋客戶編號、姓名、商品名稱或備註..." oninput="filterForecasts()">
+                    <span class="pkg-count" id="forecast-count"></span>
+                </div>
                 <div class="table-wrap">
                     <table>
                         <thead>
@@ -1439,61 +1443,92 @@ async function loadForecastBadge() {
     } catch(e) {}
 }
 
+let allForecastsData = [];
+
 async function loadForecasts() {
     const status = document.getElementById('forecast-filter').value;
     try {
         const res = await fetch('/api/admin/forecasts' + (status ? '?status=' + encodeURIComponent(status) : ''));
         const result = await res.json();
-        const tbody = document.getElementById('forecastTable');
-        if (!result.success || !result.forecasts.length) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#666;padding:30px;">無預報記錄</td></tr>';
-            return;
-        }
-        tbody.innerHTML = result.forecasts.map(function(fc) {
-            var statusColors = {'待處理':'#f39c12','已處理':'#27ae60'};
-            var c = statusColors[fc.status] || '#888';
-            var items = fc.items || [];
-            var totalQty = items.reduce(function(s, i){ return s + (parseInt(i.quantity)||1); }, 0);
-            var totalAmt = items.reduce(function(s, i){ return s + ((parseInt(i.price)||0) * (parseInt(i.quantity)||1)); }, 0);
-            var itemsHtml = items.map(function(i) {
-                return '<div class="pkg-item">'
-                    + '<span style="color:#fff;">' + (i.name || '-') + '</span>'
-                    + ' <span style="color:#888;">×' + (i.quantity || 1) + '</span>'
-                    + ' <span style="color:#f39c12;font-weight:600;">¥' + (i.price || 0).toLocaleString() + '</span>'
-                    + (i.url ? ' <a href="' + i.url + '" target="_blank" style="color:#3498db;font-size:12px;">🔗</a>' : '')
-                    + '</div>';
-            }).join('');
-            var summaryBtn = '-';
-            var detailRow = '';
-            if (items.length) {
-                var rowId = 'fc-row-' + fc.id;
-                summaryBtn = '<button type="button" class="pkg-toggle" onclick="togglePkgDetail(this,\'' + rowId + '\')">📝 ' + items.length + ' 件　共 ' + totalQty + ' 個　¥' + totalAmt.toLocaleString() + '</button>';
-                detailRow = '<tr class="pkg-detail-row" id="' + rowId + '" style="display:none;">'
-                    + '<td colspan="6"><div class="pkg-details-content">' + itemsHtml + '</div></td>'
-                    + '</tr>';
-            }
-
-            var actions = '';
-            if (fc.status === '待處理') {
-                actions = '<a class="btn-edit-sm" href="javascript:void(0)" onclick="openForecastSheet(' + fc.id + ')" style="text-decoration:none;">📊 Sheets</a>'
-                    + ' <button class="btn-edit-sm" style="background:rgba(39,174,96,.2);border-color:rgba(39,174,96,.3);color:#27ae60;" onclick="updateForecast(' + fc.id + ',\'已處理\')">✅ 已處理</button>';
-            } else {
-                actions = '<a class="btn-edit-sm" href="javascript:void(0)" onclick="openForecastSheet(' + fc.id + ')" style="text-decoration:none;">📊 Sheets</a>';
-            }
-
-            var customerHtml = '<div style="line-height:1.4;white-space:nowrap;"><span class="g-code" style="font-size:13px;">' + fc.g_code + '</span><div style="font-size:13px;color:#fff;margin-top:2px;">' + (fc.customer_name || '-') + '</div></div>';
-
-            return '<tr>'
-                + '<td>' + customerHtml + '</td>'
-                + '<td style="min-width:280px;">' + summaryBtn + '</td>'
-                + '<td style="font-size:12px;color:#ccc;">' + (fc.note || '-') + '</td>'
-                + '<td style="font-size:12px;">' + fc.created_at + '</td>'
-                + '<td><span style="padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;background:' + c + '22;color:' + c + ';">' + fc.status + '</span></td>'
-                + '<td style="white-space:nowrap;">' + actions + '</td>'
-                + '</tr>'
-                + detailRow;
-        }).join('');
+        if (!result.success) { showToast('載入失敗', 'error'); return; }
+        allForecastsData = result.forecasts || [];
+        filterForecasts();  // 套用搜尋（若有）並渲染
     } catch(e) { showToast('載入失敗', 'error'); }
+}
+
+function filterForecasts() {
+    const q = (document.getElementById('forecast-search').value || '').trim().toUpperCase();
+    let list = allForecastsData;
+    if (q) {
+        list = list.filter(function(fc){
+            if (fc.g_code && fc.g_code.toUpperCase().includes(q)) return true;
+            if (fc.customer_name && fc.customer_name.toUpperCase().includes(q)) return true;
+            if (fc.note && fc.note.toUpperCase().includes(q)) return true;
+            // 搜商品名 / URL
+            var items = fc.items || [];
+            for (var i = 0; i < items.length; i++) {
+                var it = items[i];
+                if ((it.name||'').toUpperCase().includes(q)) return true;
+                if ((it.url||'').toUpperCase().includes(q)) return true;
+            }
+            return false;
+        });
+    }
+    renderForecasts(list);
+}
+
+function renderForecasts(list) {
+    var countEl = document.getElementById('forecast-count');
+    if (countEl) countEl.textContent = '共 ' + list.length + ' 筆';
+    const tbody = document.getElementById('forecastTable');
+    if (!list.length) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#666;padding:30px;">無符合的預報記錄</td></tr>';
+        return;
+    }
+    tbody.innerHTML = list.map(function(fc) {
+        var statusColors = {'待處理':'#f39c12','已處理':'#27ae60'};
+        var c = statusColors[fc.status] || '#888';
+        var items = fc.items || [];
+        var totalQty = items.reduce(function(s, i){ return s + (parseInt(i.quantity)||1); }, 0);
+        var totalAmt = items.reduce(function(s, i){ return s + ((parseInt(i.price)||0) * (parseInt(i.quantity)||1)); }, 0);
+        var itemsHtml = items.map(function(i) {
+            return '<div class="pkg-item">'
+                + '<span style="color:#fff;">' + (i.name || '-') + '</span>'
+                + ' <span style="color:#888;">×' + (i.quantity || 1) + '</span>'
+                + ' <span style="color:#f39c12;font-weight:600;">¥' + (i.price || 0).toLocaleString() + '</span>'
+                + (i.url ? ' <a href="' + i.url + '" target="_blank" style="color:#3498db;font-size:12px;">🔗</a>' : '')
+                + '</div>';
+        }).join('');
+        var summaryBtn = '-';
+        var detailRow = '';
+        if (items.length) {
+            var rowId = 'fc-row-' + fc.id;
+            summaryBtn = '<button type="button" class="pkg-toggle" onclick="togglePkgDetail(this,\'' + rowId + '\')">📝 ' + items.length + ' 件　共 ' + totalQty + ' 個　¥' + totalAmt.toLocaleString() + '</button>';
+            detailRow = '<tr class="pkg-detail-row" id="' + rowId + '" style="display:none;">'
+                + '<td colspan="6"><div class="pkg-details-content">' + itemsHtml + '</div></td>'
+                + '</tr>';
+        }
+
+        var actions = '';
+        if (fc.status === '待處理') {
+            actions = '<a class="btn-edit-sm" href="javascript:void(0)" onclick="openForecastSheet(' + fc.id + ')" style="text-decoration:none;">📊 Sheets</a>'
+                + ' <button class="btn-edit-sm" style="background:rgba(39,174,96,.2);border-color:rgba(39,174,96,.3);color:#27ae60;" onclick="updateForecast(' + fc.id + ',\'已處理\')">✅ 已處理</button>';
+        } else {
+            actions = '<a class="btn-edit-sm" href="javascript:void(0)" onclick="openForecastSheet(' + fc.id + ')" style="text-decoration:none;">📊 Sheets</a>';
+        }
+
+        var customerHtml = '<div style="line-height:1.4;white-space:nowrap;"><span class="g-code" style="font-size:13px;">' + fc.g_code + '</span><div style="font-size:13px;color:#fff;margin-top:2px;">' + (fc.customer_name || '-') + '</div></div>';
+
+        return '<tr>'
+            + '<td>' + customerHtml + '</td>'
+            + '<td style="min-width:280px;">' + summaryBtn + '</td>'
+            + '<td style="font-size:12px;color:#ccc;">' + (fc.note || '-') + '</td>'
+            + '<td style="font-size:12px;">' + fc.created_at + '</td>'
+            + '<td><span style="padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;background:' + c + '22;color:' + c + ';">' + fc.status + '</span></td>'
+            + '<td style="white-space:nowrap;">' + actions + '</td>'
+            + '</tr>'
+            + detailRow;
+    }).join('');
 }
 
 async function updateForecast(id, status) {
