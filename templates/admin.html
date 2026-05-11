@@ -1411,18 +1411,18 @@ async function loadBilling() {
 }
 
 async function adminConfirmPayment(reqId) {
-    var last5 = prompt('請輸入匯款帳號後五碼\n（如無需記錄，直接按確定即可）', '');
-    if (last5 === null) return;  // 使用者按取消
-    last5 = (last5 || '').trim();
-    if (last5 && (last5.length !== 5 || !/^\d+$/.test(last5))) {
-        showToast('後五碼必須為 5 位數字，或留空', 'error');
+    var note = prompt('請輸入匯款備註\n（後五碼、LINE Pay、現金等都可以；留空則記為「管確認」）', '');
+    if (note === null) return;  // 使用者按取消
+    note = (note || '').trim();
+    if (note.length > 20) {
+        showToast('備註請勿超過 20 字', 'error');
         return;
     }
     try {
         var res = await fetch('/api/admin/shipment_requests/' + reqId + '/confirm_payment', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({last5: last5})
+            body: JSON.stringify({last5: note})
         });
         var result = await res.json();
         if (result.success) {
