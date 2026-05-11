@@ -1506,6 +1506,28 @@ def submit_payment_info(req_id):
     return jsonify({"success": True, "message": "匯款回報成功！"})
 
 
+@app.route("/api/admin/customer_unpaid/<g_code>", methods=["GET"])
+def admin_customer_unpaid(g_code):
+    """查詢客戶未付款的已出貨筆數和金額（用於出貨警告）"""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, total_fee, updated_at FROM shipment_requests "
+        "WHERE g_code=? AND status='已出貨' AND total_fee > 0 "
+        "AND (payment_last5 IS NULL OR payment_last5='') "
+        "ORDER BY updated_at DESC",
+        (g_code.upper(),)
+    ).fetchall()
+    conn.close()
+    items = [dict(r) for r in rows]
+    return jsonify({
+        "success": True,
+        "count": len(items),
+        "total": sum(int(r.get("total_fee") or 0) for r in items),
+        "latest": items[0]["updated_at"] if items else "",
+        "ids": [r["id"] for r in items]
+    })
+
+
 @app.route("/api/admin/shipment_requests/<int:req_id>/confirm_payment", methods=["POST"])
 def admin_confirm_payment(req_id):
     """管理員確認匯款已收到（可填後五碼、LINE Pay、現金等任意備註）"""

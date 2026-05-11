@@ -1318,10 +1318,34 @@ function togglePkgDetail(btn, rowId) {
     else btn.classList.add('open');
 }
 
+async function checkUnpaidWarn(gCode) {
+    if (!gCode) return true;
+    try {
+        var res = await fetch('/api/admin/customer_unpaid/' + encodeURIComponent(gCode));
+        var result = await res.json();
+        if (result.success && result.count > 0) {
+            var msg = '⚠️ 此客戶（' + gCode + '）上一筆出貨尚未付款\n\n'
+                + '未付款筆數：' + result.count + ' 筆\n'
+                + '未付款總額：NT$' + Math.round(result.total).toLocaleString() + '\n'
+                + (result.latest ? '最近未付款日期：' + (result.latest || '').slice(0, 10) + '\n' : '')
+                + '\n仍要繼續嗎？';
+            return confirm(msg);
+        }
+    } catch(e) { console.error('checkUnpaidWarn:', e); }
+    return true;
+}
+
 async function updateShipReq(id, status) {
     var adminNote = '';
     if (status === '已拒絕') {
         adminNote = prompt('拒絕原因（選填）') || '';
+    }
+    // 處理中時檢查客戶是否還有未付款
+    if (status === '處理中') {
+        var req = (allShipReqsData || []).find(function(r){ return r.id === id; });
+        var gCode = req ? req.g_code : '';
+        var ok = await checkUnpaidWarn(gCode);
+        if (!ok) return;
     }
     try {
         const res = await fetch('/api/admin/shipment_requests/' + id, {
@@ -1979,7 +2003,10 @@ async function submitChangePwd() {
 }
 
 // ── 出貨帳單 ──
-function openBillingModal(reqId, gCode, name, summary) {
+async function openBillingModal(reqId, gCode, name, summary) {
+    // 出貨前檢查此客戶是否還有未付款
+    var ok = await checkUnpaidWarn(gCode);
+    if (!ok) return;
     document.getElementById('bill-req-id').value = reqId;
     document.getElementById('bill-gcode').textContent = gCode;
     document.getElementById('bill-name').textContent = name;
