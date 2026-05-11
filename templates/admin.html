@@ -628,6 +628,22 @@
     </div>
 </div>
 
+<!-- 久未出貨包裹警告 Modal -->
+<div class="modal-overlay" id="oldPkgModal">
+    <div class="modal-box" style="max-width:720px;max-height:85vh;overflow-y:auto;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <div class="modal-title" style="margin:0;color:#e74c3c;">⚠️ 久未出貨包裹提醒</div>
+            <button class="btn-icon" onclick="closeOldPkgModal()" style="background:rgba(255,255,255,.08);border:none;color:#fff;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px;">×</button>
+        </div>
+        <p style="font-size:13px;color:#888;margin:0 0 16px;">以下包裹滯留倉庫已超過 <strong id="old-pkg-days" style="color:#f39c12;">30</strong> 天，建議聯絡客戶處理。</p>
+        <div id="old-pkg-list" style="max-height:50vh;overflow-y:auto;"></div>
+        <div class="modal-actions" style="margin-top:16px;">
+            <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;" onclick="closeOldPkgModal()">關閉</button>
+            <button class="btn btn-primary" onclick="goToOldPackages()">📦 前往到貨管理</button>
+        </div>
+    </div>
+</div>
+
 <!-- 預報預覽 Modal -->
 <div class="modal-overlay" id="forecastPreviewModal">
     <div class="modal-box" style="max-width:600px;max-height:90vh;overflow-y:auto;">
@@ -762,6 +778,7 @@ async function adminLogin() {
             loadShipReqBadge();
             loadForecastBadge();
             loadBillingBadge();
+            checkOldPackages();  // 檢查超過 30 天滯留包裹
             document.getElementById('member-search').value = '';
             showToast('歡迎，' + currentAdmin.username, 'success');
         } else {
@@ -1344,6 +1361,80 @@ function togglePkgDetail(btn, rowId) {
     row.style.display = isOpen ? 'none' : '';
     if (isOpen) btn.classList.remove('open');
     else btn.classList.add('open');
+}
+
+// 久未出貨包裹檢查（管理員登入後呼叫）
+async function checkOldPackages() {
+    try {
+        var res = await fetch('/api/admin/old_packages?days=30');
+        var result = await res.json();
+        if (!result.success || !result.count) return;
+
+        document.getElementById('old-pkg-days').textContent = result.days;
+
+        // 從 membersData 查姓名
+        var nameMap = {};
+        if (Array.isArray(membersData)) {
+            membersData.forEach(function(m){ nameMap[m.g_code] = m.name || ''; });
+        }
+        // 若會員資料還沒載完，等一下再渲染
+        function buildList() {
+            nameMap = {};
+            if (Array.isArray(membersData)) {
+                membersData.forEach(function(m){ nameMap[m.g_code] = m.name || ''; });
+            }
+            var list = result.packages.map(function(p){
+                var name = nameMap[p.g_code] || '';
+                var ageColor = p.age_days >= 60 ? '#e74c3c' : (p.age_days >= 45 ? '#f39c12' : '#ddd');
+                return '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 12px;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.06);border-left:3px solid ' + ageColor + ';border-radius:6px;margin-bottom:8px;">'
+                    + '<div style="flex:1;min-width:0;">'
+                        + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'
+                            + '<span class="g-code" style="font-size:13px;">' + p.g_code + '</span>'
+                            + (name ? '<span style="color:#fff;font-size:13px;font-weight:600;">' + name + '</span>' : '')
+                            + '<span class="status-tag status-' + p.status + '" style="font-size:10px;">' + p.status + '</span>'
+                        + '</div>'
+                        + '<div style="font-size:12px;color:#888;margin-top:4px;">'
+                            + '寄送者：' + (p.product_name || '-')
+                            + '　|　末四碼：' + (p.logis_num || '-')
+                            + '　|　重量：' + (p.weight ? p.weight + ' kg' : '-')
+                        + '</div>'
+                        + '<div style="font-size:11px;color:#666;margin-top:2px;">到貨日：' + (p.ref_date || '-') + '</div>'
+                    + '</div>'
+                    + '<div style="text-align:right;white-space:nowrap;">'
+                        + '<div style="font-size:18px;font-weight:700;color:' + ageColor + ';">' + p.age_days + '</div>'
+                        + '<div style="font-size:10px;color:#888;">天</div>'
+                    + '</div>'
+                + '</div>';
+            }).join('');
+            document.getElementById('old-pkg-list').innerHTML =
+                '<div style="font-size:14px;color:#fff;margin-bottom:10px;">共 <strong style="color:#e74c3c;font-size:18px;">' + result.count + '</strong> 件滯留包裹</div>'
+                + list;
+            document.getElementById('oldPkgModal').classList.add('show');
+        }
+        if (Array.isArray(membersData) && membersData.length) {
+            buildList();
+        } else {
+            // 等 loadMembers 完成（最多 6 秒）
+            var retries = 0;
+            var t = setInterval(function(){
+                retries++;
+                if (Array.isArray(membersData) && membersData.length) {
+                    clearInterval(t); buildList();
+                } else if (retries > 30) {
+                    clearInterval(t); buildList();  // 超時也直接顯示（沒姓名也罷）
+                }
+            }, 200);
+        }
+    } catch(e) { console.error('checkOldPackages:', e); }
+}
+
+function closeOldPkgModal() {
+    document.getElementById('oldPkgModal').classList.remove('show');
+}
+
+function goToOldPackages() {
+    closeOldPkgModal();
+    switchAdminTab('arrivals');
 }
 
 async function checkUnpaidWarn(gCode) {

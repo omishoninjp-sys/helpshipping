@@ -4,7 +4,7 @@ GOYOUTATI x OMISHONIN 雲倉
 """
 
 from flask import Flask, request, jsonify, render_template, make_response, send_file
-from datetime import datetime
+from datetime import datetime, timedelta
 import requests
 import json
 import os
@@ -1504,6 +1504,44 @@ def submit_payment_info(req_id):
     conn.commit()
     conn.close()
     return jsonify({"success": True, "message": "匯款回報成功！"})
+
+
+@app.route("/api/admin/old_packages", methods=["GET"])
+def admin_old_packages():
+    """查詢倉庫滯留超過 N 天的未出貨包裹（預設 30 天）"""
+    try:
+        days = int(request.args.get("days", 30))
+    except (ValueError, TypeError):
+        days = 30
+    cutoff_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT * FROM packages
+           WHERE status != '已出貨'
+             AND COALESCE(NULLIF(in_date, ''), substr(created_at, 1, 10)) <= ?
+           ORDER BY COALESCE(NULLIF(in_date, ''), substr(created_at, 1, 10)) ASC""",
+        (cutoff_date,)
+    ).fetchall()
+    conn.close()
+    today = datetime.now().date()
+    result = []
+    for r in rows:
+        d = dict(r)
+        ref_date_str = d.get("in_date") or (d.get("created_at") or "")[:10]
+        try:
+            ref_date = datetime.strptime(ref_date_str, "%Y-%m-%d").date()
+            age_days = (today - ref_date).days
+        except (ValueError, TypeError):
+            age_days = 0
+        d["age_days"] = age_days
+        d["ref_date"] = ref_date_str
+        result.append(d)
+    return jsonify({
+        "success": True,
+        "count": len(result),
+        "days": days,
+        "packages": result
+    })
 
 
 @app.route("/api/admin/customer_unpaid/<g_code>", methods=["GET"])
