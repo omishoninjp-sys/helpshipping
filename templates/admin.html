@@ -153,47 +153,46 @@
             .admin-main { padding: 0; }
         }
 
-        /* 包裹/明細折疊（FAQ 風格） */
-        .pkg-details { width: 100%; }
-        .pkg-details > summary {
+        /* 包裹/明細折疊（FAQ 風格、展開為跨欄列） */
+        .pkg-toggle {
             cursor: pointer; padding: 12px 14px;
             background: rgba(255,255,255,.04);
             border: 1px solid rgba(255,255,255,.1);
             border-radius: 8px;
             font-size: 14px; font-weight: 600;
             color: #fff;
-            list-style: none; user-select: none;
+            user-select: none; width: 100%;
             display: flex; align-items: center; gap: 12px;
             transition: background .15s, border-color .15s;
+            font-family: inherit;
         }
-        .pkg-details > summary::-webkit-details-marker { display: none; }
-        .pkg-details > summary::before {
+        .pkg-toggle::before {
             content: '＋';
             font-size: 18px; font-weight: 400;
             color: #f39c12;
             width: 18px; flex-shrink: 0; text-align: center;
         }
-        .pkg-details[open] > summary::before { content: '−'; }
-        .pkg-details > summary:hover {
+        .pkg-toggle.open::before { content: '−'; }
+        .pkg-toggle:hover {
             background: rgba(255,255,255,.07);
             border-color: rgba(243,156,18,.35);
         }
-        .pkg-details[open] > summary {
-            border-radius: 8px 8px 0 0;
-            border-bottom-color: rgba(243,156,18,.25);
+        .pkg-toggle.open {
+            background: rgba(243,156,18,.08);
+            border-color: rgba(243,156,18,.35);
         }
-        .pkg-details-content {
-            padding: 14px 18px 14px 44px;
-            background: rgba(0,0,0,.2);
-            border-radius: 0 0 8px 8px;
-            border: 1px solid rgba(255,255,255,.1);
-            border-top: none;
+        .pkg-detail-row > td {
+            padding: 0 !important;
+            background: rgba(0,0,0,.25) !important;
+            border-top: none !important;
+        }
+        .pkg-detail-row .pkg-details-content {
+            padding: 16px 24px 18px 56px;
             font-size: 14px; line-height: 2;
             color: #ddd;
+            border-left: 3px solid #f39c12;
         }
-        .pkg-details-content .pkg-item {
-            padding: 2px 0;
-        }
+        .pkg-detail-row .pkg-item { padding: 3px 0; }
 
         /* 列印樣式 */
         @media print {
@@ -1223,23 +1222,23 @@ async function loadShipReqs() {
             } else {
                 paymentHtml = '-';
             }
-            // 客戶單元（客編在上、姓名在下）
             var customerHtml = '<div style="line-height:1.4;white-space:nowrap;"><span class="g-code" style="font-size:13px;">' + r.g_code + '</span><div style="font-size:13px;color:#fff;margin-top:2px;">' + (r.customer_name || '-') + '</div></div>';
 
-            // 包裹內容折疊
+            // 包裹折疊：摺疊頭 + 跨欄明細列
             var summary = (r.package_summary || '').trim();
             var pkgHtml = '-';
+            var detailRow = '';
             if (summary) {
                 var lines = summary.split('\n').filter(Boolean);
-                // 嘗試抓 "合計約 X kg" 那行
                 var totalLine = lines.find(function(l){ return /合計/.test(l); }) || '';
                 var itemLines = lines.filter(function(l){ return !/合計/.test(l); });
                 var itemCount = itemLines.length;
                 var summaryText = '📦 ' + itemCount + ' 件' + (totalLine ? '　' + totalLine : '');
-                pkgHtml = '<details class="pkg-details">'
-                    + '<summary>' + summaryText + '</summary>'
-                    + '<div class="pkg-details-content">' + summary.replace(/\n/g, '<br>') + '</div>'
-                    + '</details>';
+                var rowId = 'pkg-row-' + r.id;
+                pkgHtml = '<button type="button" class="pkg-toggle" onclick="togglePkgDetail(this,\'' + rowId + '\')">' + summaryText + '</button>';
+                detailRow = '<tr class="pkg-detail-row" id="' + rowId + '" style="display:none;">'
+                    + '<td colspan="8"><div class="pkg-details-content">' + summary.replace(/\n/g, '<br>') + '</div></td>'
+                    + '</tr>';
             }
 
             return '<tr>'
@@ -1251,9 +1250,19 @@ async function loadShipReqs() {
                 + '<td><span style="padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;background:' + c + '22;color:' + c + ';">' + r.status + '</span></td>'
                 + '<td>' + paymentHtml + '</td>'
                 + '<td style="white-space:nowrap;">' + actions + '</td>'
-                + '</tr>';
+                + '</tr>'
+                + detailRow;
         }).join('');
     } catch(e) { console.error('loadShipReqs error:', e); showToast('載入出貨申請失敗', 'error'); }
+}
+
+function togglePkgDetail(btn, rowId) {
+    var row = document.getElementById(rowId);
+    if (!row) return;
+    var isOpen = row.style.display !== 'none';
+    row.style.display = isOpen ? 'none' : '';
+    if (isOpen) btn.classList.remove('open');
+    else btn.classList.add('open');
 }
 
 async function updateShipReq(id, status) {
@@ -1405,9 +1414,15 @@ async function loadForecasts() {
                     + (i.url ? ' <a href="' + i.url + '" target="_blank" style="color:#3498db;font-size:12px;">🔗</a>' : '')
                     + '</div>';
             }).join('');
-            var itemsCollapse = items.length
-                ? '<details class="pkg-details"><summary>📝 ' + items.length + ' 件　共 ' + totalQty + ' 個　¥' + totalAmt.toLocaleString() + '</summary><div class="pkg-details-content">' + itemsHtml + '</div></details>'
-                : '-';
+            var summaryBtn = '-';
+            var detailRow = '';
+            if (items.length) {
+                var rowId = 'fc-row-' + fc.id;
+                summaryBtn = '<button type="button" class="pkg-toggle" onclick="togglePkgDetail(this,\'' + rowId + '\')">📝 ' + items.length + ' 件　共 ' + totalQty + ' 個　¥' + totalAmt.toLocaleString() + '</button>';
+                detailRow = '<tr class="pkg-detail-row" id="' + rowId + '" style="display:none;">'
+                    + '<td colspan="6"><div class="pkg-details-content">' + itemsHtml + '</div></td>'
+                    + '</tr>';
+            }
 
             var actions = '';
             if (fc.status === '待處理') {
@@ -1421,12 +1436,13 @@ async function loadForecasts() {
 
             return '<tr>'
                 + '<td>' + customerHtml + '</td>'
-                + '<td style="min-width:280px;">' + itemsCollapse + '</td>'
+                + '<td style="min-width:280px;">' + summaryBtn + '</td>'
                 + '<td style="font-size:12px;color:#ccc;">' + (fc.note || '-') + '</td>'
                 + '<td style="font-size:12px;">' + fc.created_at + '</td>'
                 + '<td><span style="padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;background:' + c + '22;color:' + c + ';">' + fc.status + '</span></td>'
                 + '<td style="white-space:nowrap;">' + actions + '</td>'
-                + '</tr>';
+                + '</tr>'
+                + detailRow;
         }).join('');
     } catch(e) { showToast('載入失敗', 'error'); }
 }
