@@ -1203,30 +1203,36 @@ async function loadShipReqs() {
         tbody.innerHTML = result.requests.map(function(r) {
             var statusColors = {'待處理':'#f39c12','處理中':'#3498db','已出貨':'#27ae60','已拒絕':'#e74c3c'};
             var c = statusColors[r.status] || '#888';
-            var shipInfo = (r.ship_recipient || '') ? '<span style="font-size:12px;color:#fff;">' + r.ship_recipient + '</span><br><span style="font-size:11px;color:#888;">' + (r.ship_phone||'') + '</span><br><span style="font-size:11px;color:#666;">' + (r.ship_address||'') + '</span>' : '-';
+            var shipInfo = (r.ship_recipient || '') ? '<div style="font-size:12px;color:#fff;line-height:1.4;">' + r.ship_recipient + '</div><div style="font-size:11px;color:#888;">' + (r.ship_phone||'') + '</div><div style="font-size:11px;color:#666;line-height:1.4;">' + (r.ship_address||'') + '</div>' : '-';
             var actions = '';
             if (r.status === '待處理' || r.status === '處理中') {
-                actions = '<button class="btn-edit-sm" onclick="updateShipReq(' + r.id + ',\'處理中\')">⏳ 處理中</button>'
-                    + ' <button class="btn-edit-sm" style="background:rgba(52,152,219,.2);border-color:rgba(52,152,219,.3);color:#3498db;" onclick="createJpdOrder(' + r.id + ')">📦 JPD建單</button>'
-                    + ' <button class="btn-edit-sm" style="background:rgba(39,174,96,.2);border-color:rgba(39,174,96,.3);color:#27ae60;" onclick="openBillingModal(' + r.id + ',\'' + (r.g_code||'') + '\',\'' + (r.customer_name||'').replace(/'/g,'') + '\',\'' + (r.package_summary||'').replace(/'/g,'').replace(/\n/g,' ') + '\')">✅ 已出貨</button>'
-                    + ' <button class="btn-danger-sm" onclick="updateShipReq(' + r.id + ',\'已拒絕\')">✗ 拒絕</button>';
+                actions = '<button class="btn-edit-sm" style="padding:4px 8px;font-size:11px;" onclick="updateShipReq(' + r.id + ',\'處理中\')">⏳ 處理</button>'
+                    + ' <button class="btn-edit-sm" style="background:rgba(52,152,219,.2);border-color:rgba(52,152,219,.3);color:#3498db;padding:4px 8px;font-size:11px;" onclick="createJpdOrder(' + r.id + ')">📦 JPD</button>'
+                    + ' <button class="btn-edit-sm" style="background:rgba(39,174,96,.2);border-color:rgba(39,174,96,.3);color:#27ae60;padding:4px 8px;font-size:11px;" onclick="openBillingModal(' + r.id + ',\'' + (r.g_code||'') + '\',\'' + (r.customer_name||'').replace(/'/g,'') + '\',\'' + (r.package_summary||'').replace(/'/g,'').replace(/\n/g,' ') + '\')">✅ 出貨</button>'
+                    + ' <button class="btn-danger-sm" style="padding:4px 8px;font-size:11px;" onclick="updateShipReq(' + r.id + ',\'已拒絕\')">✗</button>';
             } else {
                 actions = r.total_fee ? '<span style="font-size:12px;color:#27ae60;font-weight:700;">NT$' + Math.round(r.total_fee).toLocaleString() + '</span><br><span style="font-size:11px;color:#888;">' + (r.billed_weight||0) + 'kg × ' + (r.rate_per_kg||0) + ' + 理貨' + (r.handling_fee||0) + '</span>' : '<span style="font-size:12px;color:#666;">' + (r.updated_at || '-') + '</span>';
                 if (r.status === '已出貨' || r.status === '已拒絕') {
-                    actions += '<br><button class="btn-danger-sm" style="margin-top:6px;" onclick="revertShipReq(' + r.id + ')">↩ 還原</button>';
+                    actions += '<br><button class="btn-danger-sm" style="padding:4px 8px;font-size:11px;margin-top:4px;" onclick="revertShipReq(' + r.id + ')">↩ 還原</button>';
                 }
             }
             var paymentHtml = '';
             if (r.payment_last5) {
-                paymentHtml = '<span style="font-size:12px;color:#27ae60;font-weight:600;">✅ ' + r.payment_last5 + '</span><br><span style="font-size:10px;color:#888;">' + (r.payment_at||'') + '</span>';
+                paymentHtml = '<span style="font-size:12px;color:#27ae60;font-weight:600;white-space:nowrap;">✅ ' + r.payment_last5 + '</span><div style="font-size:10px;color:#888;">' + (r.payment_at||'').slice(5,16) + '</div>';
             } else if (r.total_fee && r.total_fee > 0) {
-                paymentHtml = '<span style="font-size:11px;color:#e74c3c;">未回報</span>';
+                paymentHtml = '<span style="font-size:11px;color:#e74c3c;white-space:nowrap;">未回報</span>';
             } else {
                 paymentHtml = '-';
             }
             var customerHtml = '<div style="line-height:1.4;white-space:nowrap;"><span class="g-code" style="font-size:13px;">' + r.g_code + '</span><div style="font-size:13px;color:#fff;margin-top:2px;">' + (r.customer_name || '-') + '</div></div>';
 
-            // 包裹折疊：摺疊頭 + 跨欄明細列
+            // 申請時間：拆兩行（日期 / 時間）避免換行擠
+            var ts = (r.created_at || '').toString();
+            var tsDate = ts.slice(0, 10);
+            var tsTime = ts.slice(11, 16);
+            var tsHtml = '<div style="font-size:12px;white-space:nowrap;line-height:1.4;">' + tsDate + '</div><div style="font-size:11px;color:#888;white-space:nowrap;">' + tsTime + '</div>';
+
+            // 包裹折疊
             var summary = (r.package_summary || '').trim();
             var pkgHtml = '-';
             var detailRow = '';
@@ -1245,11 +1251,11 @@ async function loadShipReqs() {
 
             return '<tr>'
                 + '<td>' + customerHtml + '</td>'
-                + '<td style="min-width:280px;">' + pkgHtml + '</td>'
-                + '<td style="font-size:12px;max-width:200px;">' + shipInfo + '</td>'
-                + '<td style="font-size:12px;color:#ccc;">' + (r.note || '-') + '</td>'
-                + '<td style="font-size:12px;">' + r.created_at + '</td>'
-                + '<td><span style="padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;background:' + c + '22;color:' + c + ';">' + r.status + '</span></td>'
+                + '<td style="min-width:180px;">' + pkgHtml + '</td>'
+                + '<td style="max-width:150px;">' + shipInfo + '</td>'
+                + '<td style="font-size:12px;color:#ccc;max-width:120px;">' + (r.note || '-') + '</td>'
+                + '<td>' + tsHtml + '</td>'
+                + '<td><span style="padding:3px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap;background:' + c + '22;color:' + c + ';">' + r.status + '</span></td>'
                 + '<td>' + paymentHtml + '</td>'
                 + '<td style="white-space:nowrap;">' + actions + '</td>'
                 + '</tr>'
