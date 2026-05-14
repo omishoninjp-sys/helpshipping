@@ -1612,7 +1612,7 @@ def admin_unconfirm_payment(req_id):
 
 @app.route("/api/admin/shipment_requests", methods=["GET"])
 def admin_get_shipment_requests():
-    """管理員查看所有出貨申請"""
+    """管理員查看所有出貨申請（含對應客戶的待處理預報資料）"""
     status = request.args.get("status", "")
     try:
         conn = get_db()
@@ -1632,8 +1632,36 @@ def admin_get_shipment_requests():
             rows = conn.execute(
                 "SELECT * FROM shipment_requests ORDER BY id DESC LIMIT 50"
             ).fetchall()
+
+        # 一次撈出涉及到的客戶的待處理預報（避免 N+1 查詢）
+        g_codes = list({r["g_code"] for r in rows if r["g_code"]})
+        forecast_map = {}
+        if g_codes:
+            placeholders = ",".join(["?"] * len(g_codes))
+            fc_rows = conn.execute(
+                f"SELECT * FROM forecasts WHERE g_code IN ({placeholders}) AND status='待處理' ORDER BY id",
+                g_codes
+            ).fetchall()
+            for fc in fc_rows:
+                try:
+                    items = json.loads(fc["items_json"] or "[]")
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    items = []
+                forecast_map.setdefault(fc["g_code"], []).append({
+                    "id": fc["id"],
+                    "note": fc["note"] or "",
+                    "created_at": fc["created_at"] or "",
+                    "items": items
+                })
+
         conn.close()
-        return jsonify({"success": True, "requests": [dict(r) for r in rows]})
+
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["pending_forecasts"] = forecast_map.get(r["g_code"], [])
+            result.append(d)
+        return jsonify({"success": True, "requests": result})
     except Exception as e:
         return jsonify({"success": False, "error": str(e), "requests": []})
 
