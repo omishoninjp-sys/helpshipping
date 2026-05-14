@@ -242,7 +242,7 @@
                 <label>密碼</label>
                 <input type="password" id="adminPassword" class="form-control" placeholder="密碼" autocomplete="new-password">
             </div>
-            <button class="btn btn-red btn-block" onclick="adminLogin()">登入</button>
+            <button class="btn btn-red btn-block" id="adminLoginBtn" disabled style="opacity:.6;cursor:wait;">登入中… 請稍候</button>
             <div id="loginError" style="display:none;margin-top:12px;padding:12px;background:rgba(231,76,60,.15);border:1px solid rgba(231,76,60,.3);border-radius:8px;color:#e74c3c;font-size:14px;font-weight:600;text-align:center;"></div>
         </div>
     </div>
@@ -793,6 +793,16 @@ async function adminLogin() {
 document.getElementById('adminPassword').addEventListener('keypress', e => { if (e.key === 'Enter') adminLogin(); });
 var usernameEl = document.getElementById('adminUsername');
 if (usernameEl) usernameEl.addEventListener('keypress', e => { if (e.key === 'Enter') document.getElementById('adminPassword').focus(); });
+
+// 啟用登入按鈕（script 載完後才能點，避免「adminLogin is not defined」錯誤）
+var loginBtn = document.getElementById('adminLoginBtn');
+if (loginBtn) {
+    loginBtn.disabled = false;
+    loginBtn.style.opacity = '';
+    loginBtn.style.cursor = '';
+    loginBtn.textContent = '登入';
+    loginBtn.addEventListener('click', adminLogin);
+}
 
 function switchAdminTab(tab) {
     document.querySelectorAll('.sidebar-item').forEach(t => t.classList.remove('active'));
