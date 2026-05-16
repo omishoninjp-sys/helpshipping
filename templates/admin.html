@@ -292,7 +292,7 @@
                 </div>
                 <!-- 搜尋框 -->
                 <div class="member-filter-bar">
-                    <input type="text" id="member-search" placeholder="🔍 搜尋會員編號、姓名、地址或手機..." oninput="onMemberSearch()" autocomplete="off">
+                    <input type="text" id="member-search" placeholder="🔍 搜尋會員編號、姓名、地址或手機..." autocomplete="off">
                     <span class="member-count" id="member-count"></span>
                 </div>
                 <div class="table-wrap">
@@ -371,7 +371,7 @@
                     </div>
                 </div>
                 <div class="filter-bar">
-                    <input type="text" id="pkg-filter" placeholder="🔍 搜尋客戶編號、末四碼或寄送者（會搜全部含已出貨）..." oninput="filterPackages()">
+                    <input type="text" id="pkg-filter" placeholder="🔍 搜尋客戶編號、末四碼或寄送者（會搜全部含已出貨）...">
                     <select id="pkg-status-filter" class="form-control" style="width:auto;padding:9px 12px;font-size:13px;" onchange="filterPackages()">
                         <option value="已到貨" selected>📦 已到貨</option>
                         <option value="待入庫">⏳ 待入庫</option>
@@ -418,7 +418,7 @@
                     </div>
                 </div>
                 <div class="filter-bar">
-                    <input type="text" id="shipreq-search" placeholder="🔍 搜尋客戶編號、姓名、地址、追蹤號或備註..." oninput="filterShipReqs()">
+                    <input type="text" id="shipreq-search" placeholder="🔍 搜尋客戶編號、姓名、地址、追蹤號或備註...">
                     <span class="pkg-count" id="shipreq-count"></span>
                 </div>
                 <div class="table-wrap">
@@ -429,7 +429,7 @@
                                 <th>包裹內容</th>
                                 <th>寄送地址</th>
                                 <th>客戶備註</th>
-                                <th>申請時間</th>
+                                <th>時間</th>
                                 <th>狀態</th>
                                 <th>匯款</th>
                                 <th>操作</th>
@@ -458,7 +458,7 @@
                     </div>
                 </div>
                 <div class="filter-bar">
-                    <input type="text" id="forecast-search" placeholder="🔍 搜尋客戶編號、姓名、商品名稱或備註..." oninput="filterForecasts()">
+                    <input type="text" id="forecast-search" placeholder="🔍 搜尋客戶編號、姓名、商品名稱或備註...">
                     <span class="pkg-count" id="forecast-count"></span>
                 </div>
                 <div class="table-wrap">
@@ -1332,7 +1332,20 @@ function renderShipReqs(list) {
         var ts = (r.created_at || '').toString();
         var tsDate = ts.slice(0, 10);
         var tsTime = ts.slice(11, 16);
-        var tsHtml = '<div style="font-size:12px;white-space:nowrap;line-height:1.4;">' + tsDate + '</div><div style="font-size:11px;color:#888;white-space:nowrap;">' + tsTime + '</div>';
+        // 出貨時間：status=已出貨 時 updated_at 即為出貨時間
+        var shippedAt = (r.status === '已出貨' && r.updated_at) ? r.updated_at.toString() : '';
+        var shippedDate = shippedAt.slice(0, 10);
+        var shippedTime = shippedAt.slice(11, 16);
+        var tsHtml = '<div style="line-height:1.4;white-space:nowrap;">'
+            + '<div style="font-size:11px;color:#888;">📥 申請</div>'
+            + '<div style="font-size:12px;">' + tsDate + '</div>'
+            + '<div style="font-size:11px;color:#888;">' + tsTime + '</div>';
+        if (shippedAt) {
+            tsHtml += '<div style="font-size:11px;color:#27ae60;margin-top:4px;">🚚 出貨</div>'
+                + '<div style="font-size:12px;color:#27ae60;font-weight:600;">' + shippedDate + '</div>'
+                + '<div style="font-size:11px;color:#27ae60;">' + shippedTime + '</div>';
+        }
+        tsHtml += '</div>';
 
         var summary = (r.package_summary || '').trim();
         var pkgHtml = '-';
@@ -2347,6 +2360,23 @@ async function submitBilling() {
         }
     } catch(e) { showToast('網路錯誤', 'error'); }
 }
+
+// 搜尋列事件綁定（用 addEventListener 而非 inline oninput，避免 JS 載入時序問題）
+(function bindSearchInputs() {
+    var searches = [
+        { id: 'shipreq-search', fn: 'filterShipReqs' },
+        { id: 'forecast-search', fn: 'filterForecasts' },
+        { id: 'pkg-filter', fn: 'filterPackages' },
+        { id: 'member-search', fn: 'onMemberSearch' }
+    ];
+    searches.forEach(function(s) {
+        var el = document.getElementById(s.id);
+        if (el && typeof window[s.fn] === 'function') {
+            el.addEventListener('input', window[s.fn]);
+            el.addEventListener('keyup', window[s.fn]);  // 防 input 事件被卡（中文輸入法、Safari 偶發）
+        }
+    });
+})();
 </script>
 </body>
 </html>
