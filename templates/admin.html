@@ -1278,6 +1278,7 @@ async function loadShipReqs() {
 function filterShipReqs() {
     var q = ((document.getElementById('shipreq-search') || {}).value || '').trim().toUpperCase();
     var list = allShipReqsData || [];
+    console.log('[filterShipReqs] q=', q, 'total=', list.length);
     if (q) {
         list = list.filter(function(r){
             if (r.g_code && r.g_code.toUpperCase().includes(q)) return true;
@@ -2362,21 +2363,34 @@ async function submitBilling() {
 }
 
 // 搜尋列事件綁定（用 addEventListener 而非 inline oninput，避免 JS 載入時序問題）
-(function bindSearchInputs() {
-    var searches = [
-        { id: 'shipreq-search', fn: 'filterShipReqs' },
-        { id: 'forecast-search', fn: 'filterForecasts' },
-        { id: 'pkg-filter', fn: 'filterPackages' },
-        { id: 'member-search', fn: 'onMemberSearch' }
+function bindAllSearches() {
+    var pairs = [
+        ['shipreq-search', typeof filterShipReqs === 'function' ? filterShipReqs : null],
+        ['forecast-search', typeof filterForecasts === 'function' ? filterForecasts : null],
+        ['pkg-filter', typeof filterPackages === 'function' ? filterPackages : null],
+        ['member-search', typeof onMemberSearch === 'function' ? onMemberSearch : null]
     ];
-    searches.forEach(function(s) {
-        var el = document.getElementById(s.id);
-        if (el && typeof window[s.fn] === 'function') {
-            el.addEventListener('input', window[s.fn]);
-            el.addEventListener('keyup', window[s.fn]);  // 防 input 事件被卡（中文輸入法、Safari 偶發）
+    pairs.forEach(function(p) {
+        var el = document.getElementById(p[0]);
+        if (el && p[1]) {
+            // 防止重複綁定（重試時不疊加）
+            if (!el.dataset.searchBound) {
+                el.addEventListener('input', p[1]);
+                el.addEventListener('keyup', p[1]);
+                el.dataset.searchBound = '1';
+                console.log('[search bound]', p[0]);
+            }
+        } else {
+            console.warn('[search NOT bound]', p[0], 'el=', !!el, 'fn=', !!p[1]);
         }
     });
-})();
+}
+// 立即綁一次（DOM ready 時 script 已執行）
+bindAllSearches();
+// document ready / 切換 tab 後再保險綁一次
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindAllSearches);
+}
 </script>
 </body>
 </html>
