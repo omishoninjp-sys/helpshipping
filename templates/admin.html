@@ -661,7 +661,7 @@
 <!-- 出貨帳單 Modal -->
 <div class="modal-overlay" id="billingModal">
     <div class="modal-box" style="max-width:500px;max-height:90vh;overflow-y:auto;">
-        <div class="modal-title">📦 出貨帳單</div>
+        <div class="modal-title" id="billing-modal-title">📦 出貨帳單</div>
         <input type="hidden" id="bill-req-id">
         <div style="margin-bottom:16px;padding:12px;background:rgba(243,156,18,.08);border-radius:8px;">
             <span class="g-code" id="bill-gcode"></span>
@@ -734,7 +734,7 @@
         </div>
         <div class="modal-actions">
             <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;" onclick="closeBillingModal()">取消</button>
-            <button class="btn btn-green" onclick="submitBilling()">✅ 確認出貨</button>
+            <button class="btn btn-green" id="billing-submit-btn" onclick="submitBilling()">✅ 確認出貨</button>
         </div>
     </div>
 </div>
@@ -1764,6 +1764,8 @@ async function updateForecast(id, status) {
 }
 
 // ── 帳單管理 ──
+var allBillingData = [];
+
 async function loadBilling() {
     var filter = document.getElementById('billing-filter').value;
     try {
@@ -1772,10 +1774,12 @@ async function loadBilling() {
         var tbody = document.getElementById('billingTable');
         var summary = document.getElementById('billing-print-summary');
         if (!result.success || !result.requests || !result.requests.length) {
+            allBillingData = [];
             tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#666;padding:30px;">無帳單</td></tr>';
             if (summary) summary.innerHTML = '';
             return;
         }
+        allBillingData = result.requests;
         var list = result.requests;
         if (filter === 'unpaid') list = list.filter(function(r){ return r.total_fee > 0 && !r.payment_last5; });
         else if (filter === 'paid') list = list.filter(function(r){ return !!r.payment_last5; });
@@ -1790,9 +1794,11 @@ async function loadBilling() {
             var payHtml = r.payment_last5
                 ? '<span style="color:#27ae60;font-weight:700;font-size:12px;">✅ ' + r.payment_last5 + '</span><div style="font-size:10px;color:#888;">' + (r.payment_at||'').slice(5,16) + '</div>'
                 : '<span style="color:#e74c3c;font-size:12px;">未付款</span>';
-            var actionHtml = r.payment_last5
+            var payActionBtn = r.payment_last5
                 ? '<button class="btn" style="background:rgba(231,76,60,.15);color:#e74c3c;padding:4px 8px;font-size:11px;border:1px solid rgba(231,76,60,.3);white-space:nowrap;" onclick="adminUnconfirmPayment(' + r.id + ')">↩ 取消</button>'
                 : '<button class="btn" style="background:#27ae60;color:#fff;padding:4px 8px;font-size:11px;font-weight:700;white-space:nowrap;" onclick="adminConfirmPayment(' + r.id + ')">✓ 確認</button>';
+            var editBtn = '<button class="btn" style="background:rgba(52,152,219,.2);color:#3498db;padding:4px 8px;font-size:11px;border:1px solid rgba(52,152,219,.3);white-space:nowrap;" onclick="openBillingEditModal(' + r.id + ')">✏️ 修改</button>';
+            var actionHtml = payActionBtn + ' ' + editBtn;
             var extras = 0;
             try { var ex = JSON.parse(r.extra_services||'[]'); ex.forEach(function(e){extras+=(e.subtotal||e.price||0);}); } catch(e){}
             var cf = Math.round(r.consolidation_fee || 0);
@@ -2193,10 +2199,15 @@ async function submitChangePwd() {
 }
 
 // ── 出貨帳單 ──
+var billingEditMode = false;
+
 async function openBillingModal(reqId, gCode, name, summary) {
     // 出貨前檢查此客戶是否還有未付款
     var ok = await checkUnpaidWarn(gCode);
     if (!ok) return;
+    billingEditMode = false;
+    document.getElementById('billing-modal-title').textContent = '📦 出貨帳單';
+    document.getElementById('billing-submit-btn').textContent = '✅ 確認出貨';
     document.getElementById('bill-req-id').value = reqId;
     document.getElementById('bill-gcode').textContent = gCode;
     document.getElementById('bill-name').textContent = name;
@@ -2240,6 +2251,57 @@ async function openBillingModal(reqId, gCode, name, summary) {
 
 function closeBillingModal() {
     document.getElementById('billingModal').classList.remove('show');
+}
+
+// 修改既有帳單（從帳單管理頁的「✏️ 修改」按鈕呼叫）
+function openBillingEditModal(reqId) {
+    var r = (allBillingData || []).find(function(x){ return x.id === reqId; });
+    if (!r) { showToast('找不到該帳單', 'error'); return; }
+    billingEditMode = true;
+    document.getElementById('billing-modal-title').textContent = '✏️ 修改帳單';
+    document.getElementById('billing-submit-btn').textContent = '💾 儲存修改';
+
+    document.getElementById('bill-req-id').value = r.id;
+    document.getElementById('bill-gcode').textContent = r.g_code || '';
+    document.getElementById('bill-name').textContent = r.customer_name || '';
+    document.getElementById('bill-summary').textContent = r.package_summary || '';
+
+    var contactParts = [];
+    if (r.ship_recipient) {
+        contactParts.push('📦 寄送至：<strong>' + r.ship_recipient + '</strong> ' + (r.ship_phone || ''));
+        if (r.ship_address) contactParts.push('📍 ' + r.ship_address);
+    }
+    document.getElementById('bill-contact').innerHTML = contactParts.join('<br>');
+
+    // 帶入既有數值
+    var bw = parseFloat(r.billed_weight) || 0;
+    document.getElementById('bill-weight').value = bw || '';
+    document.getElementById('bill-billed-weight').value = bw ? bw.toFixed(1) : '';
+    document.getElementById('bill-rate').value = parseInt(r.rate_per_kg) || 180;
+    document.getElementById('bill-shipping').value = Math.round(r.shipping_fee || 0);
+    document.getElementById('bill-handling').value = Math.round(r.handling_fee || 0);
+    document.getElementById('bill-handling-weight').value = '';  // 未儲存，留空（如需重算可自行填）
+    document.getElementById('bill-consolidation').value = Math.round(r.consolidation_fee || 0);
+    document.getElementById('bill-pkg-count').value = '';
+    document.getElementById('bill-total').value = Math.round(r.total_fee || 0);
+    document.getElementById('bill-tracking').value = r.tracking_num || '';
+    document.getElementById('bill-admin-note').value = r.admin_note || '';
+
+    // 加值服務還原
+    document.getElementById('extraServicesContainer').innerHTML = '';
+    try {
+        var ex = JSON.parse(r.extra_services || '[]');
+        ex.forEach(function(e){
+            addExtraService();
+            var rows = document.querySelectorAll('.extra-svc-row');
+            var row = rows[rows.length - 1];
+            row.querySelector('.extra-svc-name').value = e.name || '';
+            row.querySelector('.extra-svc-qty').value = e.qty || 1;
+            row.querySelector('.extra-svc-price').value = e.price || 0;
+        });
+    } catch(e) {}
+
+    document.getElementById('billingModal').classList.add('show');
 }
 
 function addExtraService() {
@@ -2350,10 +2412,17 @@ async function submitBilling() {
         });
         var result = await res.json();
         if (result.success) {
-            showToast('✅ 已出貨並產生帳單', 'success');
-            closeBillingModal();
-            loadShipReqs();
-            loadShipReqBadge();
+            if (billingEditMode) {
+                showToast('💾 帳單已更新', 'success');
+                closeBillingModal();
+                loadBilling();
+                loadBillingBadge();
+            } else {
+                showToast('✅ 已出貨並產生帳單', 'success');
+                closeBillingModal();
+                loadShipReqs();
+                loadShipReqBadge();
+            }
         } else {
             showToast('更新失敗', 'error');
         }
