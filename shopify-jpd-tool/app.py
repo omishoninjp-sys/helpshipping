@@ -297,23 +297,39 @@ def get_jpd_packages():
         return jsonify({"success": False, "error": errors})
     
     packages = op_result["Result"].get("Data", [])
-    
-    # 收集有 order_id 的包裹，去撈運單的收件人資訊
-    order_ids = set()
-    for pkg in packages:
-        oid = pkg.get("order_id")
-        if oid and str(oid) != "0":
-            order_ids.add(str(oid))
-    
-    order_map = {}  # order_id -> {recipient, tel, addr1, customer_order_id}
-    if order_ids:
-        # 撈運單資訊來合併
+
+    # ── 方法一：從本地 order_history 建立 package_id → order 對照表 ──
+    # 本地歷史最完整，不受 JPD API 日期限制
+    pkg_to_order = {}  # package_id (str) -> {customer_order_id, recipient, phone, address, logis_num}
+    try:
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT customer_order_id, logis_num, recipient, phone, address, package_ids FROM order_history WHERE package_ids != \'\'"
+        ).fetchall()
+        conn.close()
+        for row in rows:
+            pids = str(row["package_ids"] or "").split(",")
+            for pid in pids:
+                pid = pid.strip()
+                if pid:
+                    pkg_to_order[pid] = {
+                        "customer_order_id": row["customer_order_id"] or "",
+                        "logis_num": row["logis_num"] or "",
+                        "recipient": row["recipient"] or "",
+                        "tel": row["phone"] or "",
+                        "addr1": row["address"] or "",
+                    }
+    except Exception as e:
+        print(f"⚠️ 讀取本地歷史失敗: {e}")
+
+    # ── 方法二：同時查 JPD 即時運單（補充本地沒有的近期資料）──
+    order_map = {}  # jpd order_id -> info
+    try:
         orders_result = jpd_request("TSearchOrders", {})
         if "OperationResult" in orders_result:
             orders_op = orders_result["OperationResult"]
             if orders_op["Request"]["IsValid"] == "True":
-                orders_data = orders_op.get("Result", {}).get("Data", [])
-                for o in orders_data:
+                for o in orders_op.get("Result", {}).get("Data", []):
                     oid = str(o.get("order_id", ""))
                     if oid:
                         order_map[oid] = {
@@ -323,17 +339,31 @@ def get_jpd_packages():
                             "customer_order_id": o.get("customer_order_id", ""),
                             "logis_num": o.get("logis_num", ""),
                         }
-    
-    # 合併到包裹資料
+    except Exception as e:
+        print(f"⚠️ 查詢 JPD 運單失敗: {e}")
+
+    # ── 合併到包裹資料（本地歷史優先，找不到再用 JPD 即時）──
     for pkg in packages:
+        pkg_id = str(pkg.get("package_id", ""))
         oid = str(pkg.get("order_id", ""))
-        info = order_map.get(oid, {})
-        pkg["recipient"] = info.get("recipient", "")
-        pkg["tel"] = info.get("tel", "")
-        pkg["addr1"] = info.get("addr1", "")
-        pkg["customer_order_id"] = info.get("customer_order_id", "")
-        pkg["logis_num"] = info.get("logis_num", "")
-    
+
+        info = pkg_to_order.get(pkg_id)
+        if not info and oid and oid != "0":
+            info = order_map.get(oid)
+
+        if info:
+            pkg["recipient"] = info.get("recipient", "")
+            pkg["tel"] = info.get("tel", "")
+            pkg["addr1"] = info.get("addr1", "")
+            pkg["customer_order_id"] = info.get("customer_order_id", "")
+            pkg["logis_num"] = info.get("logis_num", "")
+        else:
+            pkg["recipient"] = ""
+            pkg["tel"] = ""
+            pkg["addr1"] = ""
+            pkg["customer_order_id"] = ""
+            pkg["logis_num"] = ""
+
     return jsonify({"success": True, "packages": packages})
 
 
