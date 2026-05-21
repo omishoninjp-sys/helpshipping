@@ -1744,7 +1744,8 @@ def admin_revert_shipment_request(req_id):
     conn.execute(
         """UPDATE shipment_requests 
            SET status='待處理', updated_at=?,
-               billed_weight=0, rate_per_kg=0, shipping_fee=0, handling_fee=0, total_fee=0,
+               billed_weight=0, rate_per_kg=0, shipping_fee=0, handling_fee=0,
+               consolidation_fee=0, total_fee=0,
                tracking_num='', payment_last5='', payment_at='', extra_services=''
            WHERE id=?""",
         (now, req_id)

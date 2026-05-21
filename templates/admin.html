@@ -1800,7 +1800,8 @@ async function loadBilling() {
                 ? '<button class="btn" style="background:rgba(231,76,60,.15);color:#e74c3c;padding:4px 8px;font-size:11px;border:1px solid rgba(231,76,60,.3);white-space:nowrap;" onclick="adminUnconfirmPayment(' + r.id + ')">↩ 取消</button>'
                 : '<button class="btn" style="background:#27ae60;color:#fff;padding:4px 8px;font-size:11px;font-weight:700;white-space:nowrap;" onclick="adminConfirmPayment(' + r.id + ')">✓ 確認</button>';
             var editBtn = '<button class="btn" style="background:rgba(52,152,219,.2);color:#3498db;padding:4px 8px;font-size:11px;border:1px solid rgba(52,152,219,.3);white-space:nowrap;" onclick="openBillingEditModal(' + r.id + ')">✏️ 修改</button>';
-            var actionHtml = payActionBtn + ' ' + editBtn;
+            var cancelBtn = '<button class="btn" style="background:rgba(231,76,60,.12);color:#e74c3c;padding:4px 8px;font-size:11px;border:1px solid rgba(231,76,60,.25);white-space:nowrap;" onclick="cancelBill(' + r.id + ',\'' + (r.g_code||'') + '\')">🚫 取消出貨</button>';
+            var actionHtml = '<div style="display:flex;flex-wrap:wrap;gap:4px;">' + payActionBtn + editBtn + cancelBtn + '</div>';
             var extras = 0;
             try { var ex = JSON.parse(r.extra_services||'[]'); ex.forEach(function(e){extras+=(e.subtotal||e.price||0);}); } catch(e){}
             var cf = Math.round(r.consolidation_fee || 0);
@@ -2249,6 +2250,26 @@ async function openBillingModal(reqId, gCode, name, summary) {
     document.getElementById('bill-consolidation').value = consolidation;
     document.getElementById('billingModal').classList.add('show');
     document.getElementById('bill-weight').focus();
+}
+
+// 取消出貨（從帳單管理：將出貨還原為待處理、清空帳單）
+async function cancelBill(reqId, gCode) {
+    if (!confirm('確定要取消這筆出貨嗎？\n\n客戶：' + (gCode || '') + '\n\n取消後：\n• 此筆帳單會被清除\n• 出貨申請會還原為「待處理」\n• 包裹狀態還原為「已到貨」\n\n此動作可在出貨申請頁重新出貨。')) return;
+    try {
+        var res = await fetch('/api/admin/shipment_requests/' + reqId + '/revert', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        });
+        var result = await res.json();
+        if (result.success) {
+            showToast('🚫 已取消出貨，帳單已清除', 'success');
+            loadBilling();
+            loadBillingBadge();
+            loadShipReqBadge();
+        } else {
+            showToast(result.error || '取消失敗', 'error');
+        }
+    } catch(e) { showToast('網路錯誤', 'error'); }
 }
 
 function closeBillingModal() {
