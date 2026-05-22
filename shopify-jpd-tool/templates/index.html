@@ -142,6 +142,7 @@
                         <tr>
                             <th>運單號</th>
                             <th>客戶單號</th>
+                            <th>包裹 ID</th>
                             <th>收件人</th>
                             <th>電話</th>
                             <th>地址</th>
@@ -436,11 +437,11 @@
                 const merged = new Map();
                 for (const h of histOrders) {
                     const key = h.customer_order_id || h.logis_num || `hist-${h.id}`;
-                    merged.set(key, { logis_num: h.logis_num || '', customer_order_id: h.customer_order_id || '', recipient: h.recipient || '', tel: h.phone || '', addr1: h.address || '', create_date: h.created_at || '', status_name: h.status || '已建立', status_id: '', source: 'local', items: h.items || [], memo: h.memo || '' });
+                    merged.set(key, { logis_num: h.logis_num || '', customer_order_id: h.customer_order_id || '', package_ids: h.package_ids || '', recipient: h.recipient || '', tel: h.phone || '', addr1: h.address || '', create_date: h.created_at || '', status_name: h.status || '已建立', status_id: '', source: 'local', items: h.items || [], memo: h.memo || '' });
                 }
                 for (const o of liveOrders) {
                     const key = o.customer_order_id || o.logis_num;
-                    merged.set(key, {...o, source: 'jpd'});
+                    const prev = merged.get(key); merged.set(key, {...o, source: 'jpd', package_ids: prev?.package_ids || ''});
                 }
                 allJpdOrders = Array.from(merged.values());
                 allJpdOrders.sort((a, b) => (b.create_date || b.created_at || '').localeCompare(a.create_date || a.created_at || ''));
@@ -481,7 +482,7 @@
             const q = (document.getElementById('jpd-order-search')?.value || '').trim();
             countEl.textContent = q ? `搜尋到 ${orders.length} 筆（共 ${allJpdOrders.length} 筆）` : `共 ${orders.length} 筆`;
             const tbody = document.getElementById('jpd-orders-body');
-            if (!orders.length) { tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#666;padding:30px;">無運單記錄</td></tr>'; return; }
+            if (!orders.length) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#666;padding:30px;">無運單記錄</td></tr>'; return; }
             tbody.innerHTML = orders.map(order => {
                 const statusColor = (order.status_name || '').includes('发货') ? 'status-processing' : (order.status_name || '').includes('完成') || (order.status_name || '').includes('签收') ? 'status-fulfilled' : 'status-unfulfilled';
                 const sourceTag = order.source === 'jpd'
@@ -490,6 +491,7 @@
                 return `<tr>
                     <td><strong>${order.logis_num || '-'}</strong></td>
                     <td>${order.customer_order_id || '-'}</td>
+                    <td style="font-size:12px;color:#3498db;font-weight:600;">${order.package_ids || '-'}</td>
                     <td>${order.recipient || '-'}</td>
                     <td style="font-size:12px;">${order.tel || '-'}</td>
                     <td style="max-width:200px;font-size:12px;">${order.addr1 || '-'}</td>
