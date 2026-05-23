@@ -304,7 +304,7 @@ def get_jpd_packages():
     try:
         conn = get_db()
         rows = conn.execute(
-            "SELECT customer_order_id, logis_num, recipient, phone, address, package_ids FROM order_history WHERE package_ids != \'\'"
+            "SELECT customer_order_id, logis_num, recipient, phone, address, package_ids FROM order_history WHERE package_ids IS NOT NULL AND package_ids != ''"
         ).fetchall()
         conn.close()
         for row in rows:
