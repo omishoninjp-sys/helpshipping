@@ -1153,6 +1153,7 @@ def admin_create_jpd_order(req_id):
     customer_order_id = f"{g_code}-{today_str}"
 
     # 建立 JPD 運單（把所有該客戶未指派的包裹全部納入）
+    # create_package="n"：運單建立後停留在「作成中」，不自動進入「接受打包」流程
     order_data = {
         "customer_order_id": customer_order_id,
         "deliv_id": JPD_DELIV_ID,
@@ -1165,9 +1166,9 @@ def admin_create_jpd_order(req_id):
         "addr4": "",
         "tel": phone,
         "memo": note,
-        "create_order_pdf": "y",
+        "create_order_pdf": "n",
         "warehouse_id": JPD_WAREHOUSE_ID,
-        "create_package": "y",
+        "create_package": "n",
         "create_sender": "y",
         "packages": [{"package_id": pid, "declare_list": declare_list} for pid in jpd_package_ids]
     }
