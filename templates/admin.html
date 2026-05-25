@@ -416,21 +416,14 @@
                         <option value="全部">全部</option>
                         <option value="最近50">最近 50 筆</option>
                     </select>
+                    <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#aaa;cursor:pointer;white-space:nowrap;">
+                        <input type="checkbox" id="chk-all" onchange="toggleAll(this)" style="accent-color:#f39c12;cursor:pointer;width:15px;height:15px;">
+                        全選
+                    </label>
                     <span class="pkg-count" id="pkg-count"></span>
                 </div>
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th style="width:36px;"><input type="checkbox" id="chk-all" onchange="toggleAll(this)" style="accent-color:#f39c12;cursor:pointer;width:15px;height:15px;"></th>
-                                <th>客戶編號</th><th>末四碼</th><th>寄送者</th><th>重量</th>
-                                <th>狀態</th><th>到貨日期</th><th>備註</th><th>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody id="packagesTable">
-                            <tr><td colspan="9" style="text-align:center;color:#666;padding:30px;">切換至「到貨管理」頁籤以載入</td></tr>
-                        </tbody>
-                    </table>
+                <div id="packagesList" class="sr-list">
+                    <div style="text-align:center;color:#666;padding:40px;">切換至「到貨管理」頁籤以載入</div>
                 </div>
             </div>
         </div>
@@ -480,22 +473,8 @@
                     <input type="text" id="forecast-search" placeholder="🔍 搜尋客戶編號、姓名、商品名稱或備註...">
                     <span class="pkg-count" id="forecast-count"></span>
                 </div>
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>客戶</th>
-                                <th>商品明細</th>
-                                <th>備註</th>
-                                <th>提交時間</th>
-                                <th>狀態</th>
-                                <th>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody id="forecastTable">
-                            <tr><td colspan="6" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr>
-                        </tbody>
-                    </table>
+                <div id="forecastList" class="sr-list">
+                    <div style="text-align:center;color:#666;padding:40px;">載入中...</div>
                 </div>
             </div>
         </div>
@@ -1107,28 +1086,33 @@ function filterPackages() {
 
 function renderPackages(list) {
     document.getElementById('pkg-count').textContent = `共 ${list.length} 筆`;
-    var tbody = document.getElementById('packagesTable');
-    if (!list.length) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#666;padding:30px;">暫無記錄</td></tr>'; return; }
+    var container = document.getElementById('packagesList');
+    if (!list.length) { container.innerHTML = '<div style="text-align:center;color:#666;padding:40px;">暫無記錄</div>'; return; }
     var nameMap = getMemberNameMap();
-    tbody.innerHTML = list.map(function(p){
+    container.innerHTML = list.map(function(p){
         var name = nameMap[p.g_code] || '';
-        var customerHtml = '<div style="line-height:1.4;white-space:nowrap;"><span class="g-code" style="font-size:13px;">' + p.g_code + '</span>'
-            + (name ? '<div style="font-size:12px;color:#fff;margin-top:2px;">' + name + '</div>' : '')
+        var shipped = p.status === '已出貨';
+        var customerHtml = '<span class="g-code" style="font-size:14px;">' + p.g_code + '</span>'
+            + (name ? '<span style="font-size:14px;color:#fff;margin-left:8px;">' + name + '</span>' : '');
+        return '<div class="sr-card' + (shipped ? ' row-shipped' : '') + '" id="row-' + p.id + '" style="padding:12px 14px;">'
+            + '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;">'
+            +   '<input type="checkbox" class="pkg-chk" value="' + p.id + '" onchange="updateShipBtn()" style="accent-color:#f39c12;cursor:pointer;width:17px;height:17px;flex:0 0 auto;" ' + (shipped ? 'disabled' : '') + '>'
+            +   '<span style="flex:0 0 auto;">' + customerHtml + '</span>'
+            +   '<span class="status-tag status-' + p.status + '" style="flex:0 0 auto;">' + p.status + '</span>'
+            +   '<span class="sr-spacer"></span>'
+            +   '<span style="font-size:12px;color:#aaa;flex:0 0 auto;">📅 ' + (p.in_date || '-') + '</span>'
+            + '</div>'
+            + '<div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:10px;font-size:13px;">'
+            +   '<span><span style="color:#888;">寄送者：</span><span style="color:#fff;">' + (p.product_name || '-') + '</span></span>'
+            +   '<span><span style="color:#888;">末四碼：</span><span style="color:#fff;">' + (p.logis_num || '-') + '</span></span>'
+            +   '<span><span style="color:#888;">重量：</span><span style="color:#f39c12;font-weight:600;">' + (p.weight ? p.weight + ' kg' : '-') + '</span></span>'
+            +   (p.note ? '<span><span style="color:#888;">備註：</span><span style="color:#ccc;">' + p.note + '</span></span>' : '')
+            + '</div>'
+            + '<div class="sr-actions" style="margin-top:10px;padding-top:10px;">'
+            +   '<button class="btn-edit-sm" style="padding:6px 14px;font-size:12px;" onclick="openEdit(' + p.id + ')">✏️ 編輯</button>'
+            +   '<button class="btn-danger-sm" style="padding:6px 14px;font-size:12px;" onclick="deletePackage(' + p.id + ')">🗑️ 刪除</button>'
+            + '</div>'
             + '</div>';
-        return '<tr id="row-' + p.id + '" class="' + (p.status === '已出貨' ? 'row-shipped' : '') + '">'
-            + '<td><input type="checkbox" class="pkg-chk" value="' + p.id + '" onchange="updateShipBtn()" style="accent-color:#f39c12;cursor:pointer;width:15px;height:15px;" ' + (p.status === '已出貨' ? 'disabled' : '') + '></td>'
-            + '<td>' + customerHtml + '</td>'
-            + '<td style="font-size:12px;">' + (p.logis_num || '-') + '</td>'
-            + '<td>' + (p.product_name || '-') + '</td>'
-            + '<td>' + (p.weight ? p.weight + ' kg' : '-') + '</td>'
-            + '<td><span class="status-tag status-' + p.status + '">' + p.status + '</span></td>'
-            + '<td style="font-size:12px;">' + (p.in_date || '-') + '</td>'
-            + '<td style="font-size:12px;color:#888;">' + (p.note || '-') + '</td>'
-            + '<td style="white-space:nowrap;">'
-                + '<button class="btn-edit-sm" onclick="openEdit(' + p.id + ')">✏️</button>'
-                + ' <button class="btn-danger-sm" onclick="deletePackage(' + p.id + ')">🗑️</button>'
-            + '</td>'
-            + '</tr>';
     }).join('');
 }
 
@@ -1759,12 +1743,12 @@ function filterForecasts() {
 function renderForecasts(list) {
     var countEl = document.getElementById('forecast-count');
     if (countEl) countEl.textContent = '共 ' + list.length + ' 筆';
-    const tbody = document.getElementById('forecastTable');
+    var container = document.getElementById('forecastList');
     if (!list.length) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#666;padding:30px;">無符合的預報記錄</td></tr>';
+        container.innerHTML = '<div style="text-align:center;color:#666;padding:40px;">無符合的預報記錄</div>';
         return;
     }
-    tbody.innerHTML = list.map(function(fc) {
+    container.innerHTML = list.map(function(fc) {
         var statusColors = {'待處理':'#f39c12','已處理':'#27ae60'};
         var c = statusColors[fc.status] || '#888';
         var items = fc.items || [];
@@ -1778,35 +1762,39 @@ function renderForecasts(list) {
                 + (i.url ? ' <a href="' + i.url + '" target="_blank" style="color:#3498db;font-size:12px;">🔗</a>' : '')
                 + '</div>';
         }).join('');
-        var summaryBtn = '-';
-        var detailRow = '';
+        var pkgRow = '<span style="color:#666;font-size:12px;">無商品明細</span>';
+        var detailBox = '';
         if (items.length) {
             var rowId = 'fc-row-' + fc.id;
-            summaryBtn = '<button type="button" class="pkg-toggle" onclick="togglePkgDetail(this,\'' + rowId + '\')">📝 ' + items.length + ' 件　共 ' + totalQty + ' 個　¥' + totalAmt.toLocaleString() + '</button>';
-            detailRow = '<tr class="pkg-detail-row" id="' + rowId + '" style="display:none;">'
-                + '<td colspan="6"><div class="pkg-details-content">' + itemsHtml + '</div></td>'
-                + '</tr>';
+            pkgRow = '<button type="button" class="pkg-toggle" onclick="togglePkgDetail(this,\'' + rowId + '\')">📝 ' + items.length + ' 件　共 ' + totalQty + ' 個　¥' + totalAmt.toLocaleString() + '</button>';
+            detailBox = '<div class="sr-detail-box" id="' + rowId + '" style="display:none;">'
+                + '<div class="pkg-details-content">' + itemsHtml + '</div>'
+                + '</div>';
         }
 
         var actions = '';
         if (fc.status === '待處理') {
-            actions = '<a class="btn-edit-sm" href="javascript:void(0)" onclick="openForecastSheet(' + fc.id + ')" style="text-decoration:none;">📊 Sheets</a>'
-                + ' <button class="btn-edit-sm" style="background:rgba(39,174,96,.2);border-color:rgba(39,174,96,.3);color:#27ae60;" onclick="updateForecast(' + fc.id + ',\'已處理\')">✅ 已處理</button>';
+            actions = '<button class="btn-edit-sm" style="padding:6px 12px;font-size:12px;" onclick="openForecastSheet(' + fc.id + ')">📊 Sheets</button>'
+                + '<button class="btn-edit-sm" style="background:rgba(39,174,96,.2);border-color:rgba(39,174,96,.3);color:#27ae60;padding:6px 12px;font-size:12px;" onclick="updateForecast(' + fc.id + ',\'已處理\')">✅ 已處理</button>';
         } else {
-            actions = '<a class="btn-edit-sm" href="javascript:void(0)" onclick="openForecastSheet(' + fc.id + ')" style="text-decoration:none;">📊 Sheets</a>';
+            actions = '<button class="btn-edit-sm" style="padding:6px 12px;font-size:12px;" onclick="openForecastSheet(' + fc.id + ')">📊 Sheets</button>';
         }
 
-        var customerHtml = '<div style="line-height:1.4;white-space:nowrap;"><span class="g-code" style="font-size:13px;">' + fc.g_code + '</span><div style="font-size:13px;color:#fff;margin-top:2px;">' + (fc.customer_name || '-') + '</div></div>';
+        var customerHtml = '<span class="g-code" style="font-size:14px;">' + fc.g_code + '</span>'
+            + '<span style="font-size:14px;color:#fff;margin-left:8px;">' + (fc.customer_name || '-') + '</span>';
 
-        return '<tr>'
-            + '<td>' + customerHtml + '</td>'
-            + '<td style="min-width:280px;">' + summaryBtn + '</td>'
-            + '<td style="font-size:12px;color:#ccc;">' + (fc.note || '-') + '</td>'
-            + '<td style="font-size:12px;">' + fc.created_at + '</td>'
-            + '<td><span style="padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;background:' + c + '22;color:' + c + ';">' + fc.status + '</span></td>'
-            + '<td style="white-space:nowrap;">' + actions + '</td>'
-            + '</tr>'
-            + detailRow;
+        return '<div class="sr-card">'
+            + '<div class="sr-head">'
+            +   '<span class="sr-cust">' + customerHtml + '</span>'
+            +   '<span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:700;background:' + c + '22;color:' + c + ';">' + fc.status + '</span>'
+            +   '<span class="sr-spacer"></span>'
+            +   '<span style="font-size:12px;color:#aaa;">📥 提交 ' + (fc.created_at || '') + '</span>'
+            + '</div>'
+            + '<div class="sr-pkg-row">' + pkgRow + '</div>'
+            + detailBox
+            + '<div style="font-size:13px;color:#ccc;"><span style="color:#888;">備註：</span>' + (fc.note || '無') + '</div>'
+            + '<div class="sr-actions">' + actions + '</div>'
+            + '</div>';
     }).join('');
 }
 
