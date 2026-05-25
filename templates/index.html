@@ -697,12 +697,12 @@
                 </div>
                 <div class="card">
                     <div class="card-title">📝 預報商品</div>
-                    <p style="font-size:13px;color:#888;margin-bottom:16px;">請填寫您寄來的商品資訊，方便我們入庫登記。</p>
+                    <p style="font-size:13px;color:#888;margin-bottom:16px;">請填寫您寄來的商品資訊，方便我們入庫登記。<span style="color:#f39c12;">金額請填「單件單價」，不要填總價。</span></p>
                     <div id="forecastItemsContainer">
                         <div class="item-row forecast-item-row">
                             <div class="form-group col-name"><label>品名 *</label><input type="text" class="form-control fc-name" placeholder="商品名稱"></div>
                             <div class="form-group col-qty"><label>數量 *</label><input type="number" class="form-control fc-qty" value="1" min="1"></div>
-                            <div class="form-group col-price"><label>金額(日圓)</label><input type="number" class="form-control fc-price" value="0" min="0"></div>
+                            <div class="form-group col-price"><label>單價(日圓)</label><input type="number" class="form-control fc-price" value="0" min="0" placeholder="每件單價"></div>
                             <div class="form-group col-url"><label>商品連結</label><input type="text" class="form-control fc-url" placeholder="https://..."></div>
                             <div class="col-action"><label>&nbsp;</label><button class="btn btn-danger" onclick="removeFcItem(this)">✕</button></div>
                         </div>
@@ -926,7 +926,7 @@
                 <div class="item-row forecast-item-row">
                     <div class="form-group col-name"><input type="text" class="form-control fc-name" placeholder="商品名稱"></div>
                     <div class="form-group col-qty"><input type="number" class="form-control fc-qty" value="1" min="1"></div>
-                    <div class="form-group col-price"><input type="number" class="form-control fc-price" value="0" min="0"></div>
+                    <div class="form-group col-price"><input type="number" class="form-control fc-price" value="0" min="0" placeholder="每件單價"></div>
                     <div class="form-group col-url"><input type="text" class="form-control fc-url" placeholder="https://..."></div>
                     <div class="col-action"><button class="btn btn-danger" onclick="removeFcItem(this)">✕</button></div>
                 </div>
@@ -973,7 +973,7 @@
                         <div class="item-row forecast-item-row">
                             <div class="form-group col-name"><label>品名 *</label><input type="text" class="form-control fc-name" placeholder="商品名稱"></div>
                             <div class="form-group col-qty"><label>數量 *</label><input type="number" class="form-control fc-qty" value="1" min="1"></div>
-                            <div class="form-group col-price"><label>金額(日圓)</label><input type="number" class="form-control fc-price" value="0" min="0"></div>
+                            <div class="form-group col-price"><label>單價(日圓)</label><input type="number" class="form-control fc-price" value="0" min="0" placeholder="每件單價"></div>
                             <div class="form-group col-url"><label>商品連結</label><input type="text" class="form-control fc-url" placeholder="https://..."></div>
                             <div class="col-action"><label>&nbsp;</label><button class="btn btn-danger" onclick="removeFcItem(this)">✕</button></div>
                         </div>`;
