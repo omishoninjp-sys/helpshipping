@@ -60,6 +60,16 @@
 
         /* Table */
         .table-wrap { overflow-x: auto; }
+
+        /* 出貨申請表格：固定欄寬、強制換行、永不橫向溢出 */
+        .shipreq-table { table-layout: fixed; width: 100%; }
+        .shipreq-table th, .shipreq-table td {
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            vertical-align: top;
+        }
+        .shipreq-table td { padding: 10px 6px; }
+        .shipreq-table th { padding: 10px 6px; }
         table { width: 100%; border-collapse: collapse; }
         th, td { padding: 11px 13px; text-align: left; border-bottom: 1px solid rgba(255,255,255,.06); font-size: 13px; }
         th { background: rgba(0,0,0,.2); color: #888; font-size: 11px; font-weight: 600; text-transform: uppercase; white-space: nowrap; }
@@ -422,7 +432,17 @@
                     <span class="pkg-count" id="shipreq-count"></span>
                 </div>
                 <div class="table-wrap">
-                    <table>
+                    <table class="shipreq-table">
+                        <colgroup>
+                            <col style="width:78px;">
+                            <col style="width:150px;">
+                            <col style="width:178px;">
+                            <col style="width:84px;">
+                            <col style="width:90px;">
+                            <col style="width:62px;">
+                            <col style="width:78px;">
+                            <col style="width:140px;">
+                        </colgroup>
                         <thead>
                             <tr>
                                 <th>客戶</th>
@@ -1351,7 +1371,7 @@ function renderShipReqs(list) {
             : '<span style="color:#666;">-</span>';
         var actions = '';
         if (r.status === '待處理' || r.status === '處理中') {
-            actions = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;width:130px;">'
+            actions = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;width:100%;">'
                 + '<button class="btn-edit-sm" style="padding:5px 4px;font-size:11px;" onclick="updateShipReq(' + r.id + ',\'處理中\')">⏳ 處理</button>'
                 + '<button class="btn-edit-sm" style="background:rgba(52,152,219,.2);border-color:rgba(52,152,219,.3);color:#3498db;padding:5px 4px;font-size:11px;" onclick="createJpdOrder(' + r.id + ')">📦 JPD</button>'
                 + '<button class="btn-edit-sm" style="background:rgba(39,174,96,.2);border-color:rgba(39,174,96,.3);color:#27ae60;padding:5px 4px;font-size:11px;" onclick="openBillingModal(' + r.id + ',\'' + (r.g_code||'') + '\',\'' + (r.customer_name||'').replace(/'/g,'') + '\',\'' + (r.package_summary||'').replace(/'/g,'').replace(/\n/g,' ') + '\')">✅ 出貨</button>'
@@ -1371,7 +1391,7 @@ function renderShipReqs(list) {
         } else {
             paymentHtml = '-';
         }
-        var customerHtml = '<div style="line-height:1.4;white-space:nowrap;"><span class="g-code" style="font-size:13px;">' + r.g_code + '</span><div style="font-size:13px;color:#fff;margin-top:2px;">' + (r.customer_name || '-') + '</div></div>';
+        var customerHtml = '<div style="line-height:1.4;"><span class="g-code" style="font-size:12px;">' + r.g_code + '</span><div style="font-size:12px;color:#fff;margin-top:2px;">' + (r.customer_name || '-') + '</div></div>';
 
         var ts = (r.created_at || '').toString();
         var tsDate = ts.slice(0, 10);
@@ -1458,11 +1478,11 @@ function renderShipReqs(list) {
 
         return '<tr>'
             + '<td>' + customerHtml + '</td>'
-            + '<td style="min-width:150px;max-width:170px;">' + pkgHtml + '</td>'
-            + '<td style="min-width:160px;max-width:190px;">' + shipInfo + '</td>'
-            + '<td style="font-size:11px;color:#ccc;max-width:90px;word-break:break-all;">' + (r.note || '-') + '</td>'
+            + '<td>' + pkgHtml + '</td>'
+            + '<td>' + shipInfo + '</td>'
+            + '<td style="font-size:11px;color:#ccc;">' + (r.note || '-') + '</td>'
             + '<td>' + tsHtml + '</td>'
-            + '<td><span style="padding:3px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap;background:' + c + '22;color:' + c + ';">' + r.status + '</span></td>'
+            + '<td><span style="display:inline-block;padding:3px 7px;border-radius:10px;font-size:11px;font-weight:700;background:' + c + '22;color:' + c + ';">' + r.status + '</span></td>'
             + '<td>' + paymentHtml + '</td>'
             + '<td>' + actions + '</td>'
             + '</tr>'
