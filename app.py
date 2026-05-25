@@ -1097,19 +1097,24 @@ def admin_create_jpd_order(req_id):
             items = json.loads(fc.get("items_json") or "[]")
             for item in items:
                 declare_list.append({
-                    "name": item.get("name", "雑貨"),
-                    "amount": int(item.get("quantity", 1)),
-                    "price": int(item.get("price", 0)),
-                    "material": "",
-                    "origin": "Japan",
-                    "url": item.get("url", "")
+                    "product_name": item.get("name", "雑貨"),
+                    "product_name_local": item.get("name", "雑貨"),
+                    "product_num": int(item.get("quantity", 1)),
+                    "product_price": int(float(item.get("price", 0))),
+                    "product_url": item.get("url", "")
                 })
-        except:
-            pass
-    
-    # 如果沒有預報品項，用包裹摘要當品名
+        except Exception as e:
+            print(f"[JPD] declare_list 解析失敗: {e}", flush=True)
+
+    # 如果沒有預報品項，給一個預設品項
     if not declare_list:
-        declare_list = [{"name": "雑貨", "amount": 1, "price": 0, "material": "", "origin": "Japan", "url": ""}]
+        declare_list = [{
+            "product_name": "雑貨",
+            "product_name_local": "雑貨",
+            "product_num": 1,
+            "product_price": 0,
+            "product_url": ""
+        }]
     
     # 搜尋 JPD 倉庫包裹（依 client_cid=g_code 過濾、只取未指派的）
     pkg_result = jpd_request("TSearchPackages", {
