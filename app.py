@@ -1148,67 +1148,85 @@ def admin_create_jpd_order(req_id):
             "error": f"JPD 倉庫找不到 {g_code} 的未指派包裹。請確認包裹已在 JPD 預報入庫，或包裹是否已綁定到其他運單。"
         })
 
-    # 客戶運單號
+    # 客戶運單號前綴：客編 + 日期
     today_str = datetime.now().strftime("%m%d")
-    customer_order_id = f"{g_code}-{today_str}"
+    order_prefix = f"{g_code}-{today_str}"
 
-    # 建立 JPD 運單（把所有該客戶未指派的包裹全部納入）
-    # create_package="n"：運單建立後停留在「作成中」，不自動進入「接受打包」流程
-    order_data = {
-        "customer_order_id": customer_order_id,
-        "deliv_id": JPD_DELIV_ID,
-        "recipient": recipient,
-        "id_issure": "",
-        "area": 3,
-        "addr1": address,
-        "addr2": "",
-        "addr3": "",
-        "addr4": "",
-        "tel": phone,
-        "memo": note,
-        "create_order_pdf": "n",
-        "warehouse_id": JPD_WAREHOUSE_ID,
-        "create_package": "n",
-        "create_sender": "y",
-        "packages": [{"package_id": pid, "declare_list": declare_list} for pid in jpd_package_ids]
-    }
+    # 方案 A：一個包裹建一張運單，運單號一律加流水號（-1, -2, -3...）
+    created_orders = []
+    failed_orders = []
 
-    print(f"[JPD] 建立運單: {customer_order_id}, 收件人: {recipient}, 包裹數: {len(jpd_package_ids)} (ids={jpd_package_ids})", flush=True)
-    result = jpd_request("TCreateOrder", order_data)
-    
-    jpd_order_id = ""
-    jpd_logis_num = ""
-    
-    if "OperationResult" in result:
-        op = result["OperationResult"]
-        if op.get("Request", {}).get("IsValid") == "True":
-            res_data = op.get("Result", {})
-            if res_data.get("Result") == "SUCCESS":
-                data = res_data.get("Data", {})
-                jpd_order_id = str(data.get("order_id", ""))
-                jpd_logis_num = str(data.get("logis_num", ""))
-                print(f"[JPD] ✅ 建單成功: order_id={jpd_order_id}, logis_num={jpd_logis_num}", flush=True)
-                conn.close()
-                return jsonify({
-                    "success": True,
-                    "jpd_order_id": jpd_order_id,
-                    "jpd_logis_num": jpd_logis_num,
-                    "customer_order_id": customer_order_id,
-                    "message": f"JPD 運單已建立！物流號: {jpd_logis_num}"
-                })
+    for idx, pid in enumerate(jpd_package_ids):
+        customer_order_id = f"{order_prefix}-{idx + 1}"
+        order_data = {
+            "customer_order_id": customer_order_id,
+            "deliv_id": JPD_DELIV_ID,
+            "recipient": recipient,
+            "id_issure": "",
+            "area": 3,
+            "addr1": address,
+            "addr2": "",
+            "addr3": "",
+            "addr4": "",
+            "tel": phone,
+            "memo": note,
+            "create_order_pdf": "n",
+            "warehouse_id": JPD_WAREHOUSE_ID,
+            "create_package": "n",
+            "create_sender": "y",
+            "packages": [{"package_id": pid, "declare_list": declare_list}]
+        }
+        print(f"[JPD] 建立運單: {customer_order_id}, 收件人: {recipient}, 包裹 id={pid}", flush=True)
+        result = jpd_request("TCreateOrder", order_data)
+
+        ok = False
+        if "OperationResult" in result:
+            op = result["OperationResult"]
+            if op.get("Request", {}).get("IsValid") == "True":
+                res_data = op.get("Result", {})
+                if res_data.get("Result") == "SUCCESS":
+                    data = res_data.get("Data", {})
+                    jpd_order_id = str(data.get("order_id", ""))
+                    jpd_logis_num = str(data.get("logis_num", ""))
+                    print(f"[JPD] ✅ 建單成功: {customer_order_id} order_id={jpd_order_id}, logis_num={jpd_logis_num}", flush=True)
+                    created_orders.append({
+                        "customer_order_id": customer_order_id,
+                        "jpd_order_id": jpd_order_id,
+                        "jpd_logis_num": jpd_logis_num,
+                        "package_id": pid
+                    })
+                    ok = True
+                else:
+                    err = res_data.get("ErrorMsg", str(res_data))
+                    print(f"[JPD] ❌ 建單失敗 {customer_order_id}: {err}", flush=True)
+                    failed_orders.append({"customer_order_id": customer_order_id, "error": str(err)})
             else:
-                error_msg = res_data.get("ErrorMsg", str(res_data))
-                print(f"[JPD] ❌ 建單失敗: {error_msg}", flush=True)
-                conn.close()
-                return jsonify({"success": False, "error": f"JPD: {error_msg}"})
-        else:
-            errors = op.get("Request", {}).get("Errors", {})
-            print(f"[JPD] ❌ 請求無效: {errors}", flush=True)
-            conn.close()
-            return jsonify({"success": False, "error": f"JPD: {errors}"})
-    
+                errs = op.get("Request", {}).get("Errors", {})
+                print(f"[JPD] ❌ 請求無效 {customer_order_id}: {errs}", flush=True)
+                failed_orders.append({"customer_order_id": customer_order_id, "error": str(errs)})
+        if not ok and not failed_orders:
+            failed_orders.append({"customer_order_id": customer_order_id, "error": "JPD API 無回應"})
+
     conn.close()
-    return jsonify({"success": False, "error": "JPD API 無回應", "raw": str(result)[:200]})
+
+    if created_orders and not failed_orders:
+        nums = ', '.join([o["jpd_logis_num"] or o["customer_order_id"] for o in created_orders])
+        return jsonify({
+            "success": True,
+            "created": created_orders,
+            "message": f"已建立 {len(created_orders)} 張 JPD 運單：{nums}"
+        })
+    elif created_orders and failed_orders:
+        return jsonify({
+            "success": True,
+            "created": created_orders,
+            "failed": failed_orders,
+            "message": f"成功 {len(created_orders)} 張、失敗 {len(failed_orders)} 張。失敗：" +
+                       '、'.join([f["customer_order_id"] + '(' + f["error"] + ')' for f in failed_orders])
+        })
+    else:
+        first_err = failed_orders[0]["error"] if failed_orders else "未知錯誤"
+        return jsonify({"success": False, "error": f"JPD 建單全部失敗：{first_err}"})
 
 
 # ============ 公告 API ============

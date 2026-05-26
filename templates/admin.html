@@ -1649,7 +1649,7 @@ async function showCustomerForecasts(gCode, name) {
 }
 
 async function createJpdOrder(reqId) {
-    if (!confirm('確定要在 JPD 雲倉建立運單？')) return;
+    if (!confirm('確定要在 JPD 雲倉建立運單？\n（每個包裹會各建一張運單）')) return;
     showToast('📦 正在建立 JPD 運單...', 'info');
     try {
         const res = await fetch('/api/admin/shipment_requests/' + reqId + '/jpd_create', {
@@ -1657,13 +1657,16 @@ async function createJpdOrder(reqId) {
         });
         const result = await res.json();
         if (result.success) {
-            showToast('✅ JPD 運單已建立！\n物流號: ' + (result.jpd_logis_num || '-') + '\n客戶運單號: ' + (result.customer_order_id || '-'), 'success');
-            // 自動更新為處理中
+            showToast('✅ ' + (result.message || 'JPD 運單已建立'), 'success');
+            // 把建立的運單號寫進管理員備註、狀態轉為處理中
+            var created = result.created || [];
+            var noteStr = 'JPD: ' + created.map(function(o){ return o.jpd_logis_num || o.customer_order_id; }).join(', ');
             await fetch('/api/admin/shipment_requests/' + reqId, {
                 method: 'PUT', headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({status: '處理中', admin_note: 'JPD: ' + (result.jpd_logis_num || '')})
+                body: JSON.stringify({status: '處理中', admin_note: noteStr})
             });
             loadShipReqs();
+            loadShipReqBadge();
         } else {
             showToast('❌ JPD 建單失敗: ' + (result.error || '未知錯誤'), 'error');
         }
