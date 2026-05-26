@@ -626,6 +626,43 @@
     </div>
 </div>
 
+<!-- JPD 建單 Modal -->
+<div class="modal-overlay" id="jpdModal">
+    <div class="modal-box" style="max-width:560px;max-height:88vh;overflow-y:auto;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+            <div class="modal-title" style="margin:0;">📦 建立 JPD 運單</div>
+            <button onclick="closeJpdModal()" style="background:rgba(255,255,255,.08);border:none;color:#fff;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px;">×</button>
+        </div>
+        <input type="hidden" id="jpd-req-id">
+        <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:12px 14px;margin-bottom:14px;">
+            <div style="font-size:13px;color:#fff;font-weight:700;" id="jpd-recipient">-</div>
+            <div style="font-size:12px;color:#5dade2;margin-top:3px;" id="jpd-phone">-</div>
+            <div style="font-size:12px;color:#c5c5c5;margin-top:3px;" id="jpd-address">-</div>
+        </div>
+        <div style="margin-bottom:14px;">
+            <div style="font-size:12px;color:#888;margin-bottom:6px;">商品資訊（自動帶入客戶預報）</div>
+            <div id="jpd-items" style="background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:10px 12px;font-size:13px;max-height:160px;overflow-y:auto;color:#ccc;">-</div>
+        </div>
+        <div style="margin-bottom:8px;">
+            <label style="display:block;font-size:13px;color:#f39c12;font-weight:700;margin-bottom:6px;">📦 入庫包裹 ID　<span style="color:#e74c3c;">*必填</span></label>
+            <input type="text" id="jpd-package-ids" class="form-control" placeholder="例如：7465126 或 7465126,7465127" style="font-size:14px;">
+            <p style="font-size:12px;color:#888;margin-top:6px;line-height:1.6;">
+                ・在 JPD 雲倉的「入庫列表 / 包裹管理」查到包裹編號（通常 7 碼）<br>
+                ・多個包裹用逗號分隔，<strong style="color:#f39c12;">每個包裹會各建一張運單</strong><br>
+                ・運單號：客編-日期-流水號（如 G8888-0525-1、G8888-0525-2）
+            </p>
+        </div>
+        <div style="margin-bottom:16px;">
+            <label style="display:block;font-size:13px;color:#888;margin-bottom:6px;">備註（選填）</label>
+            <input type="text" id="jpd-memo" class="form-control" placeholder="JPD 運單備註" style="font-size:14px;">
+        </div>
+        <div class="modal-actions">
+            <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;" onclick="closeJpdModal()">取消</button>
+            <button class="btn btn-primary" id="jpd-submit-btn" onclick="submitJpdOrder()">🚀 建立運單</button>
+        </div>
+    </div>
+</div>
+
 <!-- 久未出貨包裹警告 Modal -->
 <div class="modal-overlay" id="oldPkgModal">
     <div class="modal-box" style="max-width:720px;max-height:85vh;overflow-y:auto;">
@@ -1648,29 +1685,82 @@ async function showCustomerForecasts(gCode, name) {
     } catch(e) { console.error(e); }
 }
 
-async function createJpdOrder(reqId) {
-    if (!confirm('確定要在 JPD 雲倉建立運單？\n（每個包裹會各建一張運單）')) return;
-    showToast('📦 正在建立 JPD 運單...', 'info');
-    try {
-        const res = await fetch('/api/admin/shipment_requests/' + reqId + '/jpd_create', {
-            method: 'POST', headers: {'Content-Type':'application/json'}
+// 點「JPD建單」→ 開視窗（帶入收件資訊與預報商品）
+function createJpdOrder(reqId) {
+    var r = (allShipReqsData || []).find(function(x){ return x.id === reqId; });
+    if (!r) { showToast('找不到該出貨申請', 'error'); return; }
+
+    document.getElementById('jpd-req-id').value = reqId;
+    document.getElementById('jpd-recipient').textContent = (r.ship_recipient || '-') + '　' + (r.g_code || '');
+    document.getElementById('jpd-phone').textContent = '📞 ' + (r.ship_phone || '-');
+    document.getElementById('jpd-address').textContent = '📍 ' + (r.ship_address || '-');
+
+    // 商品資訊：帶入待處理預報
+    var pendingFc = r.pending_forecasts || [];
+    var itemsEl = document.getElementById('jpd-items');
+    if (pendingFc.length) {
+        var html = '';
+        pendingFc.forEach(function(fc){
+            (fc.items || []).forEach(function(it){
+                html += '<div style="padding:3px 0;">'
+                    + '<span style="color:#fff;">' + (it.name || '-') + '</span>'
+                    + ' <span style="color:#888;">×' + (it.quantity || 1) + '</span>'
+                    + ' <span style="color:#f39c12;">¥' + (it.price || 0).toLocaleString() + '</span>'
+                    + '</div>';
+            });
         });
-        const result = await res.json();
+        itemsEl.innerHTML = html || '<span style="color:#888;">客戶預報無商品明細，將以「雑貨」申報</span>';
+    } else {
+        itemsEl.innerHTML = '<span style="color:#e67e22;">⚠️ 此客戶無待處理預報，將以「雑貨」申報</span>';
+    }
+
+    document.getElementById('jpd-package-ids').value = '';
+    document.getElementById('jpd-memo').value = r.note || '';
+    document.getElementById('jpdModal').classList.add('show');
+}
+
+function closeJpdModal() {
+    document.getElementById('jpdModal').classList.remove('show');
+}
+
+async function submitJpdOrder() {
+    var reqId = document.getElementById('jpd-req-id').value;
+    var packageIds = document.getElementById('jpd-package-ids').value.trim();
+    var memo = document.getElementById('jpd-memo').value.trim();
+    if (!packageIds) {
+        showToast('請填入 JPD 入庫包裹 ID', 'error');
+        return;
+    }
+    var btn = document.getElementById('jpd-submit-btn');
+    btn.disabled = true;
+    btn.textContent = '建立中…';
+    try {
+        var res = await fetch('/api/admin/shipment_requests/' + reqId + '/jpd_create', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ package_ids: packageIds, memo: memo })
+        });
+        var result = await res.json();
         if (result.success) {
             showToast('✅ ' + (result.message || 'JPD 運單已建立'), 'success');
-            // 把建立的運單號寫進管理員備註、狀態轉為處理中
             var created = result.created || [];
             var noteStr = 'JPD: ' + created.map(function(o){ return o.jpd_logis_num || o.customer_order_id; }).join(', ');
             await fetch('/api/admin/shipment_requests/' + reqId, {
                 method: 'PUT', headers: {'Content-Type':'application/json'},
                 body: JSON.stringify({status: '處理中', admin_note: noteStr})
             });
+            closeJpdModal();
             loadShipReqs();
             loadShipReqBadge();
         } else {
             showToast('❌ JPD 建單失敗: ' + (result.error || '未知錯誤'), 'error');
         }
-    } catch(e) { showToast('網路錯誤', 'error'); }
+    } catch(e) {
+        showToast('網路錯誤', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '🚀 建立運單';
+    }
 }
 
 async function revertShipReq(id) {

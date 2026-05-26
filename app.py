@@ -1116,37 +1116,27 @@ def admin_create_jpd_order(req_id):
             "product_url": ""
         }]
     
-    # 搜尋 JPD 倉庫包裹（依 client_cid=g_code 過濾、只取未指派的）
-    pkg_result = jpd_request("TSearchPackages", {
-        "client_cid": g_code,
-        "warehouse_id": JPD_WAREHOUSE_ID,
-        "stock_date_from": "2026-01-01 00:00:00"
-    })
-
+    # 入庫包裹 ID 由管理員手動輸入（多個用逗號/頓號/空白分隔）
+    body = request.get_json(silent=True) or {}
+    raw_ids = body.get("package_ids", "")
+    if isinstance(raw_ids, list):
+        id_tokens = [str(x).strip() for x in raw_ids]
+    else:
+        id_tokens = re.split(r"[,，、\s]+", str(raw_ids))
     jpd_package_ids = []
-    if "OperationResult" in pkg_result:
-        op = pkg_result["OperationResult"]
-        if op.get("Request", {}).get("IsValid") == "True":
-            all_pkgs = op.get("Result", {}).get("Data", []) or []
-            for p in all_pkgs:
-                # 雙重保險：用回傳的 client_cid 再過濾一次（防 API 沒套用 filter）
-                cc = str(p.get("client_cid") or "").strip().upper()
-                oid = str(p.get("order_id") or "0")
-                if cc and cc != g_code.upper():
-                    continue
-                if oid == "0":
-                    try:
-                        jpd_package_ids.append(int(p["package_id"]))
-                    except (KeyError, ValueError, TypeError):
-                        pass
+    for tok in id_tokens:
+        tok = tok.strip()
+        if not tok:
+            continue
+        try:
+            jpd_package_ids.append(int(tok))
+        except (ValueError, TypeError):
+            conn.close()
+            return jsonify({"success": False, "error": f"包裹 ID「{tok}」格式錯誤，應為數字"})
 
-    # 沒有可指派的包裹 → 直接回錯誤，不要送空陣列給 JPD（JPD 會拒絕）
     if not jpd_package_ids:
         conn.close()
-        return jsonify({
-            "success": False,
-            "error": f"JPD 倉庫找不到 {g_code} 的未指派包裹。請確認包裹已在 JPD 預報入庫，或包裹是否已綁定到其他運單。"
-        })
+        return jsonify({"success": False, "error": "請填入 JPD 入庫包裹 ID（可在 JPD 雲倉的入庫列表查到，多個用逗號分隔）"})
 
     # 客戶運單號前綴：客編 + 日期
     today_str = datetime.now().strftime("%m%d")
