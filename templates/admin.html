@@ -365,7 +365,7 @@
                     <div class="form-group" style="margin:0;">
                         <label>客戶編號 *</label>
                         <div style="display:flex;align-items:center;">
-                            <span style="padding:11px 12px;background:rgba(243,156,18,.2);border:1px solid rgba(243,156,18,.3);border-radius:9px 0 0 9px;color:#f39c12;font-weight:700;font-size:14px;">G</span>
+                            <span id="pkg-prefix-display" style="padding:11px 12px;background:rgba(243,156,18,.2);border:1px solid rgba(243,156,18,.3);border-radius:9px 0 0 9px;color:#f39c12;font-weight:700;font-size:14px;">G</span>
                             <input type="text" id="pkg-g-code" class="form-control" placeholder="0001" inputmode="numeric" style="border-radius:0 9px 9px 0;border-left:none;">
                         </div>
                     </div>
@@ -713,7 +713,7 @@
         <div class="modal-title">✏️ 編輯到貨記錄</div>
         <input type="hidden" id="edit-pkg-id">
         <div class="pkg-form-grid" style="grid-template-columns:1fr 1fr;">
-            <div class="form-group" style="margin:0;"><label>客戶編號</label><div style="display:flex;align-items:center;"><span style="padding:11px 12px;background:rgba(243,156,18,.2);border:1px solid rgba(243,156,18,.3);border-radius:9px 0 0 9px;color:#f39c12;font-weight:700;font-size:14px;">G</span><input type="text" id="edit-g-code" class="form-control" inputmode="numeric" style="border-radius:0 9px 9px 0;border-left:none;"></div></div>
+            <div class="form-group" style="margin:0;"><label>客戶編號</label><div style="display:flex;align-items:center;"><span id="edit-prefix-display" style="padding:11px 12px;background:rgba(243,156,18,.2);border:1px solid rgba(243,156,18,.3);border-radius:9px 0 0 9px;color:#f39c12;font-weight:700;font-size:14px;">G</span><input type="text" id="edit-g-code" class="form-control" inputmode="numeric" style="border-radius:0 9px 9px 0;border-left:none;"></div></div>
             <div class="form-group" style="margin:0;"><label>物流號末四碼</label><input type="text" id="edit-logis" class="form-control" inputmode="numeric" maxlength="4"></div>
             <div class="form-group" style="margin:0;"><label>寄送者</label><input type="text" id="edit-name" class="form-control"></div>
             <div class="form-group" style="margin:0;"><label>重量 (kg)</label><input type="text" id="edit-weight" class="form-control" inputmode="decimal"></div>
@@ -945,6 +945,9 @@ async function adminLogin() {
             if (sbAgents) sbAgents.style.display = currentAdmin.user_type === 'admin' ? '' : 'none';
             var sbAnn = document.getElementById('sidebar-announcements');
             if (sbAnn) sbAnn.style.display = currentAdmin.user_type === 'admin' ? '' : 'none';
+            // 「新增到貨」表單的前綴顯示更新為當前登入者的前綴
+            var pkgPfx = document.getElementById('pkg-prefix-display');
+            if (pkgPfx) pkgPfx.textContent = currentAdmin.prefix || 'G';
             document.getElementById('loginSection').classList.add('hidden');
             document.getElementById('mainContent').classList.add('active');
             fetch('/api/config').then(r => r.json()).then(cfg => {
@@ -1516,13 +1519,14 @@ function renderPackages(list) {
 }
 
 async function addPackage() {
-    const g_code       = 'G' + document.getElementById('pkg-g-code').value.trim().replace(/^G/i, '');
+    var pfx = (currentAdmin && currentAdmin.prefix) || 'G';
+    const g_code       = pfx + document.getElementById('pkg-g-code').value.trim().replace(/^[A-Z]/i, '');
     const logis_num    = document.getElementById('pkg-logis').value.trim();
     const weight       = document.getElementById('pkg-weight').value.trim();
     const product_name = document.getElementById('pkg-name').value.trim();
     const status       = document.getElementById('pkg-status').value;
     const note         = document.getElementById('pkg-note').value.trim();
-    if (!g_code) { showToast('請輸入客戶編號', 'error'); return; }
+    if (!g_code || g_code === pfx) { showToast('請輸入客戶編號', 'error'); return; }
     const res = await fetch('/api/admin/packages', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({g_code, logis_num, weight, product_name, status, note}) });
     const result = await res.json();
     if (result.success) {
@@ -1539,7 +1543,11 @@ function openEdit(id) {
     const p = allPackages.find(x => x.id === id);
     if (!p) return;
     document.getElementById('edit-pkg-id').value  = p.id;
-    document.getElementById('edit-g-code').value  = p.g_code.replace(/^G/i, '');
+    // 編輯時顯示 g_code 該筆紀錄原本的前綴（可能與當前登入者不同，但實務上不會跨代理）
+    var match = (p.g_code || '').match(/^([A-Z])(.*)$/);
+    var ePfx = match ? match[1] : ((currentAdmin && currentAdmin.prefix) || 'G');
+    document.getElementById('edit-prefix-display').textContent = ePfx;
+    document.getElementById('edit-g-code').value  = match ? match[2] : (p.g_code || '');
     document.getElementById('edit-logis').value   = p.logis_num||'';
     document.getElementById('edit-name').value    = p.product_name||'';
     document.getElementById('edit-weight').value  = p.weight||'';
@@ -1552,8 +1560,9 @@ function closeEditModal() { document.getElementById('editModal').classList.remov
 
 async function saveEdit() {
     const id = document.getElementById('edit-pkg-id').value;
+    var ePfx = document.getElementById('edit-prefix-display').textContent || 'G';
     const data = {
-        g_code:       'G' + document.getElementById('edit-g-code').value.trim().replace(/^G/i, ''),
+        g_code:       ePfx + document.getElementById('edit-g-code').value.trim().replace(/^[A-Z]/i, ''),
         logis_num:    document.getElementById('edit-logis').value.trim(),
         product_name: document.getElementById('edit-name').value.trim(),
         weight:       document.getElementById('edit-weight').value.trim(),
