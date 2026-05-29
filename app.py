@@ -184,6 +184,21 @@ def init_db():
             conn.execute(f"ALTER TABLE shipment_requests ADD COLUMN {col} {col_type} DEFAULT {default}")
         except:
             pass
+
+    # ===== Phase 2: 加 agent_id 欄位（既有資料預設 0 = 主管理員的）=====
+    for table in ["packages", "forecasts", "shipment_requests", "announcements"]:
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN agent_id INTEGER DEFAULT 0")
+            print(f"[migrate] 已加 {table}.agent_id 欄位", flush=True)
+        except:
+            pass
+    # 索引加速 agent 過濾
+    for table in ["packages", "forecasts", "shipment_requests"]:
+        try:
+            conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_agent ON {table}(agent_id)")
+        except:
+            pass
+
     conn.commit()
     conn.close()
 
@@ -693,6 +708,25 @@ def admin_delete_agent(agent_id):
 
 
 # ===== 統一會員查詢（本地 members 優先、找不到回退 Shopify）=====
+def get_agent_id_for_g_code(g_code):
+    """
+    依 g_code 找出歸屬的 agent_id。
+    - 在 members 表（代理的客戶）→ 回那個代理的 id
+    - 不在 members 表（你 Shopify 來的客戶）→ 回 0（主管理員）
+    """
+    if not g_code:
+        return 0
+    try:
+        conn = get_db()
+        row = conn.execute("SELECT agent_id FROM members WHERE g_code=?", (g_code,)).fetchone()
+        conn.close()
+        if row:
+            return int(row["agent_id"] or 0)
+    except Exception as e:
+        print(f"[get_agent_id_for_g_code] 失敗: {e}", flush=True)
+    return 0
+
+
 def get_member_unified(g_code):
     """
     回傳 {g_code, name, agent_id, phone, address, source} 或 None
@@ -882,12 +916,13 @@ def admin_add_package():
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     today = datetime.now().strftime("%Y-%m-%d")
+    pkg_agent_id = get_agent_id_for_g_code(g_code)
 
     conn = get_db()
     cur = conn.execute(
-        """INSERT INTO packages (g_code, logis_num, product_name, weight, status, note, in_date, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (g_code, logis_num, product_name, weight, status, note, today, now)
+        """INSERT INTO packages (g_code, logis_num, product_name, weight, status, note, in_date, created_at, agent_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (g_code, logis_num, product_name, weight, status, note, today, now, pkg_agent_id)
     )
     new_id = cur.lastrowid
     conn.commit()
@@ -1748,11 +1783,12 @@ def create_shipment_request():
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     ids_str = ",".join(str(i) for i in package_ids)
+    sr_agent_id = get_agent_id_for_g_code(g_code)
 
     conn.execute(
-        """INSERT INTO shipment_requests (g_code, customer_name, package_ids, package_summary, status, note, ship_recipient, ship_phone, ship_address, created_at)
-           VALUES (?, ?, ?, ?, '待處理', ?, ?, ?, ?, ?)""",
-        (g_code, customer_name, ids_str, summary, note, ship_recipient, ship_phone, ship_address, now)
+        """INSERT INTO shipment_requests (g_code, customer_name, package_ids, package_summary, status, note, ship_recipient, ship_phone, ship_address, created_at, agent_id)
+           VALUES (?, ?, ?, ?, '待處理', ?, ?, ?, ?, ?, ?)""",
+        (g_code, customer_name, ids_str, summary, note, ship_recipient, ship_phone, ship_address, now, sr_agent_id)
     )
     conn.commit()
     conn.close()
@@ -2085,11 +2121,12 @@ def create_forecast_simple():
         return jsonify({"success": False, "error": "請至少填寫一個商品名稱"})
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    fc_agent_id = get_agent_id_for_g_code(g_code)
     conn = get_db()
     conn.execute(
-        """INSERT INTO forecasts (g_code, customer_name, items_json, status, note, created_at)
-           VALUES (?, ?, ?, '待處理', ?, ?)""",
-        (g_code, customer_name, json.dumps(valid_items, ensure_ascii=False), note, now)
+        """INSERT INTO forecasts (g_code, customer_name, items_json, status, note, created_at, agent_id)
+           VALUES (?, ?, ?, '待處理', ?, ?, ?)""",
+        (g_code, customer_name, json.dumps(valid_items, ensure_ascii=False), note, now, fc_agent_id)
     )
     conn.commit()
     conn.close()
