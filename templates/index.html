@@ -835,7 +835,8 @@
             let password = document.getElementById('password').value.trim();
             if (!gCode) { showToast('請輸入會員編號', 'error'); return; }
             if (!password) { showToast('請輸入密碼', 'error'); return; }
-            if (!gCode.startsWith('G')) gCode = 'G' + gCode;
+            // 沒有英文前綴 → 預設加 G（你的客戶）；有 A/B/C... 等代理前綴維持原樣
+            if (gCode && !/^[A-Z]/.test(gCode)) gCode = 'G' + gCode;
 
             const btn = document.getElementById('loginBtn');
             btn.disabled = true;

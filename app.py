@@ -1241,16 +1241,56 @@ def verify_customer():
         return jsonify({"success": False, "error": "請輸入會員編號"})
     if not password:
         return jsonify({"success": False, "error": "請輸入密碼"})
-    if not g_code.startswith("G"):
+    # 沒有英文前綴 → 預設加 G（你的客戶）
+    if not g_code[:1].isalpha():
         g_code = "G" + g_code
     password_clean = normalize_phone(password)
 
+    # ===== 1) 先查本地 members 表（代理建的會員）=====
+    try:
+        conn = get_db()
+        row = conn.execute("SELECT * FROM members WHERE g_code=?", (g_code,)).fetchone()
+        if row:
+            m = dict(row)
+            # 狀態檢查
+            if m.get("status") == "disabled":
+                conn.close()
+                return jsonify({"success": False, "error": "此會員帳號已停用，請聯絡您的代理"})
+            # 比對電話（去除空白、橫線、+886/+81 等）
+            stored_phone = normalize_phone(m.get("phone") or "")
+            if stored_phone != password_clean:
+                conn.close()
+                return jsonify({"success": False, "error": "密碼錯誤，請輸入您的手機號碼"})
+            # 找該代理的最低費率
+            ag = conn.execute("SELECT min_rate, name FROM agents WHERE id=?", (m["agent_id"],)).fetchone()
+            conn.close()
+            rate_twd = int(float(ag["min_rate"])) if ag and ag["min_rate"] else DEFAULT_SHIPPING_RATE
+            return jsonify({
+                "success": True,
+                "customer": {
+                    "id": g_code,  # 本地會員無 Shopify customer_id，用 g_code
+                    "g_code": g_code,
+                    "name": m.get("name") or "會員",
+                    "email": m.get("email") or "",
+                    "phone": stored_phone,
+                    "phone_raw": m.get("phone") or "",
+                    "address": m.get("address") or "",
+                    "shipping_rate_twd": rate_twd,
+                    "shipping_rate_jpy": twd_to_jpy(rate_twd) if rate_twd else 0,
+                    "source": "agent",
+                    "agent_name": ag["name"] if ag else "",
+                }
+            })
+        conn.close()
+    except Exception as e:
+        print(f"[verify_customer] 本地查詢失敗：{e}", flush=True)
+
+    # ===== 2) 回退查 Shopify（你的客戶，原有邏輯）=====
     try:
         customers = get_all_goyoutati_customers()
         for c in customers:
             if c["g_code"] == g_code:
                 if c["phone"] and c["phone"] == password_clean:
-                    # shipping_rate 現為台幣
                     try:
                         rate_twd = int(c["shipping_rate"]) if c["shipping_rate"] else DEFAULT_SHIPPING_RATE
                     except (ValueError, TypeError):
@@ -1267,7 +1307,8 @@ def verify_customer():
                             "phone_raw": c["phone_raw"],
                             "address": c.get("address", ""),
                             "shipping_rate_twd": rate_twd,
-                            "shipping_rate_jpy": rate_jpy
+                            "shipping_rate_jpy": rate_jpy,
+                            "source": "shopify",
                         }
                     })
                 else:
@@ -2330,6 +2371,22 @@ def admin_update_shipment_request(req_id):
     total_fee = data.get("total_fee", 0)
     tracking_num = data.get("tracking_num", "")
     extra_services = json.dumps(data.get("extra_services", []), ensure_ascii=False)
+
+    # 代理出貨時：強制 rate_per_kg 不得低於自己的最低費率
+    aid = get_current_agent_id()
+    if aid > 0 and status == "已出貨" and rate_per_kg:
+        try:
+            rate_val = float(rate_per_kg)
+            ag = conn.execute("SELECT min_rate FROM agents WHERE id=?", (aid,)).fetchone()
+            min_rate = float(ag["min_rate"]) if ag and ag["min_rate"] else 180.0
+            if rate_val < min_rate:
+                conn.close()
+                return jsonify({
+                    "success": False,
+                    "error": f"運費 NT${rate_val}/kg 低於你的最低費率 NT${min_rate}/kg"
+                })
+        except (ValueError, TypeError):
+            pass
 
     if status == "已出貨" and billed_weight:
         conn.execute(
