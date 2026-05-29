@@ -461,6 +461,22 @@
                     <input type="text" id="shipreq-search" placeholder="🔍 搜尋客戶編號、姓名、地址、追蹤號或備註...">
                     <span class="pkg-count" id="shipreq-count"></span>
                 </div>
+                <div class="filter-bar" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 4px 10px;">
+                    <span style="font-size:12px;color:#888;">📅 日期區間：</span>
+                    <select id="shipreq-date-field" class="form-control" style="width:auto;padding:6px 10px;font-size:12px;" onchange="filterShipReqs()">
+                        <option value="auto" selected>自動（已出貨看出貨日、其他看申請日）</option>
+                        <option value="created_at">申請日</option>
+                        <option value="updated_at">出貨日</option>
+                    </select>
+                    <input type="date" id="shipreq-date-from" class="form-control" style="width:auto;padding:6px 10px;font-size:12px;" onchange="filterShipReqs()">
+                    <span style="font-size:12px;color:#666;">～</span>
+                    <input type="date" id="shipreq-date-to" class="form-control" style="width:auto;padding:6px 10px;font-size:12px;" onchange="filterShipReqs()">
+                    <button class="btn" style="background:rgba(52,152,219,.2);color:#3498db;padding:4px 10px;font-size:11px;" onclick="setShipReqDateRange('today')">今天</button>
+                    <button class="btn" style="background:rgba(52,152,219,.2);color:#3498db;padding:4px 10px;font-size:11px;" onclick="setShipReqDateRange('thisMonth')">本月</button>
+                    <button class="btn" style="background:rgba(52,152,219,.2);color:#3498db;padding:4px 10px;font-size:11px;" onclick="setShipReqDateRange('lastMonth')">上月</button>
+                    <button class="btn" style="background:rgba(52,152,219,.2);color:#3498db;padding:4px 10px;font-size:11px;" onclick="setShipReqDateRange('last30')">近 30 天</button>
+                    <button class="btn" style="background:rgba(231,76,60,.18);color:#e74c3c;padding:4px 10px;font-size:11px;" onclick="setShipReqDateRange('clear')">清除</button>
+                </div>
                 <div id="shipreqList" class="sr-list">
                     <div style="text-align:center;color:#666;padding:40px;">載入中...</div>
                 </div>
@@ -1765,7 +1781,13 @@ async function loadShipReqs() {
 
 function filterShipReqs() {
     var q = ((document.getElementById('shipreq-search') || {}).value || '').trim().toUpperCase();
+    var dFrom = (document.getElementById('shipreq-date-from') || {}).value || '';
+    var dTo = (document.getElementById('shipreq-date-to') || {}).value || '';
+    var dField = (document.getElementById('shipreq-date-field') || {}).value || 'auto';
+    var statusFilter = (document.getElementById('shipreq-filter') || {}).value || '';
     var list = allShipReqsData || [];
+
+    // 關鍵字搜尋
     if (q) {
         list = list.filter(function(r){
             var fields = [
@@ -1780,7 +1802,47 @@ function filterShipReqs() {
             return false;
         });
     }
+
+    // 日期篩選
+    if (dFrom || dTo) {
+        // 自動模式：已出貨/已付款 → 比對 updated_at（出貨日），否則 created_at（申請日）
+        var useField = dField;
+        if (useField === 'auto') {
+            useField = (statusFilter === '已出貨' || statusFilter === '已付款') ? 'updated_at' : 'created_at';
+        }
+        list = list.filter(function(r){
+            var dateStr = String(r[useField] || '').substring(0, 10);  // YYYY-MM-DD
+            if (!dateStr) return false;
+            if (dFrom && dateStr < dFrom) return false;
+            if (dTo && dateStr > dTo) return false;
+            return true;
+        });
+    }
+
     renderShipReqs(list);
+}
+
+function setShipReqDateRange(preset) {
+    var pad = function(n){ return n < 10 ? '0' + n : '' + n; };
+    var fmt = function(d){ return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()); };
+    var now = new Date();
+    var from = '', to = '';
+    if (preset === 'today') {
+        from = to = fmt(now);
+    } else if (preset === 'thisMonth') {
+        from = fmt(new Date(now.getFullYear(), now.getMonth(), 1));
+        to = fmt(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+    } else if (preset === 'lastMonth') {
+        from = fmt(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+        to = fmt(new Date(now.getFullYear(), now.getMonth(), 0));
+    } else if (preset === 'last30') {
+        var d30 = new Date(now); d30.setDate(d30.getDate() - 29);
+        from = fmt(d30);
+        to = fmt(now);
+    }
+    document.getElementById('shipreq-date-from').value = from;
+    document.getElementById('shipreq-date-to').value = to;
+    filterShipReqs();
 }
 
 function renderShipReqs(list) {
