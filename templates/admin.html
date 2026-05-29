@@ -296,6 +296,7 @@
                 <div class="sidebar-item" onclick="switchAdminTab('announcements')">📢 公告管理</div>
                 <div class="sidebar-item" onclick="switchAdminTab('stats')">📊 統計</div>
                 <div class="sidebar-divider"></div>
+                <div class="sidebar-item" id="sidebar-agents" onclick="switchAdminTab('agents')" style="display:none;">🤝 代理管理</div>
                 <div class="sidebar-item" onclick="openChangePwd()" style="color:#666;">🔑 變更密碼</div>
             </div>
             <div class="admin-main">
@@ -512,6 +513,86 @@
         </div>
 
         <!-- 統計 -->
+        <!-- 代理管理（僅主管理員可見） -->
+        <div class="admin-panel" id="panel-agents">
+            <div class="card">
+                <div class="toolbar">
+                    <h3>🤝 代理管理</h3>
+                    <div style="display:flex;gap:8px;">
+                        <button class="btn btn-primary" style="padding:8px 16px;font-size:13px;" onclick="openAgentModal()">➕ 新增代理</button>
+                        <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadAgents()">🔄 重新整理</button>
+                    </div>
+                </div>
+                <div style="font-size:13px;color:#888;padding:0 4px 12px;line-height:1.7;">
+                    代理可登入此系統管理自己的客戶與出貨。代理客戶用前綴區分（你 = G、代理 = A/B/C...）。<br>
+                    Phase 1：代理帳號建立完成、可登入但尚未隔離資料；Phase 2 會啟用「代理只看自己」過濾。
+                </div>
+                <div id="agentsList" class="sr-list">
+                    <div style="text-align:center;color:#666;padding:40px;">載入中...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 代理新增/編輯 Modal -->
+        <div class="modal-overlay" id="agentModal">
+            <div class="modal-box" style="max-width:520px;max-height:88vh;overflow-y:auto;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                    <div class="modal-title" id="agent-modal-title" style="margin:0;">➕ 新增代理</div>
+                    <button onclick="closeAgentModal()" style="background:rgba(255,255,255,.08);border:none;color:#fff;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px;">×</button>
+                </div>
+                <input type="hidden" id="agent-id">
+                <div class="form-group">
+                    <label>代理名稱 <span style="color:#e74c3c;">*</span></label>
+                    <input type="text" id="agent-name" class="form-control" placeholder="顯示名稱">
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="form-group">
+                        <label>登入帳號 <span style="color:#e74c3c;">*</span></label>
+                        <input type="text" id="agent-username" class="form-control" placeholder="僅英數">
+                    </div>
+                    <div class="form-group">
+                        <label>登入密碼 <span style="color:#e74c3c;">*</span></label>
+                        <input type="text" id="agent-password" class="form-control" placeholder="">
+                    </div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="form-group">
+                        <label>客戶編號前綴 <span style="color:#e74c3c;">*</span></label>
+                        <input type="text" id="agent-prefix" class="form-control" placeholder="A、B、C..." maxlength="1" style="text-transform:uppercase;">
+                        <p style="font-size:11px;color:#888;margin-top:4px;">單一英文字母，建立後不可改</p>
+                    </div>
+                    <div class="form-group">
+                        <label>最低費率 (NT$/kg)</label>
+                        <input type="number" id="agent-min-rate" class="form-control" value="180" min="180">
+                        <p style="font-size:11px;color:#888;margin-top:4px;">不得低於 180</p>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>聯絡電話</label>
+                    <input type="text" id="agent-phone" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label>聯絡 Email</label>
+                    <input type="text" id="agent-email" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label>狀態</label>
+                    <select id="agent-status" class="form-control">
+                        <option value="active">啟用</option>
+                        <option value="disabled">停用</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>內部備註</label>
+                    <textarea id="agent-note" class="form-control" rows="2"></textarea>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;" onclick="closeAgentModal()">取消</button>
+                    <button class="btn btn-primary" id="agent-submit-btn" onclick="submitAgent()">✅ 建立</button>
+                </div>
+            </div>
+        </div>
+
         <div class="admin-panel" id="panel-stats">
             <div class="card">
                 <div class="toolbar">
@@ -803,7 +884,15 @@ async function adminLogin() {
         const res = await fetch('/api/admin/verify', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username, password}) });
         const result = await res.json();
         if (result.success) {
-            currentAdmin = {username: result.username || 'admin', role: result.role || 'admin'};
+            currentAdmin = {
+                username: result.username || 'admin',
+                role: result.role || 'admin',
+                user_type: result.user_type || 'admin',
+                prefix: result.prefix || 'G'
+            };
+            // 只有主管理員（user_type=admin）才顯示「代理管理」分頁
+            var sbAgents = document.getElementById('sidebar-agents');
+            if (sbAgents) sbAgents.style.display = currentAdmin.user_type === 'admin' ? '' : 'none';
             document.getElementById('loginSection').classList.add('hidden');
             document.getElementById('mainContent').classList.add('active');
             fetch('/api/config').then(r => r.json()).then(cfg => {
@@ -852,6 +941,137 @@ function switchAdminTab(tab) {
     if (tab === 'forecasts') loadForecasts();
     if (tab === 'announcements') loadAnnouncements();
     if (tab === 'stats') loadStats();
+    if (tab === 'agents') loadAgents();
+}
+
+// ===== 代理管理 (Phase 1) =====
+async function loadAgents() {
+    var container = document.getElementById('agentsList');
+    container.innerHTML = '<div style="text-align:center;color:#666;padding:40px;">載入中...</div>';
+    try {
+        var res = await fetch('/api/admin/agents');
+        var result = await res.json();
+        if (!result.success) {
+            container.innerHTML = '<div style="text-align:center;color:#e74c3c;padding:40px;">' + (result.error || '載入失敗') + '</div>';
+            return;
+        }
+        var list = result.agents || [];
+        if (!list.length) {
+            container.innerHTML = '<div style="text-align:center;color:#666;padding:40px;">尚無代理。點右上「➕ 新增代理」建立第一個。</div>';
+            return;
+        }
+        container.innerHTML = list.map(function(a){
+            var statusColor = a.status === 'active' ? '#27ae60' : '#e74c3c';
+            var statusText = a.status === 'active' ? '✅ 啟用中' : '🚫 已停用';
+            return '<div class="sr-card">'
+                + '<div class="sr-head">'
+                +   '<span style="font-size:28px;font-weight:700;color:#f39c12;letter-spacing:1px;">' + a.prefix + '</span>'
+                +   '<span style="font-size:16px;color:#fff;font-weight:700;">' + a.name + '</span>'
+                +   '<span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;background:' + statusColor + '22;color:' + statusColor + ';">' + statusText + '</span>'
+                +   '<span class="sr-spacer"></span>'
+                +   '<span style="font-size:12px;color:#aaa;">建立 ' + (a.created_at || '') + '</span>'
+                + '</div>'
+                + '<div style="display:flex;flex-wrap:wrap;gap:18px;font-size:13px;color:#ccc;margin-bottom:10px;">'
+                +   '<span><span style="color:#888;">登入帳號：</span><strong style="color:#fff;">' + a.username + '</strong></span>'
+                +   '<span><span style="color:#888;">最低費率：</span><strong style="color:#f39c12;">NT$ ' + a.min_rate + '/kg</strong></span>'
+                +   '<span><span style="color:#888;">底下會員：</span><strong style="color:#fff;">' + (a.member_count || 0) + ' 人</strong></span>'
+                +   (a.contact_phone ? '<span><span style="color:#888;">電話：</span>' + a.contact_phone + '</span>' : '')
+                +   (a.contact_email ? '<span><span style="color:#888;">Email：</span>' + a.contact_email + '</span>' : '')
+                + '</div>'
+                + (a.note ? '<div style="font-size:12px;color:#888;background:rgba(0,0,0,.2);border-radius:6px;padding:8px 10px;margin-bottom:10px;">📝 ' + a.note + '</div>' : '')
+                + '<div class="sr-actions">'
+                +   '<button class="btn-edit-sm" style="padding:6px 14px;font-size:12px;" onclick=\'openAgentModal(' + JSON.stringify(a) + ')\'>✏️ 編輯</button>'
+                +   '<button class="btn-danger-sm" style="padding:6px 14px;font-size:12px;" onclick="deleteAgent(' + a.id + ',\'' + a.name.replace(/'/g, '') + '\',' + (a.member_count || 0) + ')">🗑️ 刪除</button>'
+                + '</div>'
+                + '</div>';
+        }).join('');
+    } catch(e) {
+        container.innerHTML = '<div style="text-align:center;color:#e74c3c;padding:40px;">網路錯誤：' + e.message + '</div>';
+    }
+}
+
+function openAgentModal(agent) {
+    var editing = agent && agent.id;
+    document.getElementById('agent-modal-title').textContent = editing ? '✏️ 編輯代理' : '➕ 新增代理';
+    document.getElementById('agent-submit-btn').textContent = editing ? '💾 儲存' : '✅ 建立';
+    document.getElementById('agent-id').value = editing ? agent.id : '';
+    document.getElementById('agent-name').value = editing ? agent.name : '';
+    document.getElementById('agent-username').value = editing ? agent.username : '';
+    document.getElementById('agent-username').disabled = !!editing;
+    document.getElementById('agent-password').value = '';
+    document.getElementById('agent-password').placeholder = editing ? '留空表示不變更' : '';
+    document.getElementById('agent-prefix').value = editing ? agent.prefix : '';
+    document.getElementById('agent-prefix').disabled = !!editing;
+    document.getElementById('agent-min-rate').value = editing ? agent.min_rate : 180;
+    document.getElementById('agent-phone').value = editing ? (agent.contact_phone || '') : '';
+    document.getElementById('agent-email').value = editing ? (agent.contact_email || '') : '';
+    document.getElementById('agent-status').value = editing ? (agent.status || 'active') : 'active';
+    document.getElementById('agent-note').value = editing ? (agent.note || '') : '';
+    document.getElementById('agentModal').classList.add('show');
+}
+
+function closeAgentModal() {
+    document.getElementById('agentModal').classList.remove('show');
+}
+
+async function submitAgent() {
+    var id = document.getElementById('agent-id').value;
+    var editing = !!id;
+    var body = {
+        name: document.getElementById('agent-name').value.trim(),
+        min_rate: parseFloat(document.getElementById('agent-min-rate').value) || 180,
+        contact_phone: document.getElementById('agent-phone').value.trim(),
+        contact_email: document.getElementById('agent-email').value.trim(),
+        status: document.getElementById('agent-status').value,
+        note: document.getElementById('agent-note').value.trim()
+    };
+    var pwd = document.getElementById('agent-password').value.trim();
+    if (pwd) body.password = pwd;
+    if (!editing) {
+        body.username = document.getElementById('agent-username').value.trim();
+        body.password = pwd;
+        body.prefix = document.getElementById('agent-prefix').value.trim().toUpperCase();
+        if (!body.username || !body.password || !body.prefix || !body.name) {
+            showToast('帳號、密碼、前綴、名稱皆為必填', 'error'); return;
+        }
+    }
+    var btn = document.getElementById('agent-submit-btn');
+    btn.disabled = true;
+    try {
+        var url = editing ? '/api/admin/agents/' + id : '/api/admin/agents';
+        var method = editing ? 'PUT' : 'POST';
+        var res = await fetch(url, { method: method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        var result = await res.json();
+        if (result.success) {
+            showToast(result.message || '已儲存', 'success');
+            closeAgentModal();
+            loadAgents();
+        } else {
+            showToast('❌ ' + (result.error || '操作失敗'), 'error');
+        }
+    } catch(e) {
+        showToast('網路錯誤', 'error');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function deleteAgent(id, name, memberCount) {
+    if (memberCount > 0) {
+        showToast('此代理底下尚有 ' + memberCount + ' 位會員，無法刪除。請改為停用狀態', 'error');
+        return;
+    }
+    if (!confirm('確定刪除代理「' + name + '」？此操作無法復原。')) return;
+    try {
+        var res = await fetch('/api/admin/agents/' + id, { method: 'DELETE' });
+        var result = await res.json();
+        if (result.success) {
+            showToast('已刪除', 'success');
+            loadAgents();
+        } else {
+            showToast('❌ ' + (result.error || '刪除失敗'), 'error');
+        }
+    } catch(e) { showToast('網路錯誤', 'error'); }
 }
 
 // ── 會員管理 ──
