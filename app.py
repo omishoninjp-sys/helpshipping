@@ -902,6 +902,135 @@ def get_all_members():
         return jsonify({"success": False, "error": str(e)})
 
 
+@app.route("/api/admin/members", methods=["POST"])
+def admin_create_member():
+    """代理新增會員（自動補前綴與 agent_id）。主管理員建議直接在 Shopify 操作。"""
+    aid = get_current_agent_id()
+    if aid <= 0:
+        return jsonify({"success": False, "error": "主管理員的會員請在 Shopify 後台建立"}), 400
+    data = request.json or {}
+    name = (data.get("name") or "").strip()
+    phone = normalize_phone((data.get("phone") or "").strip())
+    address = (data.get("address") or "").strip()
+    if not name:
+        return jsonify({"success": False, "error": "會員姓名必填"})
+    if not phone:
+        return jsonify({"success": False, "error": "電話必填（會員用此登入）"})
+
+    conn = get_db()
+    ag = conn.execute("SELECT prefix FROM agents WHERE id=?", (aid,)).fetchone()
+    if not ag:
+        conn.close()
+        return jsonify({"success": False, "error": "代理資料異常"}), 500
+    prefix = ag["prefix"]
+
+    # 自動產生下一個 g_code（前綴+四位流水）
+    g_code_in = (data.get("g_code") or "").strip().upper()
+    if g_code_in:
+        # 手動指定的：必須以該代理前綴開頭
+        if not g_code_in.startswith(prefix):
+            conn.close()
+            return jsonify({"success": False, "error": f"會員編號必須以「{prefix}」開頭"})
+        # 不可重複
+        exists = conn.execute("SELECT 1 FROM members WHERE g_code=?", (g_code_in,)).fetchone()
+        if exists:
+            conn.close()
+            return jsonify({"success": False, "error": f"編號「{g_code_in}」已使用"})
+        g_code = g_code_in
+    else:
+        used = set()
+        for r in conn.execute("SELECT g_code FROM members WHERE agent_id=?", (aid,)).fetchall():
+            gc = r["g_code"] or ""
+            if gc.startswith(prefix):
+                try:
+                    used.add(int(gc[len(prefix):]))
+                except (ValueError, TypeError):
+                    pass
+        n = 1
+        while n in used:
+            n += 1
+        g_code = f"{prefix}{n:04d}"
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        conn.execute(
+            """INSERT INTO members (g_code, agent_id, name, phone, address, line_id, email, note, status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)""",
+            (g_code, aid, name, phone, address,
+             (data.get("line_id") or "").strip(), (data.get("email") or "").strip(),
+             (data.get("note") or "").strip(), now)
+        )
+        conn.commit()
+    except sqlite3.IntegrityError as e:
+        conn.close()
+        return jsonify({"success": False, "error": f"資料庫錯誤：{e}"})
+    conn.close()
+    return jsonify({"success": True, "g_code": g_code, "message": f"已建立「{g_code} {name}」"})
+
+
+@app.route("/api/admin/members/<g_code>", methods=["PUT"])
+def admin_update_member(g_code):
+    """代理更新自己會員的資料（姓名、電話、地址等）"""
+    g_code = g_code.upper()
+    aid = get_current_agent_id()
+    conn = get_db()
+    row = conn.execute("SELECT * FROM members WHERE g_code=?", (g_code,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"success": False, "error": "找不到會員"})
+    if aid > 0 and int(row["agent_id"] or 0) != aid:
+        conn.close()
+        return jsonify({"success": False, "error": "權限不足"}), 403
+
+    data = request.json or {}
+    fields, values = [], []
+    for col in ["name", "phone", "address", "line_id", "email", "note", "status"]:
+        if col in data:
+            v = (data[col] or "").strip()
+            if col == "phone":
+                v = normalize_phone(v)
+            if col == "status" and v not in ("active", "disabled"):
+                continue
+            fields.append(f"{col}=?"); values.append(v)
+    if not fields:
+        conn.close()
+        return jsonify({"success": False, "error": "沒有可更新欄位"})
+    values.append(g_code)
+    conn.execute(f"UPDATE members SET {', '.join(fields)} WHERE g_code=?", values)
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route("/api/admin/members/<g_code>", methods=["DELETE"])
+def admin_delete_member(g_code):
+    """代理刪除自己會員（若會員底下有任何包裹/預報/出貨紀錄，擋下，建議停用）"""
+    g_code = g_code.upper()
+    aid = get_current_agent_id()
+    conn = get_db()
+    row = conn.execute("SELECT * FROM members WHERE g_code=?", (g_code,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"success": False, "error": "找不到會員"})
+    if aid > 0 and int(row["agent_id"] or 0) != aid:
+        conn.close()
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    # 安全檢查：是否有關聯資料
+    p = conn.execute("SELECT COUNT(*) as c FROM packages WHERE g_code=?", (g_code,)).fetchone()["c"]
+    f = conn.execute("SELECT COUNT(*) as c FROM forecasts WHERE g_code=?", (g_code,)).fetchone()["c"]
+    s = conn.execute("SELECT COUNT(*) as c FROM shipment_requests WHERE g_code=?", (g_code,)).fetchone()["c"]
+    if p + f + s > 0:
+        conn.close()
+        return jsonify({
+            "success": False,
+            "error": f"此會員已有 {p} 個包裹/{f} 個預報/{s} 個出貨紀錄，無法刪除。請改為「停用」狀態。"
+        })
+    conn.execute("DELETE FROM members WHERE g_code=?", (g_code,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "message": "會員已刪除"})
+
+
 @app.route("/api/admin/shipping_rate", methods=["POST"])
 def set_shipping_rate():
     data = request.json

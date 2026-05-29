@@ -322,6 +322,7 @@
                     <h3>📋 會員列表</h3>
                     <div class="toolbar-actions">
                         <span class="changes-badge" id="changesBadge">0 項待儲存</span>
+                        <button class="btn btn-primary" id="addMemberBtn" style="padding:8px 16px;font-size:13px;display:none;" onclick="openMemberModal()">➕ 新增會員</button>
                         <button class="btn btn-green" style="padding:8px 16px;font-size:13px;" id="saveAllBtn" onclick="saveAllChanges()" disabled>💾 全部儲存</button>
                         <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadMembers(true)">🔄 整理</button>
                     </div>
@@ -529,6 +530,55 @@
                 </div>
                 <div id="agentsList" class="sr-list">
                     <div style="text-align:center;color:#666;padding:40px;">載入中...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 會員新增/編輯 Modal（代理用）-->
+        <div class="modal-overlay" id="memberModal">
+            <div class="modal-box" style="max-width:520px;max-height:88vh;overflow-y:auto;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                    <div class="modal-title" id="member-modal-title" style="margin:0;">➕ 新增會員</div>
+                    <button onclick="closeMemberModal()" style="background:rgba(255,255,255,.08);border:none;color:#fff;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px;">×</button>
+                </div>
+                <input type="hidden" id="member-edit-gcode">
+                <div id="member-gcode-display" style="display:none;font-size:24px;font-weight:700;color:#f39c12;margin-bottom:14px;text-align:center;letter-spacing:2px;"></div>
+                <div class="form-group">
+                    <label>姓名 <span style="color:#e74c3c;">*</span></label>
+                    <input type="text" id="member-name" class="form-control" placeholder="收件人姓名">
+                </div>
+                <div class="form-group">
+                    <label>手機 <span style="color:#e74c3c;">*</span>（會員登入用）</label>
+                    <input type="text" id="member-phone" class="form-control" placeholder="09xxxxxxxx">
+                </div>
+                <div class="form-group">
+                    <label>預設收件地址</label>
+                    <textarea id="member-address" class="form-control" rows="2" placeholder="出貨時自動帶入"></textarea>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="form-group">
+                        <label>LINE ID</label>
+                        <input type="text" id="member-line" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="text" id="member-email" class="form-control">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>狀態</label>
+                    <select id="member-status" class="form-control">
+                        <option value="active">啟用</option>
+                        <option value="disabled">停用</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>備註</label>
+                    <textarea id="member-note" class="form-control" rows="2"></textarea>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;" onclick="closeMemberModal()">取消</button>
+                    <button class="btn btn-primary" id="member-submit-btn" onclick="submitMember()">✅ 建立</button>
                 </div>
             </div>
         </div>
@@ -946,6 +996,79 @@ function switchAdminTab(tab) {
     if (tab === 'agents') loadAgents();
 }
 
+// ===== 代理會員 CRUD (Phase 2C) =====
+function openMemberModal(member) {
+    var editing = !!(member && member.g_code);
+    document.getElementById('member-modal-title').textContent = editing ? '✏️ 編輯會員' : '➕ 新增會員';
+    document.getElementById('member-submit-btn').textContent = editing ? '💾 儲存' : '✅ 建立';
+    document.getElementById('member-edit-gcode').value = editing ? member.g_code : '';
+    var gcDisp = document.getElementById('member-gcode-display');
+    if (editing) {
+        gcDisp.style.display = 'block';
+        gcDisp.textContent = member.g_code;
+    } else {
+        gcDisp.style.display = 'none';
+    }
+    document.getElementById('member-name').value = editing ? (member.name || '') : '';
+    document.getElementById('member-phone').value = editing ? (member.phone || '') : '';
+    document.getElementById('member-address').value = editing ? (member.address || '') : '';
+    document.getElementById('member-line').value = editing ? (member.line_id || '') : '';
+    document.getElementById('member-email').value = editing ? (member.email || '') : '';
+    document.getElementById('member-status').value = editing ? (member.status || 'active') : 'active';
+    document.getElementById('member-note').value = editing ? (member.note || '') : '';
+    document.getElementById('memberModal').classList.add('show');
+}
+
+function closeMemberModal() {
+    document.getElementById('memberModal').classList.remove('show');
+}
+
+async function submitMember() {
+    var editGcode = document.getElementById('member-edit-gcode').value;
+    var editing = !!editGcode;
+    var body = {
+        name: document.getElementById('member-name').value.trim(),
+        phone: document.getElementById('member-phone').value.trim(),
+        address: document.getElementById('member-address').value.trim(),
+        line_id: document.getElementById('member-line').value.trim(),
+        email: document.getElementById('member-email').value.trim(),
+        status: document.getElementById('member-status').value,
+        note: document.getElementById('member-note').value.trim()
+    };
+    if (!body.name) { showToast('姓名為必填', 'error'); return; }
+    if (!editing && !body.phone) { showToast('電話為必填（會員登入用）', 'error'); return; }
+    var btn = document.getElementById('member-submit-btn');
+    btn.disabled = true;
+    try {
+        var url = editing ? '/api/admin/members/' + encodeURIComponent(editGcode) : '/api/admin/members';
+        var method = editing ? 'PUT' : 'POST';
+        var res = await fetch(url, { method: method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        var result = await res.json();
+        if (result.success) {
+            showToast(result.message || '已儲存', 'success');
+            closeMemberModal();
+            loadMembers(true);
+        } else {
+            showToast('❌ ' + (result.error || '操作失敗'), 'error');
+        }
+    } catch(e) { showToast('網路錯誤', 'error'); }
+    finally { btn.disabled = false; }
+}
+
+async function deleteMember(gCode, name) {
+    if (!confirm('確定刪除會員「' + gCode + ' ' + name + '」？\n（若已有包裹/預報/出貨紀錄會被擋下，建議改為停用）')) return;
+    try {
+        var res = await fetch('/api/admin/members/' + encodeURIComponent(gCode), { method: 'DELETE' });
+        var result = await res.json();
+        if (result.success) {
+            showToast(result.message || '已刪除', 'success');
+            loadMembers(true);
+        } else {
+            showToast('❌ ' + (result.error || '刪除失敗'), 'error');
+        }
+    } catch(e) { showToast('網路錯誤', 'error'); }
+}
+
 // ===== 代理管理 (Phase 1) =====
 async function loadAgents() {
     var container = document.getElementById('agentsList');
@@ -1087,14 +1210,25 @@ async function loadMembers(forceRefresh) {
         clearTimeout(tid);
         const result = await res.json();
         if (!result.success) { showToast(result.error || '載入失敗', 'error'); return; }
+        // 代理初次登入會員清單可能為空，不報錯
+        var isAgentMode = result.source === 'agent_local';
         if (!result.members || !result.members.length) {
-            showToast('會員資料載入中，請稍後按「整理」重試', 'error'); return;
+            if (!isAgentMode) { showToast('會員資料載入中，請稍後按「整理」重試', 'error'); return; }
+            membersData = [];
+        } else {
+            membersData = result.members;
         }
-        membersData = result.members;
     if (result.twd_to_jpy_rate) twd_to_jpy_rate = result.twd_to_jpy_rate;
-    document.getElementById('totalMembers').textContent = result.total;
-    document.getElementById('maxNumber').textContent = result.max_number > 0 ? `G${String(result.max_number).padStart(4,'0')}` : '-';
+    document.getElementById('totalMembers').textContent = result.total || 0;
+    var pfx = isAgentMode ? (result.prefix || '') : 'G';
+    document.getElementById('maxNumber').textContent = result.max_number > 0 ? `${pfx}${String(result.max_number).padStart(4,'0')}` : '-';
     document.getElementById('nextCode').textContent = result.next_g_code;
+    // 記住目前是不是代理模式，給 UI 用
+    window.isAgentMembers = isAgentMode;
+    window.agentMinRate = result.min_rate || 180;
+    // 顯示/隱藏「新增會員」按鈕（只有代理需要，主管理員從 Shopify 建）
+    var addBtn = document.getElementById('addMemberBtn');
+    if (addBtn) addBtn.style.display = isAgentMode ? '' : 'none';
 
     // 新的在上面：依 G 編號降序排列
     membersData.sort((a, b) => {
@@ -1178,7 +1312,13 @@ function renderMembersPage() {
                     <button class="rate-save-btn" id="save-${globalIdx}" onclick="saveSingleRate(${globalIdx})">儲存</button>
                 </div>
             </td>
-            <td><button class="copy-btn" onclick="copyInfo('${m.g_code}','${m.phone}')">📋 複製</button></td>
+            <td>
+                <button class="copy-btn" onclick="copyInfo('${m.g_code}','${m.phone}')">📋 複製</button>
+                ${window.isAgentMembers ? `
+                    <button class="copy-btn" style="background:#3498db;" onclick='openMemberModal(${JSON.stringify(m)})'>✏️ 編輯</button>
+                    <button class="copy-btn" style="background:#e74c3c;" onclick="deleteMember('${m.g_code}','${(m.name||'').replace(/'/g,'')}')">🗑️</button>
+                ` : ''}
+            </td>
         </tr>`;
     }).join('');
 
