@@ -293,7 +293,7 @@
                 <div class="sidebar-item" onclick="switchAdminTab('billing')">💰 帳單管理 <span id="billing-badge" class="sidebar-badge" style="display:none;background:#27ae60;">0</span></div>
                 <div class="sidebar-divider"></div>
                 <div class="sidebar-item" onclick="switchAdminTab('forecasts')">📝 預報管理 <span id="forecast-badge" class="sidebar-badge" style="display:none;">0</span></div>
-                <div class="sidebar-item" onclick="switchAdminTab('announcements')">📢 公告管理</div>
+                <div class="sidebar-item" id="sidebar-announcements" onclick="switchAdminTab('announcements')">📢 公告管理</div>
                 <div class="sidebar-item" onclick="switchAdminTab('stats')">📊 統計</div>
                 <div class="sidebar-divider"></div>
                 <div class="sidebar-item" id="sidebar-agents" onclick="switchAdminTab('agents')" style="display:none;">🤝 代理管理</div>
@@ -890,9 +890,11 @@ async function adminLogin() {
                 user_type: result.user_type || 'admin',
                 prefix: result.prefix || 'G'
             };
-            // 只有主管理員（user_type=admin）才顯示「代理管理」分頁
+            // 主管理員專屬分頁（代理隱藏）
             var sbAgents = document.getElementById('sidebar-agents');
             if (sbAgents) sbAgents.style.display = currentAdmin.user_type === 'admin' ? '' : 'none';
+            var sbAnn = document.getElementById('sidebar-announcements');
+            if (sbAnn) sbAnn.style.display = currentAdmin.user_type === 'admin' ? '' : 'none';
             document.getElementById('loginSection').classList.add('hidden');
             document.getElementById('mainContent').classList.add('active');
             fetch('/api/config').then(r => r.json()).then(cfg => {

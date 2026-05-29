@@ -727,6 +727,24 @@ def get_agent_id_for_g_code(g_code):
     return 0
 
 
+def check_record_ownership(table, record_id):
+    """
+    檢查當前使用者是否可存取該筆紀錄。
+    回傳 (allowed: bool, record_dict_or_none)
+    - 主管理員：永遠可以
+    - 代理：只有當 record.agent_id == 自己的 agent_id 才可以
+    """
+    aid = get_current_agent_id()
+    conn = get_db()
+    row = conn.execute(f"SELECT * FROM {table} WHERE id=?", (record_id,)).fetchone()
+    conn.close()
+    if not row:
+        return False, None
+    if aid == 0 or is_super_admin():
+        return True, dict(row)
+    return (int(row["agent_id"] or 0) == aid), dict(row)
+
+
 def get_member_unified(g_code):
     """
     回傳 {g_code, name, agent_id, phone, address, source} 或 None
@@ -761,6 +779,8 @@ def get_member_unified(g_code):
 
 @app.route("/api/admin/users", methods=["POST"])
 def admin_create_user():
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
     data = request.json
     username = (data.get("username") or "").strip()
     password = (data.get("password") or "").strip()
@@ -783,6 +803,8 @@ def admin_create_user():
 
 @app.route("/api/admin/users/<int:user_id>", methods=["DELETE"])
 def admin_delete_user(user_id):
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
     conn = get_db()
     user = conn.execute("SELECT role FROM admin_users WHERE id=?", (user_id,)).fetchone()
     if not user:
@@ -800,6 +822,58 @@ def admin_delete_user(user_id):
 @app.route("/api/admin/members", methods=["GET"])
 def get_all_members():
     try:
+        aid = get_current_agent_id()
+        # ===== 代理：只看自己本地建的會員 =====
+        if aid > 0:
+            conn = get_db()
+            agent = conn.execute("SELECT prefix, min_rate FROM agents WHERE id=?", (aid,)).fetchone()
+            prefix = agent["prefix"] if agent else "X"
+            min_rate = float(agent["min_rate"] or 180) if agent else 180.0
+            rows = conn.execute(
+                "SELECT * FROM members WHERE agent_id=? ORDER BY g_code", (aid,)
+            ).fetchall()
+            conn.close()
+            members = []
+            used_numbers = set()
+            for r in rows:
+                d = dict(r)
+                members.append({
+                    "g_code": d.get("g_code", ""),
+                    "name": d.get("name", ""),
+                    "phone": d.get("phone", ""),
+                    "address": d.get("address", ""),
+                    "line_id": d.get("line_id", ""),
+                    "email": d.get("email", ""),
+                    "shipping_rate": min_rate,
+                    "note": d.get("note", ""),
+                    "status": d.get("status", "active"),
+                    "source": "local",
+                })
+                gc = d.get("g_code", "")
+                if gc.startswith(prefix):
+                    try:
+                        used_numbers.add(int(gc[len(prefix):]))
+                    except (ValueError, TypeError):
+                        pass
+            max_number = max(used_numbers) if used_numbers else 0
+            next_number = 1
+            while next_number in used_numbers:
+                next_number += 1
+            next_g_code = f"{prefix}{next_number:04d}"
+            return jsonify({
+                "success": True,
+                "members": members,
+                "total": len(members),
+                "max_number": max_number,
+                "next_g_code": next_g_code,
+                "default_shipping_rate": min_rate,
+                "twd_to_jpy_rate": TWD_TO_JPY_RATE,
+                "min_rate": min_rate,
+                "prefix": prefix,
+                "source": "agent_local",
+            })
+
+        # ===== 主管理員：原有 Shopify 行為（不動）=====
         force = request.args.get("refresh") == "1"
         members = get_all_goyoutati_customers(force_refresh=force)
         members.sort(key=lambda x: x["g_code"])
@@ -886,15 +960,25 @@ def set_shipping_rate():
 @app.route("/api/admin/packages", methods=["GET"])
 def admin_list_packages():
     g_code = request.args.get("g_code", "")
+    aid = get_current_agent_id()
     conn = get_db()
     if g_code:
-        rows = conn.execute(
-            "SELECT * FROM packages WHERE g_code=? ORDER BY id DESC", (g_code.upper(),)
-        ).fetchall()
+        if aid > 0:
+            rows = conn.execute(
+                "SELECT * FROM packages WHERE g_code=? AND agent_id=? ORDER BY id DESC",
+                (g_code.upper(), aid)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM packages WHERE g_code=? ORDER BY id DESC", (g_code.upper(),)
+            ).fetchall()
     else:
-        rows = conn.execute(
-            "SELECT * FROM packages ORDER BY id DESC"
-        ).fetchall()
+        if aid > 0:
+            rows = conn.execute(
+                "SELECT * FROM packages WHERE agent_id=? ORDER BY id DESC", (aid,)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM packages ORDER BY id DESC").fetchall()
     conn.close()
     return jsonify({"success": True, "packages": [dict(r) for r in rows]})
 
@@ -911,12 +995,25 @@ def admin_add_package():
 
     if not g_code:
         return jsonify({"success": False, "error": "請輸入客戶編號"})
-    if not g_code.startswith("G"):
-        g_code = "G" + g_code
+    # 開頭非字母 → 補上對應前綴（代理用自己的前綴、主管理員預設 G）
+    if not g_code[:1].isalpha():
+        aid = get_current_agent_id()
+        if aid > 0:
+            conn0 = get_db()
+            ag = conn0.execute("SELECT prefix FROM agents WHERE id=?", (aid,)).fetchone()
+            conn0.close()
+            g_code = (ag["prefix"] if ag else "G") + g_code
+        else:
+            g_code = "G" + g_code
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     today = datetime.now().strftime("%Y-%m-%d")
     pkg_agent_id = get_agent_id_for_g_code(g_code)
+
+    # 代理只能幫自己的客戶建包裹
+    aid = get_current_agent_id()
+    if aid > 0 and pkg_agent_id != aid:
+        return jsonify({"success": False, "error": f"客戶編號「{g_code}」不屬於你的代理帳號"}), 403
 
     conn = get_db()
     cur = conn.execute(
@@ -932,6 +1029,11 @@ def admin_add_package():
 
 @app.route("/api/admin/packages/<int:pkg_id>", methods=["PUT"])
 def admin_update_package(pkg_id):
+    ok, row = check_record_ownership("packages", pkg_id)
+    if not row:
+        return jsonify({"success": False, "error": "找不到包裹"})
+    if not ok:
+        return jsonify({"success": False, "error": "權限不足"}), 403
     data = request.json
     fields = []
     values = []
@@ -940,8 +1042,10 @@ def admin_update_package(pkg_id):
             val = data[key]
             if key == "g_code":
                 val = val.strip().upper()
-                if not val.startswith("G"):
-                    val = "G" + val
+                # 改 g_code 時驗證新 g_code 仍屬於同代理
+                aid_chk = get_current_agent_id()
+                if aid_chk > 0 and get_agent_id_for_g_code(val) != aid_chk:
+                    return jsonify({"success": False, "error": f"無法將包裹改至非自己客戶「{val}」"}), 403
             fields.append(f"{key}=?")
             values.append(val)
     if not fields:
@@ -960,7 +1064,20 @@ def admin_bulk_ship():
     ids = data.get("ids", [])
     if not ids:
         return jsonify({"success": False, "error": "沒有選取任何包裹"})
+    aid = get_current_agent_id()
     conn = get_db()
+    if aid > 0:
+        # 驗證所有 id 都屬於該代理
+        placeholders = ",".join(["?"] * len(ids))
+        owned = conn.execute(
+            f"SELECT id FROM packages WHERE id IN ({placeholders}) AND agent_id=?",
+            ids + [aid]
+        ).fetchall()
+        owned_ids = [r["id"] for r in owned]
+        if len(owned_ids) != len(ids):
+            conn.close()
+            return jsonify({"success": False, "error": "部分包裹不屬於你的代理帳號"}), 403
+        ids = owned_ids
     conn.execute(
         f"UPDATE packages SET status='已出貨' WHERE id IN ({','.join(['?']*len(ids))})",
         ids
@@ -972,6 +1089,11 @@ def admin_bulk_ship():
 
 @app.route("/api/admin/packages/<int:pkg_id>", methods=["DELETE"])
 def admin_delete_package(pkg_id):
+    ok, row = check_record_ownership("packages", pkg_id)
+    if not row:
+        return jsonify({"success": False, "error": "找不到包裹"})
+    if not ok:
+        return jsonify({"success": False, "error": "權限不足"}), 403
     conn = get_db()
     conn.execute("DELETE FROM packages WHERE id=?", (pkg_id,))
     conn.commit()
@@ -1151,13 +1273,21 @@ def admin_monthly_detail():
     month = request.args.get("month", "")
     if not month:
         return jsonify({"success": False, "error": "缺少月份"})
+    aid = get_current_agent_id()
     try:
         conn = get_db()
-        rows = conn.execute("""
-            SELECT * FROM shipment_requests
-            WHERE status='已出貨' AND total_fee > 0
-            ORDER BY updated_at ASC
-        """).fetchall()
+        if aid > 0:
+            rows = conn.execute("""
+                SELECT * FROM shipment_requests
+                WHERE status='已出貨' AND total_fee > 0 AND agent_id=?
+                ORDER BY updated_at ASC
+            """, (aid,)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT * FROM shipment_requests
+                WHERE status='已出貨' AND total_fee > 0
+                ORDER BY updated_at ASC
+            """).fetchall()
         conn.close()
         details = []
         for r in rows:
@@ -1196,13 +1326,21 @@ def admin_monthly_excel():
     month = request.args.get("month", "")  # e.g. "2026-04"
     if not month:
         return jsonify({"success": False, "error": "缺少月份參數"})
+    aid = get_current_agent_id()
     try:
         conn = get_db()
-        rows = conn.execute("""
-            SELECT * FROM shipment_requests
-            WHERE status='已出貨' AND total_fee > 0
-            ORDER BY updated_at ASC
-        """).fetchall()
+        if aid > 0:
+            rows = conn.execute("""
+                SELECT * FROM shipment_requests
+                WHERE status='已出貨' AND total_fee > 0 AND agent_id=?
+                ORDER BY updated_at ASC
+            """, (aid,)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT * FROM shipment_requests
+                WHERE status='已出貨' AND total_fee > 0
+                ORDER BY updated_at ASC
+            """).fetchall()
         conn.close()
 
         # 篩選指定月份
@@ -1320,13 +1458,21 @@ def admin_monthly_excel():
 @app.route("/api/admin/stats/monthly", methods=["GET"])
 def admin_monthly_stats():
     """月報統計：每月出貨公斤數、運費、理貨費、加值服務、總收入"""
+    aid = get_current_agent_id()
     try:
         conn = get_db()
-        rows = conn.execute("""
-            SELECT * FROM shipment_requests
-            WHERE status='已出貨' AND total_fee > 0
-            ORDER BY updated_at DESC
-        """).fetchall()
+        if aid > 0:
+            rows = conn.execute("""
+                SELECT * FROM shipment_requests
+                WHERE status='已出貨' AND total_fee > 0 AND agent_id=?
+                ORDER BY updated_at DESC
+            """, (aid,)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT * FROM shipment_requests
+                WHERE status='已出貨' AND total_fee > 0
+                ORDER BY updated_at DESC
+            """).fetchall()
         conn.close()
 
         monthly = {}
@@ -1385,11 +1531,13 @@ def admin_monthly_stats():
 @app.route("/api/admin/shipment_requests/<int:req_id>/jpd_create", methods=["POST"])
 def admin_create_jpd_order(req_id):
     """從出貨申請自動在 JPD 建立運單"""
+    ok, _row = check_record_ownership("shipment_requests", req_id)
+    if not _row:
+        return jsonify({"success": False, "error": "找不到出貨申請"})
+    if not ok:
+        return jsonify({"success": False, "error": "權限不足"}), 403
     conn = get_db()
     req = conn.execute("SELECT * FROM shipment_requests WHERE id=?", (req_id,)).fetchone()
-    if not req:
-        conn.close()
-        return jsonify({"success": False, "error": "找不到出貨申請"})
     req = dict(req)
     g_code = req.get("g_code", "")
     
@@ -1561,7 +1709,9 @@ def admin_get_announcements():
 
 @app.route("/api/admin/announcements", methods=["POST"])
 def admin_create_announcement():
-    """管理員新增公告"""
+    """管理員新增公告（僅主管理員）"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
     data = request.json
     title = (data.get("title") or "").strip()
     content = (data.get("content") or "").strip()
@@ -1580,7 +1730,9 @@ def admin_create_announcement():
 
 @app.route("/api/admin/announcements/<int:ann_id>", methods=["PUT"])
 def admin_update_announcement(ann_id):
-    """管理員更新公告"""
+    """管理員更新公告（僅主管理員）"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
     data = request.json
     conn = get_db()
     fields = {}
@@ -1600,7 +1752,9 @@ def admin_update_announcement(ann_id):
 
 @app.route("/api/admin/announcements/<int:ann_id>", methods=["DELETE"])
 def admin_delete_announcement(ann_id):
-    """管理員刪除公告"""
+    """管理員刪除公告（僅主管理員）"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
     conn = get_db()
     conn.execute("DELETE FROM announcements WHERE id=?", (ann_id,))
     conn.commit()
@@ -1847,14 +2001,25 @@ def admin_old_packages():
     except (ValueError, TypeError):
         days = 30
     cutoff_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    aid = get_current_agent_id()
     conn = get_db()
-    rows = conn.execute(
-        """SELECT * FROM packages
-           WHERE status != '已出貨'
-             AND COALESCE(NULLIF(in_date, ''), substr(created_at, 1, 10)) <= ?
-           ORDER BY COALESCE(NULLIF(in_date, ''), substr(created_at, 1, 10)) ASC""",
-        (cutoff_date,)
-    ).fetchall()
+    if aid > 0:
+        rows = conn.execute(
+            """SELECT * FROM packages
+               WHERE status != '已出貨'
+                 AND agent_id = ?
+                 AND COALESCE(NULLIF(in_date, ''), substr(created_at, 1, 10)) <= ?
+               ORDER BY COALESCE(NULLIF(in_date, ''), substr(created_at, 1, 10)) ASC""",
+            (aid, cutoff_date)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT * FROM packages
+               WHERE status != '已出貨'
+                 AND COALESCE(NULLIF(in_date, ''), substr(created_at, 1, 10)) <= ?
+               ORDER BY COALESCE(NULLIF(in_date, ''), substr(created_at, 1, 10)) ASC""",
+            (cutoff_date,)
+        ).fetchall()
     conn.close()
     today = datetime.now().date()
     result = []
@@ -1880,6 +2045,10 @@ def admin_old_packages():
 @app.route("/api/admin/customer_unpaid/<g_code>", methods=["GET"])
 def admin_customer_unpaid(g_code):
     """查詢客戶未付款的已出貨筆數和金額（用於出貨警告）"""
+    # 代理只能查自己的客戶
+    aid = get_current_agent_id()
+    if aid > 0 and get_agent_id_for_g_code(g_code.upper()) != aid:
+        return jsonify({"success": True, "count": 0, "total": 0, "latest": "", "ids": []})
     conn = get_db()
     rows = conn.execute(
         "SELECT id, total_fee, updated_at FROM shipment_requests "
@@ -1902,6 +2071,11 @@ def admin_customer_unpaid(g_code):
 @app.route("/api/admin/shipment_requests/<int:req_id>/confirm_payment", methods=["POST"])
 def admin_confirm_payment(req_id):
     """管理員確認匯款已收到（可填後五碼、LINE Pay、現金等任意備註）"""
+    ok, _row = check_record_ownership("shipment_requests", req_id)
+    if not _row:
+        return jsonify({"success": False, "error": "找不到該申請"})
+    if not ok:
+        return jsonify({"success": False, "error": "權限不足"}), 403
     data = request.json or {}
     note = (data.get("last5") or "").strip()
 
@@ -1912,11 +2086,6 @@ def admin_confirm_payment(req_id):
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = get_db()
-    row = conn.execute("SELECT id FROM shipment_requests WHERE id=?", (req_id,)).fetchone()
-    if not row:
-        conn.close()
-        return jsonify({"success": False, "error": "找不到該申請"})
-
     conn.execute(
         "UPDATE shipment_requests SET payment_last5=?, payment_at=? WHERE id=?",
         (note, now, req_id)
@@ -1929,11 +2098,12 @@ def admin_confirm_payment(req_id):
 @app.route("/api/admin/shipment_requests/<int:req_id>/unconfirm_payment", methods=["POST"])
 def admin_unconfirm_payment(req_id):
     """管理員取消已確認的匯款（誤按時用）"""
-    conn = get_db()
-    row = conn.execute("SELECT id FROM shipment_requests WHERE id=?", (req_id,)).fetchone()
-    if not row:
-        conn.close()
+    ok, _row = check_record_ownership("shipment_requests", req_id)
+    if not _row:
         return jsonify({"success": False, "error": "找不到該申請"})
+    if not ok:
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    conn = get_db()
     conn.execute(
         "UPDATE shipment_requests SET payment_last5='', payment_at='' WHERE id=?",
         (req_id,)
@@ -1947,24 +2117,32 @@ def admin_unconfirm_payment(req_id):
 def admin_get_shipment_requests():
     """管理員查看所有出貨申請（含對應客戶的待處理預報資料）"""
     status = request.args.get("status", "")
+    aid = get_current_agent_id()
+    # 代理過濾片段
+    af = " AND agent_id=?" if aid > 0 else ""
+    aparams = (aid,) if aid > 0 else ()
     try:
         conn = get_db()
         if status == "已付款":
-            rows = conn.execute(
-                "SELECT * FROM shipment_requests WHERE status='已出貨' AND payment_last5 != '' AND payment_last5 IS NOT NULL ORDER BY payment_at DESC, id DESC"
-            ).fetchall()
+            sql = "SELECT * FROM shipment_requests WHERE status='已出貨' AND payment_last5 != '' AND payment_last5 IS NOT NULL" + af + " ORDER BY payment_at DESC, id DESC"
+            rows = conn.execute(sql, aparams).fetchall()
         elif status == "recent":
-            rows = conn.execute(
-                "SELECT * FROM shipment_requests ORDER BY id DESC LIMIT 50"
-            ).fetchall()
+            if aid > 0:
+                rows = conn.execute(
+                    "SELECT * FROM shipment_requests WHERE agent_id=? ORDER BY id DESC LIMIT 50", (aid,)
+                ).fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM shipment_requests ORDER BY id DESC LIMIT 50").fetchall()
         elif status:
-            rows = conn.execute(
-                "SELECT * FROM shipment_requests WHERE status=? ORDER BY id DESC", (status,)
-            ).fetchall()
+            sql = "SELECT * FROM shipment_requests WHERE status=?" + af + " ORDER BY id DESC"
+            rows = conn.execute(sql, (status,) + aparams).fetchall()
         else:
-            rows = conn.execute(
-                "SELECT * FROM shipment_requests ORDER BY id DESC LIMIT 50"
-            ).fetchall()
+            if aid > 0:
+                rows = conn.execute(
+                    "SELECT * FROM shipment_requests WHERE agent_id=? ORDER BY id DESC LIMIT 50", (aid,)
+                ).fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM shipment_requests ORDER BY id DESC LIMIT 50").fetchall()
 
         # 一次撈出涉及到的客戶的待處理預報（避免 N+1 查詢）
         g_codes = list({r["g_code"] for r in rows if r["g_code"]})
@@ -2002,6 +2180,11 @@ def admin_get_shipment_requests():
 @app.route("/api/admin/shipment_requests/<int:req_id>", methods=["PUT"])
 def admin_update_shipment_request(req_id):
     """管理員更新出貨申請狀態（含帳單資訊）"""
+    ok, _row = check_record_ownership("shipment_requests", req_id)
+    if not _row:
+        return jsonify({"success": False, "error": "找不到該申請"})
+    if not ok:
+        return jsonify({"success": False, "error": "權限不足"}), 403
     data = request.json
     status = data.get("status", "")
     admin_note = data.get("admin_note", "")
@@ -2067,11 +2250,13 @@ def admin_update_shipment_request(req_id):
 @app.route("/api/admin/shipment_requests/<int:req_id>/revert", methods=["POST"])
 def admin_revert_shipment_request(req_id):
     """還原出貨申請：狀態回到待處理，包裹回到已到貨，清空帳單"""
+    ok, _row = check_record_ownership("shipment_requests", req_id)
+    if not _row:
+        return jsonify({"success": False, "error": "找不到該申請"})
+    if not ok:
+        return jsonify({"success": False, "error": "權限不足"}), 403
     conn = get_db()
     req = conn.execute("SELECT * FROM shipment_requests WHERE id=?", (req_id,)).fetchone()
-    if not req:
-        conn.close()
-        return jsonify({"success": False, "error": "找不到該申請"})
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn.execute(
@@ -2160,21 +2345,28 @@ def admin_get_forecasts():
     """管理員查看所有預報"""
     status = request.args.get("status", "")
     g_code = request.args.get("g_code", "").upper()
+    aid = get_current_agent_id()
+    af = " AND agent_id=?" if aid > 0 else ""
+    aparams = (aid,) if aid > 0 else ()
     conn = get_db()
     if g_code and status:
         rows = conn.execute(
-            "SELECT * FROM forecasts WHERE g_code=? AND status=? ORDER BY id DESC", (g_code, status)
+            "SELECT * FROM forecasts WHERE g_code=? AND status=?" + af + " ORDER BY id DESC",
+            (g_code, status) + aparams
         ).fetchall()
     elif g_code:
         rows = conn.execute(
-            "SELECT * FROM forecasts WHERE g_code=? ORDER BY id DESC", (g_code,)
+            "SELECT * FROM forecasts WHERE g_code=?" + af + " ORDER BY id DESC", (g_code,) + aparams
         ).fetchall()
     elif status:
         rows = conn.execute(
-            "SELECT * FROM forecasts WHERE status=? ORDER BY id DESC", (status,)
+            "SELECT * FROM forecasts WHERE status=?" + af + " ORDER BY id DESC", (status,) + aparams
         ).fetchall()
     else:
-        rows = conn.execute("SELECT * FROM forecasts ORDER BY id DESC").fetchall()
+        if aid > 0:
+            rows = conn.execute("SELECT * FROM forecasts WHERE agent_id=? ORDER BY id DESC", (aid,)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM forecasts ORDER BY id DESC").fetchall()
     conn.close()
     results = []
     for r in rows:
@@ -2190,6 +2382,11 @@ def admin_get_forecasts():
 @app.route("/api/admin/forecasts/<int:fc_id>", methods=["PUT"])
 def admin_update_forecast(fc_id):
     """管理員更新預報狀態"""
+    ok, _row = check_record_ownership("forecasts", fc_id)
+    if not _row:
+        return jsonify({"success": False, "error": "找不到該預報"})
+    if not ok:
+        return jsonify({"success": False, "error": "權限不足"}), 403
     data = request.json
     status = data.get("status", "")
     conn = get_db()
@@ -2202,6 +2399,11 @@ def admin_update_forecast(fc_id):
 @app.route("/api/admin/forecasts/<int:fc_id>/excel")
 def admin_download_forecast_excel(fc_id):
     """下載單筆預報的 JPD Excel"""
+    ok, _row = check_record_ownership("forecasts", fc_id)
+    if not _row:
+        return "Not found", 404
+    if not ok:
+        return "Forbidden", 403
     conn = get_db()
     row = conn.execute("SELECT * FROM forecasts WHERE id=?", (fc_id,)).fetchone()
     conn.close()
