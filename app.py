@@ -902,6 +902,91 @@ def get_all_members():
         return jsonify({"success": False, "error": str(e)})
 
 
+@app.route("/api/admin/search_members", methods=["GET"])
+def admin_search_members():
+    """
+    跨會員搜尋（給新增到貨等場景使用，倉庫人員打字即時搜尋）
+    - 主管理員：搜本地 members 表 + Shopify 兩邊（含所有代理客戶）
+    - 代理：只搜自己 members 表的客戶
+    - 比對欄位：g_code、name、phone（去空白後）
+    """
+    q = (request.args.get("q") or "").strip()
+    try:
+        limit = int(request.args.get("limit", 15))
+    except (ValueError, TypeError):
+        limit = 15
+    limit = max(1, min(limit, 50))
+
+    if not q or len(q) < 1:
+        return jsonify({"success": True, "results": []})
+
+    q_upper = q.upper()
+    q_phone = normalize_phone(q)
+    pattern = f"%{q_upper}%"
+    pattern_phone = f"%{q_phone}%"
+    aid = get_current_agent_id()
+    results = []
+
+    conn = get_db()
+    # 本地 members（代理建的客戶）
+    if aid > 0:
+        local = conn.execute("""
+            SELECT g_code, name, phone, address, agent_id, status
+            FROM members
+            WHERE agent_id=? AND status='active'
+              AND (UPPER(g_code) LIKE ? OR UPPER(name) LIKE ? OR phone LIKE ?)
+            ORDER BY g_code LIMIT ?
+        """, (aid, pattern, pattern, pattern_phone, limit)).fetchall()
+    else:
+        local = conn.execute("""
+            SELECT m.g_code, m.name, m.phone, m.address, m.agent_id, m.status,
+                   a.name as agent_name, a.prefix as agent_prefix
+            FROM members m
+            LEFT JOIN agents a ON a.id = m.agent_id
+            WHERE m.status='active'
+              AND (UPPER(m.g_code) LIKE ? OR UPPER(m.name) LIKE ? OR m.phone LIKE ?)
+            ORDER BY m.g_code LIMIT ?
+        """, (pattern, pattern, pattern_phone, limit)).fetchall()
+    conn.close()
+
+    for r in local:
+        d = dict(r)
+        results.append({
+            "g_code": d.get("g_code"),
+            "name": d.get("name") or "",
+            "phone": d.get("phone") or "",
+            "address": d.get("address") or "",
+            "source": "agent",
+            "agent_id": d.get("agent_id") or 0,
+            "agent_name": d.get("agent_name") or "",
+        })
+
+    # Shopify 客戶（僅主管理員視角）
+    if aid == 0:
+        try:
+            customers = get_all_goyoutati_customers()
+            for c in customers:
+                if len(results) >= limit:
+                    break
+                gc = (c.get("g_code") or "").upper()
+                nm = (c.get("name") or "").upper()
+                ph = c.get("phone") or ""
+                if q_upper in gc or q_upper in nm or (q_phone and q_phone in ph):
+                    results.append({
+                        "g_code": c.get("g_code"),
+                        "name": c.get("name") or "",
+                        "phone": ph,
+                        "address": c.get("address") or "",
+                        "source": "shopify",
+                        "agent_id": 0,
+                        "agent_name": "",
+                    })
+        except Exception as e:
+            print(f"[search_members] Shopify 搜尋失敗：{e}", flush=True)
+
+    return jsonify({"success": True, "results": results[:limit]})
+
+
 @app.route("/api/admin/members", methods=["POST"])
 def admin_create_member():
     """代理新增會員（自動補前綴與 agent_id）。主管理員建議直接在 Shopify 操作。"""
