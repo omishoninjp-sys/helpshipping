@@ -3,7 +3,7 @@
 GOYOUTATI x OMISHONIN 雲倉
 """
 
-from flask import Flask, request, jsonify, render_template, make_response, send_file
+from flask import Flask, request, jsonify, render_template, make_response, send_file, session
 from datetime import datetime, timedelta
 import requests
 import json
@@ -12,10 +12,17 @@ import sqlite3
 import csv
 import io
 import time
+import re
+import secrets
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 app = Flask(__name__)
+# Session 設定（環境變數 SESSION_SECRET 沒設就用隨機值，每次重啟會失效但不會暴露 fallback）
+app.secret_key = os.environ.get("SESSION_SECRET") or secrets.token_hex(32)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=7)
 
 # ============ 設定區（從環境變數讀取）============
 JPD_BASE_URL = "https://biz.cloudwh.jp"
@@ -122,6 +129,39 @@ def init_db():
             created_at  TEXT    NOT NULL
         )
     """)
+    # ===== 代理帳號表（Phase 1）=====
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS agents (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            username        TEXT UNIQUE NOT NULL,
+            password        TEXT NOT NULL,
+            prefix          TEXT UNIQUE NOT NULL,
+            name            TEXT NOT NULL,
+            min_rate        REAL DEFAULT 180,
+            contact_phone   TEXT DEFAULT '',
+            contact_email   TEXT DEFAULT '',
+            status          TEXT DEFAULT 'active',
+            note            TEXT DEFAULT '',
+            created_at      TEXT NOT NULL
+        )
+    """)
+    # ===== 會員表（代理建的客戶，存本地；你自己的客戶仍走 Shopify）=====
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS members (
+            g_code          TEXT PRIMARY KEY,
+            agent_id        INTEGER NOT NULL,
+            name            TEXT NOT NULL,
+            password        TEXT DEFAULT '',
+            phone           TEXT DEFAULT '',
+            address         TEXT DEFAULT '',
+            line_id         TEXT DEFAULT '',
+            email           TEXT DEFAULT '',
+            note            TEXT DEFAULT '',
+            status          TEXT DEFAULT 'active',
+            created_at      TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_members_agent ON members(agent_id)")
     # 帳單欄位遷移（已存在的表加欄位）
     for col, col_type, default in [
         ("admin_note", "TEXT", "''"),
@@ -389,22 +429,101 @@ def admin_verify():
     print(f"[Login] 嘗試登入: username='{username}'", flush=True)
 
     conn = get_db()
+    user = None
+    user_type = None
+
+    # 1) 先查管理員（admin_users）— 既有行為不變
     if username:
         user = conn.execute(
             "SELECT * FROM admin_users WHERE username=? AND password=?", (username, password)
         ).fetchone()
     else:
-        # 相容舊的純密碼登入：找密碼匹配的任一帳號
+        # 相容舊的純密碼登入
         user = conn.execute(
             "SELECT * FROM admin_users WHERE password=?", (password,)
         ).fetchone()
+    if user:
+        user_type = "admin"
+
+    # 2) admin 找不到 → 再查代理（agents）
+    if not user and username:
+        user = conn.execute(
+            "SELECT * FROM agents WHERE username=? AND password=? AND status='active'",
+            (username, password)
+        ).fetchone()
+        if user:
+            user_type = "agent"
     conn.close()
 
     if user:
-        print(f"[Login] ✅ 登入成功: {user['username']} ({user['role']})", flush=True)
-        return jsonify({"success": True, "username": user["username"], "role": user["role"]})
+        # 寫入 session
+        session.permanent = True
+        session["user_type"] = user_type
+        session["user_id"] = user["id"]
+        session["username"] = user["username"]
+        if user_type == "admin":
+            session["role"] = user["role"]
+            session["agent_id"] = 0  # 0 = 主管理員 / 你的員工，看全部
+            print(f"[Login] ✅ admin 登入: {user['username']} ({user['role']})", flush=True)
+            return jsonify({
+                "success": True,
+                "user_type": "admin",
+                "username": user["username"],
+                "role": user["role"]
+            })
+        else:
+            session["role"] = "agent"
+            session["agent_id"] = user["id"]
+            session["prefix"] = user["prefix"]
+            print(f"[Login] ✅ agent 登入: {user['username']} (prefix={user['prefix']}, id={user['id']})", flush=True)
+            return jsonify({
+                "success": True,
+                "user_type": "agent",
+                "username": user["username"],
+                "name": user["name"],
+                "prefix": user["prefix"]
+            })
+
     print(f"[Login] ❌ 登入失敗", flush=True)
     return jsonify({"success": False, "error": "帳號或密碼錯誤"})
+
+
+# ===== 身份輔助函式 =====
+def current_user():
+    """回傳當前登入者資訊（從 session）"""
+    if "user_type" not in session:
+        return None
+    return {
+        "user_type": session.get("user_type"),
+        "user_id": session.get("user_id"),
+        "username": session.get("username"),
+        "role": session.get("role"),
+        "agent_id": session.get("agent_id", 0),
+        "prefix": session.get("prefix", "G"),
+    }
+
+def is_super_admin():
+    """是否為主管理員（admin_users 表的人，看全部）"""
+    return session.get("user_type") == "admin"
+
+def get_current_agent_id():
+    """當前代理 id（>0 才是代理，0 = 主管理員看全部）"""
+    return int(session.get("agent_id", 0))
+
+
+@app.route("/api/me", methods=["GET"])
+def api_me():
+    """前端查當前身份"""
+    u = current_user()
+    if not u:
+        return jsonify({"logged_in": False})
+    return jsonify({"logged_in": True, **u})
+
+
+@app.route("/api/admin/logout", methods=["POST"])
+def admin_logout():
+    session.clear()
+    return jsonify({"success": True})
 
 
 @app.route("/api/admin/change_password", methods=["POST"])
@@ -441,6 +560,170 @@ def admin_list_users():
     rows = conn.execute("SELECT id, username, role, created_at FROM admin_users ORDER BY id").fetchall()
     conn.close()
     return jsonify({"success": True, "users": [dict(r) for r in rows]})
+
+
+# ===== 代理帳號管理（只有主管理員可操作）=====
+
+@app.route("/api/admin/agents", methods=["GET"])
+def admin_list_agents():
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, username, prefix, name, min_rate, contact_phone, contact_email, status, note, created_at FROM agents ORDER BY id"
+    ).fetchall()
+    # 順便統計每個代理底下的會員數
+    counts = {}
+    for r in conn.execute("SELECT agent_id, COUNT(*) as c FROM members GROUP BY agent_id").fetchall():
+        counts[r["agent_id"]] = r["c"]
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d["member_count"] = counts.get(r["id"], 0)
+        result.append(d)
+    return jsonify({"success": True, "agents": result})
+
+
+@app.route("/api/admin/agents", methods=["POST"])
+def admin_create_agent():
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    data = request.json or {}
+    username = (data.get("username") or "").strip()
+    password = (data.get("password") or "").strip()
+    prefix = (data.get("prefix") or "").strip().upper()
+    name = (data.get("name") or "").strip()
+    min_rate = float(data.get("min_rate") or 180)
+
+    if not username or not password or not prefix or not name:
+        return jsonify({"success": False, "error": "帳號、密碼、前綴、名稱皆為必填"})
+    if not re.fullmatch(r"[A-Z]", prefix):
+        return jsonify({"success": False, "error": "前綴必須為單一英文字母（A-Z）"})
+    if prefix == "G":
+        return jsonify({"success": False, "error": "前綴 G 已保留給主管理員"})
+    if min_rate < 180:
+        return jsonify({"success": False, "error": "最低費率不得低於 NT$180/kg"})
+
+    conn = get_db()
+    try:
+        conn.execute(
+            """INSERT INTO agents (username, password, prefix, name, min_rate, contact_phone, contact_email, status, note, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)""",
+            (username, password, prefix, name, min_rate,
+             data.get("contact_phone", ""), data.get("contact_email", ""),
+             data.get("note", ""), datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        )
+        conn.commit()
+        new_id = conn.execute("SELECT last_insert_rowid() as id").fetchone()["id"]
+    except sqlite3.IntegrityError as e:
+        conn.close()
+        msg = str(e)
+        if "agents.username" in msg:
+            return jsonify({"success": False, "error": f"帳號「{username}」已被使用"})
+        if "agents.prefix" in msg:
+            return jsonify({"success": False, "error": f"前綴「{prefix}」已被使用"})
+        return jsonify({"success": False, "error": f"資料庫錯誤：{msg}"})
+    conn.close()
+    return jsonify({"success": True, "id": new_id, "message": f"代理「{name}」已建立（前綴 {prefix}）"})
+
+
+@app.route("/api/admin/agents/<int:agent_id>", methods=["PUT"])
+def admin_update_agent(agent_id):
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    data = request.json or {}
+    conn = get_db()
+    existing = conn.execute("SELECT * FROM agents WHERE id=?", (agent_id,)).fetchone()
+    if not existing:
+        conn.close()
+        return jsonify({"success": False, "error": "代理不存在"})
+
+    fields = []
+    values = []
+    # 可改：name, min_rate, contact_phone, contact_email, status, note, password
+    if "name" in data:
+        fields.append("name=?"); values.append((data["name"] or "").strip())
+    if "min_rate" in data:
+        try:
+            mr = float(data["min_rate"])
+            if mr < 180:
+                conn.close()
+                return jsonify({"success": False, "error": "最低費率不得低於 NT$180/kg"})
+            fields.append("min_rate=?"); values.append(mr)
+        except (ValueError, TypeError):
+            conn.close()
+            return jsonify({"success": False, "error": "費率必須為數字"})
+    if "contact_phone" in data:
+        fields.append("contact_phone=?"); values.append(data["contact_phone"] or "")
+    if "contact_email" in data:
+        fields.append("contact_email=?"); values.append(data["contact_email"] or "")
+    if "status" in data and data["status"] in ("active", "disabled"):
+        fields.append("status=?"); values.append(data["status"])
+    if "note" in data:
+        fields.append("note=?"); values.append(data["note"] or "")
+    if data.get("password"):
+        fields.append("password=?"); values.append(data["password"])
+    # 前綴與帳號名建立後不可改（避免關聯混亂）
+
+    if not fields:
+        conn.close()
+        return jsonify({"success": False, "error": "沒有可更新的欄位"})
+    values.append(agent_id)
+    conn.execute(f"UPDATE agents SET {', '.join(fields)} WHERE id=?", values)
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "message": "已更新"})
+
+
+@app.route("/api/admin/agents/<int:agent_id>", methods=["DELETE"])
+def admin_delete_agent(agent_id):
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    conn = get_db()
+    # 安全檢查：若已有會員，不允許刪（避免孤兒資料）
+    count = conn.execute("SELECT COUNT(*) as c FROM members WHERE agent_id=?", (agent_id,)).fetchone()["c"]
+    if count > 0:
+        conn.close()
+        return jsonify({"success": False, "error": f"此代理底下尚有 {count} 位會員，無法刪除。可改為「停用（disabled）」狀態"})
+    conn.execute("DELETE FROM agents WHERE id=?", (agent_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "message": "代理已刪除"})
+
+
+# ===== 統一會員查詢（本地 members 優先、找不到回退 Shopify）=====
+def get_member_unified(g_code):
+    """
+    回傳 {g_code, name, agent_id, phone, address, source} 或 None
+    - source='local'  → 來自代理建的會員（agent_id > 0）
+    - source='shopify' → 來自你的 Shopify（agent_id = 0）
+    """
+    if not g_code:
+        return None
+    conn = get_db()
+    row = conn.execute("SELECT * FROM members WHERE g_code=?", (g_code,)).fetchone()
+    conn.close()
+    if row:
+        d = dict(row)
+        d["source"] = "local"
+        return d
+    # 回退到 Shopify 快取
+    try:
+        for c in get_all_goyoutati_customers():
+            if (c.get("g_code") or "") == g_code:
+                return {
+                    "g_code": g_code,
+                    "name": c.get("name", ""),
+                    "phone": c.get("phone", ""),
+                    "address": c.get("address", ""),
+                    "agent_id": 0,
+                    "source": "shopify"
+                }
+    except Exception as e:
+        print(f"[get_member_unified] Shopify 查詢失敗: {e}", flush=True)
+    return None
+
 
 @app.route("/api/admin/users", methods=["POST"])
 def admin_create_user():
