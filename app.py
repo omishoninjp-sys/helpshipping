@@ -673,6 +673,61 @@ def api_branding():
         return jsonify({"success": True, **_branding_dict(None)})
 
 
+@app.route("/api/agent/my_branding", methods=["GET", "PUT"])
+def agent_my_branding():
+    """代理自助：查看與編輯自己的品牌設定"""
+    aid = get_current_agent_id()
+    if aid <= 0:
+        return jsonify({"success": False, "error": "僅代理可使用此功能"}), 403
+    conn = get_db()
+    if request.method == "GET":
+        row = conn.execute("SELECT * FROM agents WHERE id=?", (aid,)).fetchone()
+        conn.close()
+        if not row:
+            return jsonify({"success": False, "error": "代理資料異常"}), 500
+        d = dict(row)
+        return jsonify({
+            "success": True,
+            "agent": {
+                "id": d["id"],
+                "name": d.get("name", ""),
+                "prefix": d.get("prefix", ""),
+                "min_rate": d.get("min_rate", 0),
+                "contact_phone": d.get("contact_phone", ""),
+                "contact_email": d.get("contact_email", ""),
+                "contact_line": d.get("contact_line", ""),
+                "insurance_url": d.get("insurance_url", ""),
+                "insurance_label": d.get("insurance_label", ""),
+                "insurance_desc": d.get("insurance_desc", ""),
+                "signup_guide": d.get("signup_guide", ""),
+            }
+        })
+    # PUT：更新自己的品牌欄位（不能改帳號、前綴、密碼、狀態、min_rate）
+    data = request.json or {}
+    fields, values = [], []
+    # 允許代理自己改的欄位：聯絡方式 + 品牌
+    for col in ["name", "contact_phone", "contact_email", "contact_line",
+                "insurance_url", "insurance_label", "insurance_desc", "signup_guide"]:
+        if col in data:
+            fields.append(f"{col}=?"); values.append((data[col] or "").strip())
+    # min_rate 開放代理自設費率
+    if "min_rate" in data:
+        try:
+            mr = float(data["min_rate"])
+            fields.append("min_rate=?"); values.append(mr)
+        except (ValueError, TypeError):
+            conn.close()
+            return jsonify({"success": False, "error": "費率必須為數字"})
+    if not fields:
+        conn.close()
+        return jsonify({"success": False, "error": "沒有可更新欄位"})
+    values.append(aid)
+    conn.execute(f"UPDATE agents SET {', '.join(fields)} WHERE id=?", values)
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "message": "已儲存"})
+
+
 @app.route("/api/admin/agents", methods=["POST"])
 def admin_create_agent():
     if not is_super_admin():
@@ -690,8 +745,7 @@ def admin_create_agent():
         return jsonify({"success": False, "error": "前綴必須為單一英文字母（A-Z）"})
     if prefix == "G":
         return jsonify({"success": False, "error": "前綴 G 已保留給主管理員"})
-    if min_rate < 180:
-        return jsonify({"success": False, "error": "最低費率不得低於 NT$180/kg"})
+    # min_rate 已開放代理自由設定（不再有 180 下限）
 
     conn = get_db()
     try:
@@ -739,9 +793,6 @@ def admin_update_agent(agent_id):
     if "min_rate" in data:
         try:
             mr = float(data["min_rate"])
-            if mr < 180:
-                conn.close()
-                return jsonify({"success": False, "error": "最低費率不得低於 NT$180/kg"})
             fields.append("min_rate=?"); values.append(mr)
         except (ValueError, TypeError):
             conn.close()
@@ -776,15 +827,38 @@ def admin_update_agent(agent_id):
 def admin_delete_agent(agent_id):
     if not is_super_admin():
         return jsonify({"success": False, "error": "權限不足"}), 403
+    transfer = request.args.get("transfer") == "1"
     conn = get_db()
-    # 安全檢查：若已有會員，不允許刪（避免孤兒資料）
-    count = conn.execute("SELECT COUNT(*) as c FROM members WHERE agent_id=?", (agent_id,)).fetchone()["c"]
-    if count > 0:
+    # 統計關聯資料
+    cm = conn.execute("SELECT COUNT(*) as c FROM members WHERE agent_id=?", (agent_id,)).fetchone()["c"]
+    cp = conn.execute("SELECT COUNT(*) as c FROM packages WHERE agent_id=?", (agent_id,)).fetchone()["c"]
+    cf = conn.execute("SELECT COUNT(*) as c FROM forecasts WHERE agent_id=?", (agent_id,)).fetchone()["c"]
+    cs = conn.execute("SELECT COUNT(*) as c FROM shipment_requests WHERE agent_id=?", (agent_id,)).fetchone()["c"]
+    has_data = (cm + cp + cf + cs) > 0
+    if has_data and not transfer:
         conn.close()
-        return jsonify({"success": False, "error": f"此代理底下尚有 {count} 位會員，無法刪除。可改為「停用（disabled）」狀態"})
+        return jsonify({
+            "success": False,
+            "needs_transfer": True,
+            "stats": {"members": cm, "packages": cp, "forecasts": cf, "shipment_requests": cs},
+            "error": f"此代理底下尚有 {cm} 位會員 / {cp} 個包裹 / {cf} 個預報 / {cs} 個出貨紀錄。請改用「離職移交」將資料轉回主管理員。"
+        })
+    if has_data and transfer:
+        # 全部 agent_id 改為 0 （= 主管理員 / 你）
+        conn.execute("UPDATE members SET agent_id=0 WHERE agent_id=?", (agent_id,))
+        conn.execute("UPDATE packages SET agent_id=0 WHERE agent_id=?", (agent_id,))
+        conn.execute("UPDATE forecasts SET agent_id=0 WHERE agent_id=?", (agent_id,))
+        conn.execute("UPDATE shipment_requests SET agent_id=0 WHERE agent_id=?", (agent_id,))
+        print(f"[transfer] agent_id={agent_id} 移交 {cm} 會員 / {cp} 包裹 / {cf} 預報 / {cs} 出貨 給主管理員", flush=True)
     conn.execute("DELETE FROM agents WHERE id=?", (agent_id,))
     conn.commit()
     conn.close()
+    if has_data and transfer:
+        return jsonify({
+            "success": True,
+            "transferred": {"members": cm, "packages": cp, "forecasts": cf, "shipment_requests": cs},
+            "message": f"已離職移交：{cm} 位會員、{cp} 個包裹、{cf} 個預報、{cs} 個出貨紀錄已轉回主管理員。會員編號保留不變。"
+        })
     return jsonify({"success": True, "message": "代理已刪除"})
 
 
@@ -958,9 +1032,34 @@ def get_all_members():
                 "source": "agent_local",
             })
 
-        # ===== 主管理員：原有 Shopify 行為（不動）=====
+        # ===== 主管理員：Shopify + 本地離職移交的會員 =====
         force = request.args.get("refresh") == "1"
         members = get_all_goyoutati_customers(force_refresh=force)
+        # 附加 agent_id=0 的本地會員（離職代理移交來的）
+        try:
+            conn0 = get_db()
+            local_rows = conn0.execute(
+                "SELECT * FROM members WHERE agent_id=0 ORDER BY g_code"
+            ).fetchall()
+            conn0.close()
+            for r in local_rows:
+                d = dict(r)
+                m_rate = float(d.get("shipping_rate") or 0)
+                members.append({
+                    "g_code": d.get("g_code", ""),
+                    "name": d.get("name", ""),
+                    "phone": d.get("phone", ""),
+                    "address": d.get("address", ""),
+                    "line_id": d.get("line_id", ""),
+                    "email": d.get("email", ""),
+                    "shipping_rate": m_rate if m_rate > 0 else DEFAULT_SHIPPING_RATE,
+                    "note": d.get("note", ""),
+                    "status": d.get("status", "active"),
+                    "source": "transferred",  # 標記為移交來的
+                    "customer_id": "",  # 本地會員無 Shopify ID
+                })
+        except Exception as e:
+            print(f"[admin members] 抓本地會員失敗: {e}", flush=True)
         members.sort(key=lambda x: x["g_code"])
         used_numbers = set()
         for m in members:
@@ -1131,12 +1230,7 @@ def admin_create_member():
         except (ValueError, TypeError):
             conn.close()
             return jsonify({"success": False, "error": "運費必須為數字"})
-        # 取該代理 min_rate
-        ag_row = conn.execute("SELECT min_rate FROM agents WHERE id=?", (aid,)).fetchone()
-        min_rate = float(ag_row["min_rate"] or 180) if ag_row else 180.0
-        if rate_val < min_rate:
-            conn.close()
-            return jsonify({"success": False, "error": f"運費 NT${rate_val}/kg 低於您的最低費率 NT${int(min_rate)}/kg"})
+        # 代理可自由設定費率，無下限
     try:
         conn.execute(
             """INSERT INTO members (g_code, agent_id, name, phone, address, line_id, email, note, status, created_at, shipping_rate)
@@ -1188,12 +1282,7 @@ def admin_update_member(g_code):
             except (ValueError, TypeError):
                 conn.close()
                 return jsonify({"success": False, "error": "運費必須為數字"})
-            if aid > 0:
-                ag_row = conn.execute("SELECT min_rate FROM agents WHERE id=?", (aid,)).fetchone()
-                min_rate = float(ag_row["min_rate"] or 180) if ag_row else 180.0
-                if rate_val < min_rate:
-                    conn.close()
-                    return jsonify({"success": False, "error": f"運費 NT${rate_val}/kg 低於您的最低費率 NT${int(min_rate)}/kg"})
+            # 代理可自由設定費率，無下限
         fields.append("shipping_rate=?"); values.append(rate_val)
     if not fields:
         conn.close()
@@ -2580,21 +2669,7 @@ def admin_update_shipment_request(req_id):
     tracking_num = data.get("tracking_num", "")
     extra_services = json.dumps(data.get("extra_services", []), ensure_ascii=False)
 
-    # 代理出貨時：強制 rate_per_kg 不得低於自己的最低費率
-    aid = get_current_agent_id()
-    if aid > 0 and status == "已出貨" and rate_per_kg:
-        try:
-            rate_val = float(rate_per_kg)
-            ag = conn.execute("SELECT min_rate FROM agents WHERE id=?", (aid,)).fetchone()
-            min_rate = float(ag["min_rate"]) if ag and ag["min_rate"] else 180.0
-            if rate_val < min_rate:
-                conn.close()
-                return jsonify({
-                    "success": False,
-                    "error": f"運費 NT${rate_val}/kg 低於你的最低費率 NT${min_rate}/kg"
-                })
-        except (ValueError, TypeError):
-            pass
+    # 代理可自由設定費率，無下限（min_rate 僅為 UI 預設值參考）
 
     if status == "已出貨" and billed_weight:
         conn.execute(

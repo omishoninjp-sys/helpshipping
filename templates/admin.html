@@ -307,6 +307,7 @@
                 <div class="sidebar-item" onclick="switchAdminTab('stats')">📊 統計</div>
                 <div class="sidebar-divider"></div>
                 <div class="sidebar-item" id="sidebar-agents" onclick="switchAdminTab('agents')" style="display:none;">🤝 代理管理</div>
+                <div class="sidebar-item" id="sidebar-my-branding" onclick="switchAdminTab('mybranding')" style="display:none;">🎨 我的品牌設定</div>
                 <div class="sidebar-item" onclick="openChangePwd()" style="color:#666;">🔑 變更密碼</div>
             </div>
             <div class="admin-main">
@@ -560,6 +561,87 @@
             </div>
         </div>
 
+        <!-- 我的品牌設定（代理自助）-->
+        <div class="admin-panel" id="panel-mybranding">
+            <div class="card">
+                <div class="toolbar">
+                    <h3>🎨 我的品牌設定</h3>
+                </div>
+                <div style="font-size:13px;color:#888;padding:0 4px 14px;line-height:1.7;">
+                    這裡的設定會出現在您的客戶網址（referral URL）所看到的頁面，以及您的會員登入後看到的內容。
+                </div>
+
+                <!-- 客戶網址 -->
+                <div style="padding:14px 16px;background:rgba(52,152,219,0.08);border:1px solid rgba(52,152,219,0.25);border-radius:10px;margin-bottom:18px;">
+                    <div style="font-size:12px;color:#888;margin-bottom:6px;">📎 您的客戶推廣連結（請發給您的客戶）</div>
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <code id="mb-referral-url" style="background:rgba(0,0,0,0.3);padding:6px 12px;border-radius:6px;color:#3498db;font-size:13px;flex:1;min-width:200px;">─ 載入中 ─</code>
+                        <button class="btn" id="mb-copy-btn" style="background:rgba(52,152,219,.2);color:#3498db;padding:6px 12px;font-size:12px;" onclick="copyMyReferralUrl()">📋 複製連結</button>
+                    </div>
+                </div>
+
+                <!-- 基本資訊 -->
+                <div class="form-group">
+                    <label>顯示名稱（您的代理品牌名）</label>
+                    <input type="text" id="mb-name" class="form-control" placeholder="例：王老闆集運">
+                    <p style="font-size:11px;color:#888;margin-top:4px;">會出現在 banner、頁面標題、客戶資訊區</p>
+                </div>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="form-group">
+                        <label>聯絡電話</label>
+                        <input type="text" id="mb-phone" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>聯絡 Email</label>
+                        <input type="text" id="mb-email" class="form-control">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>預設費率 (NT$/kg)</label>
+                    <input type="number" id="mb-min-rate" class="form-control" step="1" min="0">
+                    <p style="font-size:11px;color:#888;margin-top:4px;">建立新會員時的預設運費（每位會員仍可獨立設定）</p>
+                </div>
+
+                <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:20px 0;">
+
+                <!-- 客戶看到的內容 -->
+                <div style="font-size:13px;font-weight:700;color:#a673c4;margin-bottom:10px;">👥 客戶端看到的內容</div>
+
+                <div class="form-group">
+                    <label>LINE 連結（或 LINE ID）</label>
+                    <input type="text" id="mb-contact-line" class="form-control" placeholder="https://line.me/R/ti/p/@xxx 或 @xxx">
+                    <p style="font-size:11px;color:#888;margin-top:4px;">客戶會看到的客服 LINE</p>
+                </div>
+
+                <div class="form-group">
+                    <label>申請會員指引（給訪客看的文案）</label>
+                    <textarea id="mb-signup-guide" class="form-control" rows="3" placeholder="例：請加 LINE @xxx 私訊「申請會員」，並提供姓名、電話、地址，我們會幫您建立集運帳號。"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>保險商品連結（選填）</label>
+                    <input type="text" id="mb-insurance-url" class="form-control" placeholder="https://...">
+                    <p style="font-size:11px;color:#888;margin-top:4px;">留空 = 客戶端不顯示保險區塊</p>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="form-group">
+                        <label>保險按鈕文字</label>
+                        <input type="text" id="mb-insurance-label" class="form-control" placeholder="立即加購保險">
+                    </div>
+                    <div class="form-group">
+                        <label>保險說明</label>
+                        <input type="text" id="mb-insurance-desc" class="form-control" placeholder="例：最高賠償 25 萬日圓">
+                    </div>
+                </div>
+
+                <div style="text-align:right;margin-top:18px;">
+                    <button class="btn btn-primary" style="padding:10px 28px;" onclick="saveMyBranding()">💾 儲存設定</button>
+                </div>
+            </div>
+        </div>
+
         <!-- 會員新增/編輯 Modal（代理用）-->
         <div class="modal-overlay" id="memberModal">
             <div class="modal-box" style="max-width:520px;max-height:88vh;overflow-y:auto;">
@@ -583,8 +665,8 @@
                 </div>
                 <div class="form-group">
                     <label>運費單價（NT$ / kg）<span id="member-rate-hint" style="font-size:11px;color:#888;font-weight:400;"></span></label>
-                    <input type="number" id="member-rate" class="form-control" step="1" min="0" placeholder="留空 = 沿用您的最低費率">
-                    <p style="font-size:11px;color:#888;margin-top:4px;">此費率僅適用於本會員。留空表示使用您的代理最低費率。</p>
+                    <input type="number" id="member-rate" class="form-control" step="1" min="0" placeholder="留空 = 沿用您的預設費率">
+                    <p style="font-size:11px;color:#888;margin-top:4px;">此費率僅適用於本會員。留空表示使用您的預設費率。</p>
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                     <div class="form-group">
@@ -643,9 +725,9 @@
                         <p style="font-size:11px;color:#888;margin-top:4px;">單一英文字母，建立後不可改</p>
                     </div>
                     <div class="form-group">
-                        <label>最低費率 (NT$/kg)</label>
-                        <input type="number" id="agent-min-rate" class="form-control" value="180" min="180">
-                        <p style="font-size:11px;color:#888;margin-top:4px;">不得低於 180</p>
+                        <label>預設費率 (NT$/kg)</label>
+                        <input type="number" id="agent-min-rate" class="form-control" value="200" min="0">
+                        <p style="font-size:11px;color:#888;margin-top:4px;">代理建立會員時的預設運費（每位會員可獨立設定）</p>
                     </div>
                 </div>
                 <div class="form-group">
@@ -1010,6 +1092,9 @@ async function adminLogin() {
             if (sbAgents) sbAgents.style.display = currentAdmin.user_type === 'admin' ? '' : 'none';
             var sbAnn = document.getElementById('sidebar-announcements');
             if (sbAnn) sbAnn.style.display = currentAdmin.user_type === 'admin' ? '' : 'none';
+            // 代理專屬：我的品牌設定
+            var sbMB = document.getElementById('sidebar-my-branding');
+            if (sbMB) sbMB.style.display = currentAdmin.user_type === 'agent' ? '' : 'none';
             document.getElementById('loginSection').classList.add('hidden');
             document.getElementById('mainContent').classList.add('active');
             fetch('/api/config').then(r => r.json()).then(cfg => {
@@ -1059,6 +1144,65 @@ function switchAdminTab(tab) {
     if (tab === 'announcements') loadAnnouncements();
     if (tab === 'stats') loadStats();
     if (tab === 'agents') loadAgents();
+    if (tab === 'mybranding') loadMyBranding();
+}
+
+// ===== 我的品牌設定（代理自助）=====
+var _myBrandingPrefix = '';
+async function loadMyBranding() {
+    try {
+        var res = await fetch('/api/agent/my_branding');
+        var result = await res.json();
+        if (!result.success) { showToast(result.error || '載入失敗', 'error'); return; }
+        var a = result.agent || {};
+        _myBrandingPrefix = a.prefix || '';
+        document.getElementById('mb-name').value = a.name || '';
+        document.getElementById('mb-phone').value = a.contact_phone || '';
+        document.getElementById('mb-email').value = a.contact_email || '';
+        document.getElementById('mb-min-rate').value = a.min_rate || 0;
+        document.getElementById('mb-contact-line').value = a.contact_line || '';
+        document.getElementById('mb-signup-guide').value = a.signup_guide || '';
+        document.getElementById('mb-insurance-url').value = a.insurance_url || '';
+        document.getElementById('mb-insurance-label').value = a.insurance_label || '';
+        document.getElementById('mb-insurance-desc').value = a.insurance_desc || '';
+        // 客戶網址
+        if (a.prefix) {
+            var refUrl = window.location.origin + '/?a=' + a.prefix;
+            document.getElementById('mb-referral-url').textContent = refUrl;
+        }
+    } catch(e) { showToast('網路錯誤', 'error'); }
+}
+
+function copyMyReferralUrl() {
+    if (!_myBrandingPrefix) { showToast('資料還在載入', 'error'); return; }
+    var refUrl = window.location.origin + '/?a=' + _myBrandingPrefix;
+    navigator.clipboard.writeText(refUrl).then(function(){ showToast('✅ 已複製：' + refUrl, 'success'); });
+}
+
+async function saveMyBranding() {
+    var body = {
+        name: document.getElementById('mb-name').value.trim(),
+        contact_phone: document.getElementById('mb-phone').value.trim(),
+        contact_email: document.getElementById('mb-email').value.trim(),
+        min_rate: parseFloat(document.getElementById('mb-min-rate').value) || 0,
+        contact_line: document.getElementById('mb-contact-line').value.trim(),
+        signup_guide: document.getElementById('mb-signup-guide').value.trim(),
+        insurance_url: document.getElementById('mb-insurance-url').value.trim(),
+        insurance_label: document.getElementById('mb-insurance-label').value.trim(),
+        insurance_desc: document.getElementById('mb-insurance-desc').value.trim(),
+    };
+    if (!body.name) { showToast('顯示名稱必填', 'error'); return; }
+    try {
+        var res = await fetch('/api/agent/my_branding', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        var result = await res.json();
+        if (result.success) {
+            showToast(result.message || '✅ 已儲存', 'success');
+            // 代理改了品牌名 → 更新 currentAdmin 以同步
+            if (currentAdmin) currentAdmin.name = body.name;
+        } else {
+            showToast('❌ ' + (result.error || '儲存失敗'), 'error');
+        }
+    } catch(e) { showToast('網路錯誤', 'error'); }
 }
 
 // ===== 代理會員 CRUD (Phase 2C) =====
@@ -1084,10 +1228,10 @@ function openMemberModal(member) {
     // 運費：編輯時若 shipping_rate_raw > 0 顯示專屬費率；否則留空（=沿用 min_rate）
     var rateRaw = editing ? (member.shipping_rate_raw || 0) : 0;
     document.getElementById('member-rate').value = rateRaw > 0 ? rateRaw : '';
-    // 顯示提示：您的最低費率 NT$xxx/kg
-    var minRate = window.agentMinRate || 180;
-    document.getElementById('member-rate-hint').textContent = '（您的最低費率 NT$' + minRate + '/kg）';
-    document.getElementById('member-rate').setAttribute('min', minRate);
+    // 顯示提示：您的預設費率 NT$xxx/kg
+    var minRate = window.agentMinRate || 200;
+    document.getElementById('member-rate-hint').textContent = '（您的預設費率 NT$' + minRate + '/kg）';
+    document.getElementById('member-rate').setAttribute('min', 0);
     document.getElementById('memberModal').classList.add('show');
 }
 
@@ -1172,7 +1316,7 @@ async function loadAgents() {
                 + '</div>'
                 + '<div style="display:flex;flex-wrap:wrap;gap:18px;font-size:13px;color:#ccc;margin-bottom:10px;">'
                 +   '<span><span style="color:#888;">登入帳號：</span><strong style="color:#fff;">' + a.username + '</strong></span>'
-                +   '<span><span style="color:#888;">最低費率：</span><strong style="color:#f39c12;">NT$ ' + a.min_rate + '/kg</strong></span>'
+                +   '<span><span style="color:#888;">預設費率：</span><strong style="color:#f39c12;">NT$ ' + a.min_rate + '/kg</strong></span>'
                 +   '<span><span style="color:#888;">底下會員：</span><strong style="color:#fff;">' + (a.member_count || 0) + ' 人</strong></span>'
                 +   (a.contact_phone ? '<span><span style="color:#888;">電話：</span>' + a.contact_phone + '</span>' : '')
                 +   (a.contact_email ? '<span><span style="color:#888;">Email：</span>' + a.contact_email + '</span>' : '')
@@ -1201,7 +1345,7 @@ function openAgentModal(agent) {
     document.getElementById('agent-password').placeholder = editing ? '留空表示不變更' : '';
     document.getElementById('agent-prefix').value = editing ? agent.prefix : '';
     document.getElementById('agent-prefix').disabled = !!editing;
-    document.getElementById('agent-min-rate').value = editing ? agent.min_rate : 180;
+    document.getElementById('agent-min-rate').value = editing ? agent.min_rate : 200;
     document.getElementById('agent-phone').value = editing ? (agent.contact_phone || '') : '';
     document.getElementById('agent-email').value = editing ? (agent.contact_email || '') : '';
     document.getElementById('agent-status').value = editing ? (agent.status || 'active') : 'active';
@@ -1232,7 +1376,7 @@ async function submitAgent() {
     var editing = !!id;
     var body = {
         name: document.getElementById('agent-name').value.trim(),
-        min_rate: parseFloat(document.getElementById('agent-min-rate').value) || 180,
+        min_rate: parseFloat(document.getElementById('agent-min-rate').value) || 200,
         contact_phone: document.getElementById('agent-phone').value.trim(),
         contact_email: document.getElementById('agent-email').value.trim(),
         status: document.getElementById('agent-status').value,
@@ -1275,16 +1419,26 @@ async function submitAgent() {
 }
 
 async function deleteAgent(id, name, memberCount) {
+    var msg;
     if (memberCount > 0) {
-        showToast('此代理底下尚有 ' + memberCount + ' 位會員，無法刪除。請改為停用狀態', 'error');
-        return;
+        msg = '代理「' + name + '」底下有 ' + memberCount + ' 位會員。\n\n選擇處理方式：\n\n' +
+              '【離職移交】所有會員、包裹、預報、出貨紀錄轉回主管理員，會員編號保留不變，然後刪除代理帳號。\n\n' +
+              '【取消】不處理。\n\n按「確定」執行離職移交，按「取消」放棄。';
+    } else {
+        msg = '確定刪除代理「' + name + '」？此操作無法復原。';
     }
-    if (!confirm('確定刪除代理「' + name + '」？此操作無法復原。')) return;
+    if (!confirm(msg)) return;
     try {
-        var res = await fetch('/api/admin/agents/' + id, { method: 'DELETE' });
+        var url = '/api/admin/agents/' + id + (memberCount > 0 ? '?transfer=1' : '');
+        var res = await fetch(url, { method: 'DELETE' });
         var result = await res.json();
         if (result.success) {
-            showToast('已刪除', 'success');
+            if (result.transferred) {
+                var t = result.transferred;
+                showToast('✅ 已離職移交：' + t.members + ' 位會員轉回主管理員', 'success');
+            } else {
+                showToast(result.message || '已刪除', 'success');
+            }
             loadAgents();
         } else {
             showToast('❌ ' + (result.error || '刪除失敗'), 'error');
