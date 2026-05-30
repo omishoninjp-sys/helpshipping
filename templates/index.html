@@ -292,15 +292,18 @@
                     </div>
                     <button id="loginBtn" class="btn btn-primary btn-block" onclick="login()" style="padding: 14px;">登入</button>
 
-                    <div class="help-box">
+                    <div class="help-box" id="signup-helpbox">
                         <div class="help-box-title">📋 申請會員編號</div>
-                        <p>請到 <a href="https://account.goyoutati.com/login" target="_blank" style="color:#fff;font-weight:700;text-decoration:underline;">GOYOUTATI 網站</a> 申請會員，填入姓名、電話（需完成 EZWAY）、收件地址。<br>完成之後請截圖傳給客服，客服會立刻幫你開集運帳號！</p>
-                        <a href="https://line.me/R/ti/p/@544kaytb" target="_blank" class="line-link">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M12 2C6.48 2 2 5.82 2 10.5c0 2.55 1.25 4.83 3.21 6.41-.12.44-.78 2.82-.81 3.04-.05.32.12.63.42.76.1.04.21.06.31.06.21 0 .41-.08.56-.24l3.37-2.47c.95.15 1.93.23 2.94.23 5.52 0 10-3.82 10-8.5S17.52 2 12 2z"/>
-                            </svg>
-                            客服 LINE: @544kaytb
-                        </a>
+                        <div id="signup-instruction-default">
+                            <p>請到 <a href="https://account.goyoutati.com/login" target="_blank" style="color:#fff;font-weight:700;text-decoration:underline;">GOYOUTATI 網站</a> 申請會員，填入姓名、電話（需完成 EZWAY）、收件地址。<br>完成之後請截圖傳給客服，客服會立刻幫你開集運帳號！</p>
+                            <a href="https://line.me/R/ti/p/@544kaytb" target="_blank" class="line-link">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M12 2C6.48 2 2 5.82 2 10.5c0 2.55 1.25 4.83 3.21 6.41-.12.44-.78 2.82-.81 3.04-.05.32.12.63.42.76.1.04.21.06.31.06.21 0 .41-.08.56-.24l3.37-2.47c.95.15 1.93.23 2.94.23 5.52 0 10-3.82 10-8.5S17.52 2 12 2z"/>
+                                </svg>
+                                客服 LINE: @544kaytb
+                            </a>
+                        </div>
+                        <div id="signup-instruction-agent" style="display:none;"></div>
                     </div>
                 </div>
             </div>
@@ -310,7 +313,7 @@
 
                 <!-- 集運主打 banner（台幣為主，日幣為輔）-->
                 <div style="text-align: center; padding: 28px 24px; background: linear-gradient(135deg, rgba(243,156,18,0.12), rgba(231,76,60,0.08)); border: 1px solid rgba(243,156,18,0.3); border-radius: 16px; margin-bottom: 24px;">
-                    <div style="font-size: 15px; color: #888; margin-bottom: 10px; letter-spacing: 1px;">GOYOUTATI 集運</div>
+                    <div id="banner-brand-name" style="font-size: 15px; color: #888; margin-bottom: 10px; letter-spacing: 1px;">GOYOUTATI 集運</div>
                     <div style="font-size: 42px; font-weight: 700; background: linear-gradient(135deg, #f39c12, #e74c3c); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; line-height: 1.1; margin-bottom: 6px;">
                         每公斤 NT$250 起
                     </div>
@@ -437,7 +440,8 @@
                         </ul>
                         <div class="info-note" style="margin-top:10px;">⚠️ 以上為貨物「遺失」的賠償標準，不含貨物損壞</div>
                     </div>
-                    <div class="info-card" style="border:1px solid rgba(39,174,96,0.3);background:linear-gradient(135deg,rgba(39,174,96,0.06),rgba(39,174,96,0.02));">
+                    <div class="insurance-section" data-instance="1">
+                    <div class="insurance-default info-card" style="border:1px solid rgba(39,174,96,0.3);background:linear-gradient(135deg,rgba(39,174,96,0.06),rgba(39,174,96,0.02));">
                         <h4 style="color:#27ae60;">✅ GOYOUTATI - 安心GO（貨物保險）</h4>
                         <p style="font-size:14px;color:#ccc;line-height:1.8;margin-bottom:12px;">
                             購買貨物保障後，若貨物發生<strong style="color:#fff;">損壞</strong>情況，本公司將以<strong style="color:#f39c12;">原價全額賠償</strong>。
@@ -454,6 +458,12 @@
                         </div>
                         <a href="https://goyoutati.com/products/goyoutati-%E5%AE%89%E5%BF%83%E8%B3%BC-%E5%AE%89%E5%BF%83go" target="_blank" style="display:block;margin-top:14px;padding:14px;background:linear-gradient(135deg,#27ae60,#219a52);border:none;border-radius:10px;color:#fff;text-decoration:none;text-align:center;font-size:15px;font-weight:700;">🛒 立即加購安心GO →</a>
                         <div class="info-note" style="margin-top:10px;">💡 安心GO 保障的是貨物「損壞」，與上方遺失理賠為不同保障範圍</div>
+                    </div>
+                    <div class="insurance-agent info-card" style="display:none;border:1px solid rgba(39,174,96,0.3);background:linear-gradient(135deg,rgba(39,174,96,0.06),rgba(39,174,96,0.02));">
+                        <h4 style="color:#27ae60;" class="insurance-agent-title">✅ 貨物保險</h4>
+                        <p style="font-size:14px;color:#ccc;line-height:1.8;margin-bottom:12px;" class="insurance-agent-desc">購買貨物保障後，若貨物發生<strong style="color:#fff;">損壞</strong>，依購買金額全額賠償。</p>
+                        <a href="#" target="_blank" class="insurance-agent-link" style="display:block;margin-top:14px;padding:14px;background:linear-gradient(135deg,#27ae60,#219a52);border:none;border-radius:10px;color:#fff;text-decoration:none;text-align:center;font-size:15px;font-weight:700;">🛒 立即加購保險 →</a>
+                    </div>
                     </div>
                 </div>
 
@@ -643,7 +653,8 @@
                     <div class="info-card"><h4>🛠️ 服務內容</h4><ul><li>包裹入庫：登記物流號，含重量、會員 ID、入庫時間</li><li>整併出庫：根據貴司打包指令，盡可能縮小體積，必要時更換箱子</li></ul></div>
                     <div class="info-card"><h4>💻 系統支持</h4><p>入庫包裹查看，出庫包裹全程跟蹤</p></div>
                     <div class="info-card"><h4>🛡️ 貨物遺失理賠</h4><ul><li>倉庫庫內丟失的包裹，賠付上限 <strong style="color:#e74c3c;">2 萬台幣</strong></li><li>台灣段丟件，最大 <strong style="color:#e74c3c;">3,000 台幣</strong></li></ul><div class="info-note" style="margin-top:10px;">⚠️ 以上為貨物「遺失」的賠償標準，不含貨物損壞</div></div>
-                    <div class="info-card" style="border:1px solid rgba(39,174,96,0.3);background:linear-gradient(135deg,rgba(39,174,96,0.06),rgba(39,174,96,0.02));">
+                    <div class="insurance-section" data-instance="2">
+                    <div class="insurance-default info-card" style="border:1px solid rgba(39,174,96,0.3);background:linear-gradient(135deg,rgba(39,174,96,0.06),rgba(39,174,96,0.02));">
                         <h4 style="color:#27ae60;">✅ GOYOUTATI - 安心GO（貨物保險）</h4>
                         <p style="font-size:14px;color:#ccc;line-height:1.8;margin-bottom:12px;">購買貨物保障後，若貨物發生<strong style="color:#fff;">損壞</strong>情況，本公司將以<strong style="color:#f39c12;">原價全額賠償</strong>。</p>
                         <div style="font-size:13px;color:#27ae60;font-weight:600;margin-bottom:8px;">🎁 加購安心GO，附贈緩衝材保護：</div>
@@ -658,6 +669,12 @@
                         </div>
                         <a href="https://goyoutati.com/products/goyoutati-%E5%AE%89%E5%BF%83%E8%B3%BC-%E5%AE%89%E5%BF%83go" target="_blank" style="display:block;margin-top:14px;padding:14px;background:linear-gradient(135deg,#27ae60,#219a52);border:none;border-radius:10px;color:#fff;text-decoration:none;text-align:center;font-size:15px;font-weight:700;">🛒 立即加購安心GO →</a>
                         <div class="info-note" style="margin-top:10px;">💡 安心GO 保障的是貨物「損壞」，與上方遺失理賠為不同保障範圍</div>
+                    </div>
+                    <div class="insurance-agent info-card" style="display:none;border:1px solid rgba(39,174,96,0.3);background:linear-gradient(135deg,rgba(39,174,96,0.06),rgba(39,174,96,0.02));">
+                        <h4 style="color:#27ae60;" class="insurance-agent-title">✅ 貨物保險</h4>
+                        <p style="font-size:14px;color:#ccc;line-height:1.8;margin-bottom:12px;" class="insurance-agent-desc">購買貨物保障後，若貨物發生<strong style="color:#fff;">損壞</strong>，依購買金額全額賠償。</p>
+                        <a href="#" target="_blank" class="insurance-agent-link" style="display:block;margin-top:14px;padding:14px;background:linear-gradient(135deg,#27ae60,#219a52);border:none;border-radius:10px;color:#fff;text-decoration:none;text-align:center;font-size:15px;font-weight:700;">🛒 立即加購保險 →</a>
+                    </div>
                     </div>
                 </div>
 
@@ -858,11 +875,94 @@
 
     <script>
         let currentCustomer = null;
+        let currentBranding = null;
 
         function toggleCollapse(el) {
             el.classList.toggle('open');
             el.nextElementSibling.classList.toggle('open');
         }
+
+        // ===== 代理品牌套用（referral URL + 登入後）=====
+        function applyBranding(b) {
+            if (!b) return;
+            currentBranding = b;
+            try {
+                // 1) 頁面標題、banner
+                document.title = (b.display_name || 'GOYOUTATI') + ' - 集運';
+                var bb = document.getElementById('banner-brand-name');
+                if (bb) bb.textContent = (b.display_name || 'GOYOUTATI') + ' 集運';
+
+                // 2) 申請會員指引：有 signup_guide → 換成代理版本
+                var siDefault = document.getElementById('signup-instruction-default');
+                var siAgent = document.getElementById('signup-instruction-agent');
+                if (b.is_agent && (b.signup_guide || b.contact_line)) {
+                    var guideHtml = '';
+                    if (b.signup_guide) {
+                        // 簡單把換行轉 <br>，避免 XSS 風險先 escape
+                        var esc = function(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+                        guideHtml += '<p>' + esc(b.signup_guide).replace(/\n/g, '<br>') + '</p>';
+                    } else {
+                        guideHtml += '<p>請聯絡您的代理「' + (b.display_name || '') + '」申請會員。</p>';
+                    }
+                    if (b.contact_line) {
+                        var lineUrl = b.contact_line.indexOf('http') === 0 ? b.contact_line : ('https://line.me/R/ti/p/' + encodeURIComponent(b.contact_line));
+                        guideHtml += '<a href="' + lineUrl + '" target="_blank" class="line-link">'
+                                  + '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 5.82 2 10.5c0 2.55 1.25 4.83 3.21 6.41-.12.44-.78 2.82-.81 3.04-.05.32.12.63.42.76.1.04.21.06.31.06.21 0 .41-.08.56-.24l3.37-2.47c.95.15 1.93.23 2.94.23 5.52 0 10-3.82 10-8.5S17.52 2 12 2z"/></svg>'
+                                  + '聯絡客服 LINE</a>';
+                    }
+                    if (siAgent) { siAgent.innerHTML = guideHtml; siAgent.style.display = 'block'; }
+                    if (siDefault) siDefault.style.display = 'none';
+                } else if (!b.is_agent) {
+                    // 一般訪客（你的）→ 顯示預設
+                    if (siAgent) siAgent.style.display = 'none';
+                    if (siDefault) siDefault.style.display = 'block';
+                }
+
+                // 3) 安心GO 保險區塊
+                var sections = document.querySelectorAll('.insurance-section');
+                sections.forEach(function(sec){
+                    var def = sec.querySelector('.insurance-default');
+                    var agent = sec.querySelector('.insurance-agent');
+                    if (b.is_agent) {
+                        if (b.insurance_url) {
+                            if (def) def.style.display = 'none';
+                            if (agent) {
+                                agent.style.display = '';
+                                var titleEl = agent.querySelector('.insurance-agent-title');
+                                var descEl = agent.querySelector('.insurance-agent-desc');
+                                var linkEl = agent.querySelector('.insurance-agent-link');
+                                if (titleEl) titleEl.textContent = '✅ ' + (b.display_name || '') + (b.insurance_label || ' 貨物保險');
+                                if (descEl && b.insurance_desc) descEl.textContent = b.insurance_desc;
+                                if (linkEl) {
+                                    linkEl.href = b.insurance_url;
+                                    linkEl.textContent = '🛒 ' + (b.insurance_label || '立即加購保險') + ' →';
+                                }
+                            }
+                        } else {
+                            // 代理沒設保險連結 → 整個區塊隱藏
+                            sec.style.display = 'none';
+                        }
+                    } else {
+                        // 預設（你的 GOYOUTATI）
+                        if (def) def.style.display = '';
+                        if (agent) agent.style.display = 'none';
+                        sec.style.display = '';
+                    }
+                });
+            } catch(e) { console.warn('applyBranding error:', e); }
+        }
+
+        // 頁面載入：讀 ?a=PREFIX 套用代理品牌
+        (async function loadInitialBranding() {
+            try {
+                var params = new URLSearchParams(window.location.search);
+                var ref = params.get('a') || '';
+                if (!ref) return;  // 一般訪客
+                var res = await fetch('/api/branding?a=' + encodeURIComponent(ref));
+                var b = await res.json();
+                if (b && b.success && b.is_agent) applyBranding(b);
+            } catch(e) { /* 靜默失敗 */ }
+        })();
 
         async function login() {
             let gCode = document.getElementById('customerId').value.trim().toUpperCase();
@@ -885,6 +985,8 @@
                 const result = await res.json();
                 if (result.success) {
                     currentCustomer = result.customer;
+                    // 登入後依該客戶所屬代理套用品牌（覆蓋未登入時 URL 參數套的）
+                    if (currentCustomer.branding) applyBranding(currentCustomer.branding);
                     document.getElementById('loginSection').style.display = 'none';
                     document.getElementById('mainContent').classList.add('active');
                     document.getElementById('userName').textContent = currentCustomer.name || '會員';

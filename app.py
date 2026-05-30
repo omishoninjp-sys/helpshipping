@@ -207,6 +207,20 @@ def init_db():
     except:
         pass
 
+    # ===== 代理品牌欄位（用於 referral URL + 登入後客製內容）=====
+    for col, col_type, default in [
+        ("contact_line", "TEXT", "''"),
+        ("insurance_url", "TEXT", "''"),
+        ("insurance_label", "TEXT", "''"),
+        ("insurance_desc", "TEXT", "''"),
+        ("signup_guide", "TEXT", "''"),
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE agents ADD COLUMN {col} {col_type} DEFAULT {default}")
+            print(f"[migrate] 已加 agents.{col} 欄位", flush=True)
+        except:
+            pass
+
     conn.commit()
     conn.close()
 
@@ -593,7 +607,9 @@ def admin_list_agents():
         return jsonify({"success": False, "error": "權限不足"}), 403
     conn = get_db()
     rows = conn.execute(
-        "SELECT id, username, prefix, name, min_rate, contact_phone, contact_email, status, note, created_at FROM agents ORDER BY id"
+        "SELECT id, username, prefix, name, min_rate, contact_phone, contact_email, status, note, created_at,"
+        " contact_line, insurance_url, insurance_label, insurance_desc, signup_guide"
+        " FROM agents ORDER BY id"
     ).fetchall()
     # 順便統計每個代理底下的會員數
     counts = {}
@@ -606,6 +622,55 @@ def admin_list_agents():
         d["member_count"] = counts.get(r["id"], 0)
         result.append(d)
     return jsonify({"success": True, "agents": result})
+
+
+# ===== 代理品牌資訊（公開：referral URL 使用）=====
+def _branding_dict(agent_row=None):
+    """組合品牌資料：有 agent → 該代理；無 agent → 你的預設"""
+    if agent_row:
+        d = dict(agent_row)
+        return {
+            "is_agent": True,
+            "agent_prefix": d.get("prefix", ""),
+            "display_name": d.get("name") or "GOYOUTATI",
+            "contact_line": d.get("contact_line") or "",
+            "insurance_url": d.get("insurance_url") or "",
+            "insurance_label": d.get("insurance_label") or "",
+            "insurance_desc": d.get("insurance_desc") or "",
+            "signup_guide": d.get("signup_guide") or "",
+        }
+    # 預設（你的 GOYOUTATI 品牌）
+    return {
+        "is_agent": False,
+        "agent_prefix": "G",
+        "display_name": "GOYOUTATI",
+        "contact_line": "",  # 你的官方 LINE 由前端寫死的內容處理
+        "insurance_url": "https://goyoutati.com/products/goyoutati-%E5%AE%89%E5%BF%83%E8%B3%BC-%E5%AE%89%E5%BF%83go",
+        "insurance_label": "立即加購安心GO",
+        "insurance_desc": "貨物保險，最高賠償上限 25 萬日圓",
+        "signup_guide": "",  # 預設由前端原本的內容處理
+    }
+
+
+@app.route("/api/branding", methods=["GET"])
+def api_branding():
+    """
+    公開 API：依 ?a=PREFIX 回傳對應代理的品牌資訊。
+    無 a 或找不到 → 回預設（你的 GOYOUTATI 內容）
+    """
+    prefix = (request.args.get("a") or "").strip().upper()
+    if not prefix:
+        return jsonify({"success": True, **_branding_dict(None)})
+    try:
+        conn = get_db()
+        row = conn.execute(
+            "SELECT * FROM agents WHERE prefix=? AND status='active'", (prefix,)
+        ).fetchone()
+        conn.close()
+        return jsonify({"success": True, **_branding_dict(row)})
+    except Exception as e:
+        print(f"[api_branding] {e}", flush=True)
+        return jsonify({"success": True, **_branding_dict(None)})
 
 
 @app.route("/api/admin/agents", methods=["POST"])
@@ -631,11 +696,15 @@ def admin_create_agent():
     conn = get_db()
     try:
         conn.execute(
-            """INSERT INTO agents (username, password, prefix, name, min_rate, contact_phone, contact_email, status, note, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)""",
+            """INSERT INTO agents (username, password, prefix, name, min_rate, contact_phone, contact_email,
+                                   status, note, created_at, contact_line, insurance_url, insurance_label, insurance_desc, signup_guide)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)""",
             (username, password, prefix, name, min_rate,
              data.get("contact_phone", ""), data.get("contact_email", ""),
-             data.get("note", ""), datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+             data.get("note", ""), datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+             data.get("contact_line", ""), data.get("insurance_url", ""),
+             data.get("insurance_label", ""), data.get("insurance_desc", ""),
+             data.get("signup_guide", ""))
         )
         conn.commit()
         new_id = conn.execute("SELECT last_insert_rowid() as id").fetchone()["id"]
@@ -687,6 +756,10 @@ def admin_update_agent(agent_id):
         fields.append("note=?"); values.append(data["note"] or "")
     if data.get("password"):
         fields.append("password=?"); values.append(data["password"])
+    # 品牌欄位（referral URL + 登入後內容客製）
+    for col in ["contact_line", "insurance_url", "insurance_label", "insurance_desc", "signup_guide"]:
+        if col in data:
+            fields.append(f"{col}=?"); values.append((data[col] or "").strip())
     # 前綴與帳號名建立後不可改（避免關聯混亂）
 
     if not fields:
@@ -1391,13 +1464,14 @@ def verify_customer():
             if stored_phone != password_clean:
                 conn.close()
                 return jsonify({"success": False, "error": "密碼錯誤，請輸入您的手機號碼"})
-            # 找該代理的最低費率
-            ag = conn.execute("SELECT min_rate, name FROM agents WHERE id=?", (m["agent_id"],)).fetchone()
+            # 找該代理（含品牌欄位）
+            ag = conn.execute("SELECT * FROM agents WHERE id=?", (m["agent_id"],)).fetchone()
             conn.close()
             agent_min = float(ag["min_rate"]) if ag and ag["min_rate"] else float(DEFAULT_SHIPPING_RATE)
             # 會員專屬費率 > 0 → 用該費率；否則用代理 min_rate
             member_rate = float(m.get("shipping_rate") or 0)
             rate_twd = int(member_rate if member_rate > 0 else agent_min)
+            branding = _branding_dict(ag) if ag else _branding_dict(None)
             return jsonify({
                 "success": True,
                 "customer": {
@@ -1412,6 +1486,7 @@ def verify_customer():
                     "shipping_rate_jpy": twd_to_jpy(rate_twd) if rate_twd else 0,
                     "source": "agent",
                     "agent_name": ag["name"] if ag else "",
+                    "branding": branding,
                 }
             })
         conn.close()

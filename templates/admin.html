@@ -667,6 +667,40 @@
                     <label>內部備註</label>
                     <textarea id="agent-note" class="form-control" rows="2"></textarea>
                 </div>
+
+                <!-- ===== 代理品牌設定 ===== -->
+                <div style="margin-top:18px;padding:14px;background:rgba(155,89,182,0.08);border:1px solid rgba(155,89,182,0.2);border-radius:10px;">
+                    <div style="font-size:14px;font-weight:700;color:#a673c4;margin-bottom:8px;">🎨 代理品牌設定（給代理客戶看的）</div>
+                    <div style="font-size:11px;color:#888;margin-bottom:12px;line-height:1.6;">
+                        客戶網址：<code id="agent-referral-url" style="background:rgba(0,0,0,0.3);padding:2px 6px;border-radius:4px;color:#3498db;">─ 建立後顯示 ─</code>
+                    </div>
+                    <div class="form-group">
+                        <label>LINE 連結（或 LINE ID）</label>
+                        <input type="text" id="agent-contact-line" class="form-control" placeholder="https://line.me/R/ti/p/@xxx 或 @xxx">
+                        <p style="font-size:11px;color:#888;margin-top:4px;">代理客戶會看到的客服 LINE</p>
+                    </div>
+                    <div class="form-group">
+                        <label>保險商品連結（選填）</label>
+                        <input type="text" id="agent-insurance-url" class="form-control" placeholder="https://...">
+                        <p style="font-size:11px;color:#888;margin-top:4px;">留空 = 代理客戶不顯示保險區塊</p>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                        <div class="form-group">
+                            <label>保險按鈕文字</label>
+                            <input type="text" id="agent-insurance-label" class="form-control" placeholder="立即加購保險">
+                        </div>
+                        <div class="form-group">
+                            <label>保險說明</label>
+                            <input type="text" id="agent-insurance-desc" class="form-control" placeholder="例：最高賠償 25 萬日圓">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>申請會員指引（給訪客看到的）</label>
+                        <textarea id="agent-signup-guide" class="form-control" rows="3" placeholder="例：請加 LINE @xxx 私訊「申請會員」，並提供姓名、電話、地址，我們會幫您建立集運帳號。"></textarea>
+                        <p style="font-size:11px;color:#888;margin-top:4px;">留空 = 顯示「請聯絡您的代理」</p>
+                    </div>
+                </div>
+
                 <div class="modal-actions">
                     <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;" onclick="closeAgentModal()">取消</button>
                     <button class="btn btn-primary" id="agent-submit-btn" onclick="submitAgent()">✅ 建立</button>
@@ -1172,6 +1206,20 @@ function openAgentModal(agent) {
     document.getElementById('agent-email').value = editing ? (agent.contact_email || '') : '';
     document.getElementById('agent-status').value = editing ? (agent.status || 'active') : 'active';
     document.getElementById('agent-note').value = editing ? (agent.note || '') : '';
+    // 品牌欄位
+    document.getElementById('agent-contact-line').value = editing ? (agent.contact_line || '') : '';
+    document.getElementById('agent-insurance-url').value = editing ? (agent.insurance_url || '') : '';
+    document.getElementById('agent-insurance-label').value = editing ? (agent.insurance_label || '') : '';
+    document.getElementById('agent-insurance-desc').value = editing ? (agent.insurance_desc || '') : '';
+    document.getElementById('agent-signup-guide').value = editing ? (agent.signup_guide || '') : '';
+    // referral URL 顯示
+    var refUrlEl = document.getElementById('agent-referral-url');
+    if (editing && agent.prefix) {
+        var refUrl = window.location.origin + '/?a=' + agent.prefix;
+        refUrlEl.innerHTML = '<a href="' + refUrl + '" target="_blank" style="color:#3498db;">' + refUrl + '</a> <button onclick="navigator.clipboard.writeText(\'' + refUrl + '\').then(()=>showToast(\'已複製\',\'success\'))" style="margin-left:6px;background:rgba(52,152,219,.2);border:none;color:#3498db;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px;">📋 複製</button>';
+    } else {
+        refUrlEl.textContent = '─ 建立後顯示 ─';
+    }
     document.getElementById('agentModal').classList.add('show');
 }
 
@@ -1188,7 +1236,12 @@ async function submitAgent() {
         contact_phone: document.getElementById('agent-phone').value.trim(),
         contact_email: document.getElementById('agent-email').value.trim(),
         status: document.getElementById('agent-status').value,
-        note: document.getElementById('agent-note').value.trim()
+        note: document.getElementById('agent-note').value.trim(),
+        contact_line: document.getElementById('agent-contact-line').value.trim(),
+        insurance_url: document.getElementById('agent-insurance-url').value.trim(),
+        insurance_label: document.getElementById('agent-insurance-label').value.trim(),
+        insurance_desc: document.getElementById('agent-insurance-desc').value.trim(),
+        signup_guide: document.getElementById('agent-signup-guide').value.trim()
     };
     var pwd = document.getElementById('agent-password').value.trim();
     if (pwd) body.password = pwd;
