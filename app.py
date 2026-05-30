@@ -214,6 +214,8 @@ def init_db():
         ("insurance_label", "TEXT", "''"),
         ("insurance_desc", "TEXT", "''"),
         ("signup_guide", "TEXT", "''"),
+        ("promo_text", "TEXT", "''"),
+        ("promo_price", "TEXT", "''"),
     ]:
         try:
             conn.execute(f"ALTER TABLE agents ADD COLUMN {col} {col_type} DEFAULT {default}")
@@ -608,7 +610,7 @@ def admin_list_agents():
     conn = get_db()
     rows = conn.execute(
         "SELECT id, username, prefix, name, min_rate, contact_phone, contact_email, status, note, created_at,"
-        " contact_line, insurance_url, insurance_label, insurance_desc, signup_guide"
+        " contact_line, insurance_url, insurance_label, insurance_desc, signup_guide, promo_text, promo_price"
         " FROM agents ORDER BY id"
     ).fetchall()
     # 順便統計每個代理底下的會員數
@@ -638,6 +640,8 @@ def _branding_dict(agent_row=None):
             "insurance_label": d.get("insurance_label") or "",
             "insurance_desc": d.get("insurance_desc") or "",
             "signup_guide": d.get("signup_guide") or "",
+            "promo_text": d.get("promo_text") or "",
+            "promo_price": d.get("promo_price") or "",
         }
     # 預設（你的 GOYOUTATI 品牌）
     return {
@@ -649,6 +653,8 @@ def _branding_dict(agent_row=None):
         "insurance_label": "立即加購安心GO",
         "insurance_desc": "貨物保險，最高賠償上限 25 萬日圓",
         "signup_guide": "",  # 預設由前端原本的內容處理
+        "promo_text": "",   # 預設徽章由前端寫死（限時特價招生 NT$200）
+        "promo_price": "",
     }
 
 
@@ -700,14 +706,17 @@ def agent_my_branding():
                 "insurance_label": d.get("insurance_label", ""),
                 "insurance_desc": d.get("insurance_desc", ""),
                 "signup_guide": d.get("signup_guide", ""),
+                "promo_text": d.get("promo_text", ""),
+                "promo_price": d.get("promo_price", ""),
             }
         })
     # PUT：更新自己的品牌欄位（不能改帳號、前綴、密碼、狀態、min_rate）
     data = request.json or {}
     fields, values = [], []
-    # 允許代理自己改的欄位：聯絡方式 + 品牌
+    # 允許代理自己改的欄位：聯絡方式 + 品牌 + 特價徽章
     for col in ["name", "contact_phone", "contact_email", "contact_line",
-                "insurance_url", "insurance_label", "insurance_desc", "signup_guide"]:
+                "insurance_url", "insurance_label", "insurance_desc", "signup_guide",
+                "promo_text", "promo_price"]:
         if col in data:
             fields.append(f"{col}=?"); values.append((data[col] or "").strip())
     # min_rate 開放代理自設費率
@@ -751,14 +760,16 @@ def admin_create_agent():
     try:
         conn.execute(
             """INSERT INTO agents (username, password, prefix, name, min_rate, contact_phone, contact_email,
-                                   status, note, created_at, contact_line, insurance_url, insurance_label, insurance_desc, signup_guide)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)""",
+                                   status, note, created_at, contact_line, insurance_url, insurance_label, insurance_desc, signup_guide,
+                                   promo_text, promo_price)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (username, password, prefix, name, min_rate,
              data.get("contact_phone", ""), data.get("contact_email", ""),
              data.get("note", ""), datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
              data.get("contact_line", ""), data.get("insurance_url", ""),
              data.get("insurance_label", ""), data.get("insurance_desc", ""),
-             data.get("signup_guide", ""))
+             data.get("signup_guide", ""),
+             data.get("promo_text", ""), data.get("promo_price", ""))
         )
         conn.commit()
         new_id = conn.execute("SELECT last_insert_rowid() as id").fetchone()["id"]
@@ -808,7 +819,7 @@ def admin_update_agent(agent_id):
     if data.get("password"):
         fields.append("password=?"); values.append(data["password"])
     # 品牌欄位（referral URL + 登入後內容客製）
-    for col in ["contact_line", "insurance_url", "insurance_label", "insurance_desc", "signup_guide"]:
+    for col in ["contact_line", "insurance_url", "insurance_label", "insurance_desc", "signup_guide", "promo_text", "promo_price"]:
         if col in data:
             fields.append(f"{col}=?"); values.append((data[col] or "").strip())
     # 前綴與帳號名建立後不可改（避免關聯混亂）

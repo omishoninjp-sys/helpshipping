@@ -615,6 +615,21 @@
                     <p style="font-size:11px;color:#888;margin-top:4px;">客戶會看到的客服 LINE</p>
                 </div>
 
+                <div style="padding:14px 16px;background:rgba(231,76,60,0.08);border:1px solid rgba(231,76,60,0.25);border-radius:10px;margin-bottom:14px;">
+                    <div style="font-size:13px;font-weight:700;color:#e74c3c;margin-bottom:10px;">🔥 限時特價徽章（顯示在 banner 下方）</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label>徽章文字</label>
+                            <input type="text" id="mb-promo-text" class="form-control" placeholder="例：🔥 新會員專屬優惠">
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label>徽章價格</label>
+                            <input type="text" id="mb-promo-price" class="form-control" placeholder="例：NT$220 元">
+                        </div>
+                    </div>
+                    <p style="font-size:11px;color:#888;margin-top:8px;">兩欄都留空 = 不顯示徽章。徽章會出現在 banner「每公斤 NT$250 起」下方。</p>
+                </div>
+
                 <div class="form-group">
                     <label>申請會員指引（給訪客看的文案）</label>
                     <textarea id="mb-signup-guide" class="form-control" rows="3" placeholder="例：請加 LINE @xxx 私訊「申請會員」，並提供姓名、電話、地址，我們會幫您建立集運帳號。"></textarea>
@@ -780,6 +795,20 @@
                         <label>申請會員指引（給訪客看到的）</label>
                         <textarea id="agent-signup-guide" class="form-control" rows="3" placeholder="例：請加 LINE @xxx 私訊「申請會員」，並提供姓名、電話、地址，我們會幫您建立集運帳號。"></textarea>
                         <p style="font-size:11px;color:#888;margin-top:4px;">留空 = 顯示「請聯絡您的代理」</p>
+                    </div>
+                    <div style="margin-top:8px;padding:12px;background:rgba(231,76,60,0.08);border:1px solid rgba(231,76,60,0.2);border-radius:8px;">
+                        <div style="font-size:12px;font-weight:700;color:#e74c3c;margin-bottom:8px;">🔥 限時特價徽章</div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                            <div class="form-group" style="margin:0;">
+                                <label style="font-size:12px;">徽章文字</label>
+                                <input type="text" id="agent-promo-text" class="form-control" placeholder="例：🔥 新會員優惠">
+                            </div>
+                            <div class="form-group" style="margin:0;">
+                                <label style="font-size:12px;">徽章價格</label>
+                                <input type="text" id="agent-promo-price" class="form-control" placeholder="例：NT$220 元">
+                            </div>
+                        </div>
+                        <p style="font-size:11px;color:#888;margin-top:6px;">兩欄都留空 = 此代理不顯示徽章</p>
                     </div>
                 </div>
 
@@ -1165,6 +1194,8 @@ async function loadMyBranding() {
         document.getElementById('mb-insurance-url').value = a.insurance_url || '';
         document.getElementById('mb-insurance-label').value = a.insurance_label || '';
         document.getElementById('mb-insurance-desc').value = a.insurance_desc || '';
+        document.getElementById('mb-promo-text').value = a.promo_text || '';
+        document.getElementById('mb-promo-price').value = a.promo_price || '';
         // 客戶網址
         if (a.prefix) {
             var refUrl = window.location.origin + '/?a=' + a.prefix;
@@ -1190,6 +1221,8 @@ async function saveMyBranding() {
         insurance_url: document.getElementById('mb-insurance-url').value.trim(),
         insurance_label: document.getElementById('mb-insurance-label').value.trim(),
         insurance_desc: document.getElementById('mb-insurance-desc').value.trim(),
+        promo_text: document.getElementById('mb-promo-text').value.trim(),
+        promo_price: document.getElementById('mb-promo-price').value.trim(),
     };
     if (!body.name) { showToast('顯示名稱必填', 'error'); return; }
     try {
@@ -1356,6 +1389,8 @@ function openAgentModal(agent) {
     document.getElementById('agent-insurance-label').value = editing ? (agent.insurance_label || '') : '';
     document.getElementById('agent-insurance-desc').value = editing ? (agent.insurance_desc || '') : '';
     document.getElementById('agent-signup-guide').value = editing ? (agent.signup_guide || '') : '';
+    document.getElementById('agent-promo-text').value = editing ? (agent.promo_text || '') : '';
+    document.getElementById('agent-promo-price').value = editing ? (agent.promo_price || '') : '';
     // referral URL 顯示
     var refUrlEl = document.getElementById('agent-referral-url');
     if (editing && agent.prefix) {
@@ -1385,7 +1420,9 @@ async function submitAgent() {
         insurance_url: document.getElementById('agent-insurance-url').value.trim(),
         insurance_label: document.getElementById('agent-insurance-label').value.trim(),
         insurance_desc: document.getElementById('agent-insurance-desc').value.trim(),
-        signup_guide: document.getElementById('agent-signup-guide').value.trim()
+        signup_guide: document.getElementById('agent-signup-guide').value.trim(),
+        promo_text: document.getElementById('agent-promo-text').value.trim(),
+        promo_price: document.getElementById('agent-promo-price').value.trim()
     };
     var pwd = document.getElementById('agent-password').value.trim();
     if (pwd) body.password = pwd;

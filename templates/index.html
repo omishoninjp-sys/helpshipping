@@ -320,10 +320,10 @@
                     <div style="font-size: 42px; font-weight: 700; background: linear-gradient(135deg, #f39c12, #e74c3c); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; line-height: 1.1; margin-bottom: 6px;">
                         每公斤 NT$250 起
                     </div>
-                    <!-- 限時特價招生徽章（代理 referral 頁面會由 JS 隱藏）-->
+                    <!-- 限時特價徽章（你的預設 + 代理可自設）-->
                     <div id="promo-badge" style="display:inline-block;margin:8px 0 4px;padding:8px 18px;background:linear-gradient(135deg,#e74c3c,#c0392b);border:1px solid rgba(231,76,60,0.5);border-radius:20px;animation:promoBlink 2s ease-in-out infinite;box-shadow:0 4px 16px rgba(231,76,60,0.35);">
-                        <span style="font-size:14px;color:#fff;font-weight:700;letter-spacing:1px;">🔥 限時特價招生中</span>
-                        <span style="font-size:18px;color:#ffeaa7;font-weight:900;margin-left:8px;">NT$200 元</span>
+                        <span id="promo-badge-text" style="font-size:14px;color:#fff;font-weight:700;letter-spacing:1px;">🔥 限時特價招生中</span>
+                        <span id="promo-badge-price" style="font-size:18px;color:#ffeaa7;font-weight:900;margin-left:8px;">NT$200 元</span>
                     </div>
                     <div style="font-size: 16px; color: #888; margin-bottom: 8px;">約日幣 1,250 円</div>
                     <div style="font-size: 14px; color: #f39c12; margin-bottom: 20px; font-weight: 600;">💎 依會員等級提供專屬費率，登入後查看您的費率</div>
@@ -899,9 +899,29 @@
                 document.title = (b.display_name || 'GOYOUTATI') + ' - 集運';
                 var bb = document.getElementById('banner-brand-name');
                 if (bb) bb.textContent = (b.display_name || 'GOYOUTATI') + ' 集運';
-                // 限時特價徽章：只有你的預設頁面顯示，代理不顯示
+                // 限時特價徽章：
+                //  - 你的預設頁（!is_agent）→ 顯示寫死的「🔥 限時特價招生中 NT$200 元」
+                //  - 代理 referral 頁有設 promo_text → 顯示該代理自設的
+                //  - 代理沒設 → 隱藏
                 var promo = document.getElementById('promo-badge');
-                if (promo) promo.style.display = b.is_agent ? 'none' : 'inline-block';
+                var promoText = document.getElementById('promo-badge-text');
+                var promoPrice = document.getElementById('promo-badge-price');
+                if (promo && promoText && promoPrice) {
+                    if (b.is_agent) {
+                        if (b.promo_text || b.promo_price) {
+                            promoText.textContent = b.promo_text || '';
+                            promoPrice.textContent = b.promo_price || '';
+                            promo.style.display = 'inline-block';
+                        } else {
+                            promo.style.display = 'none';
+                        }
+                    } else {
+                        // 你的預設徽章內容
+                        promoText.textContent = '🔥 限時特價招生中';
+                        promoPrice.textContent = 'NT$200 元';
+                        promo.style.display = 'inline-block';
+                    }
+                }
 
                 // 2) 申請會員指引：有 signup_guide → 換成代理版本
                 var siDefault = document.getElementById('signup-instruction-default');
