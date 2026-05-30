@@ -581,6 +581,11 @@
                     <label>預設收件地址</label>
                     <textarea id="member-address" class="form-control" rows="2" placeholder="出貨時自動帶入"></textarea>
                 </div>
+                <div class="form-group">
+                    <label>運費單價（NT$ / kg）<span id="member-rate-hint" style="font-size:11px;color:#888;font-weight:400;"></span></label>
+                    <input type="number" id="member-rate" class="form-control" step="1" min="0" placeholder="留空 = 沿用您的最低費率">
+                    <p style="font-size:11px;color:#888;margin-top:4px;">此費率僅適用於本會員。留空表示使用您的代理最低費率。</p>
+                </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                     <div class="form-group">
                         <label>LINE ID</label>
@@ -1042,6 +1047,13 @@ function openMemberModal(member) {
     document.getElementById('member-email').value = editing ? (member.email || '') : '';
     document.getElementById('member-status').value = editing ? (member.status || 'active') : 'active';
     document.getElementById('member-note').value = editing ? (member.note || '') : '';
+    // 運費：編輯時若 shipping_rate_raw > 0 顯示專屬費率；否則留空（=沿用 min_rate）
+    var rateRaw = editing ? (member.shipping_rate_raw || 0) : 0;
+    document.getElementById('member-rate').value = rateRaw > 0 ? rateRaw : '';
+    // 顯示提示：您的最低費率 NT$xxx/kg
+    var minRate = window.agentMinRate || 180;
+    document.getElementById('member-rate-hint').textContent = '（您的最低費率 NT$' + minRate + '/kg）';
+    document.getElementById('member-rate').setAttribute('min', minRate);
     document.getElementById('memberModal').classList.add('show');
 }
 
@@ -1052,6 +1064,7 @@ function closeMemberModal() {
 async function submitMember() {
     var editGcode = document.getElementById('member-edit-gcode').value;
     var editing = !!editGcode;
+    var rateInput = document.getElementById('member-rate').value.trim();
     var body = {
         name: document.getElementById('member-name').value.trim(),
         phone: document.getElementById('member-phone').value.trim(),
@@ -1059,7 +1072,8 @@ async function submitMember() {
         line_id: document.getElementById('member-line').value.trim(),
         email: document.getElementById('member-email').value.trim(),
         status: document.getElementById('member-status').value,
-        note: document.getElementById('member-note').value.trim()
+        note: document.getElementById('member-note').value.trim(),
+        shipping_rate: rateInput === '' ? 0 : parseFloat(rateInput)
     };
     if (!body.name) { showToast('姓名為必填', 'error'); return; }
     if (!editing && !body.phone) { showToast('電話為必填（會員登入用）', 'error'); return; }

@@ -199,6 +199,14 @@ def init_db():
         except:
             pass
 
+    # ===== Phase 3+: 加 members.shipping_rate 欄位（代理為每個客戶設定獨立費率）=====
+    # 預設 0 = 沿用該代理的 min_rate；>0 = 該會員的專屬費率
+    try:
+        conn.execute("ALTER TABLE members ADD COLUMN shipping_rate REAL DEFAULT 0")
+        print("[migrate] 已加 members.shipping_rate 欄位", flush=True)
+    except:
+        pass
+
     conn.commit()
     conn.close()
 
@@ -837,6 +845,9 @@ def get_all_members():
             used_numbers = set()
             for r in rows:
                 d = dict(r)
+                # 會員專屬費率 > 0 → 用該費率；否則 fallback 到代理 min_rate
+                member_rate = float(d.get("shipping_rate") or 0)
+                effective_rate = member_rate if member_rate > 0 else min_rate
                 members.append({
                     "g_code": d.get("g_code", ""),
                     "name": d.get("name", ""),
@@ -844,7 +855,8 @@ def get_all_members():
                     "address": d.get("address", ""),
                     "line_id": d.get("line_id", ""),
                     "email": d.get("email", ""),
-                    "shipping_rate": min_rate,
+                    "shipping_rate": effective_rate,
+                    "shipping_rate_raw": member_rate,  # 0 表示沿用 min_rate
                     "note": d.get("note", ""),
                     "status": d.get("status", "active"),
                     "source": "local",
@@ -1037,13 +1049,28 @@ def admin_create_member():
         g_code = f"{prefix}{n:04d}"
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # 處理會員專屬費率（>= 代理 min_rate；留空/0 = 沿用 min_rate）
+    raw_rate = data.get("shipping_rate")
+    rate_val = 0.0
+    if raw_rate not in (None, "", 0, "0"):
+        try:
+            rate_val = float(raw_rate)
+        except (ValueError, TypeError):
+            conn.close()
+            return jsonify({"success": False, "error": "運費必須為數字"})
+        # 取該代理 min_rate
+        ag_row = conn.execute("SELECT min_rate FROM agents WHERE id=?", (aid,)).fetchone()
+        min_rate = float(ag_row["min_rate"] or 180) if ag_row else 180.0
+        if rate_val < min_rate:
+            conn.close()
+            return jsonify({"success": False, "error": f"運費 NT${rate_val}/kg 低於您的最低費率 NT${int(min_rate)}/kg"})
     try:
         conn.execute(
-            """INSERT INTO members (g_code, agent_id, name, phone, address, line_id, email, note, status, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)""",
+            """INSERT INTO members (g_code, agent_id, name, phone, address, line_id, email, note, status, created_at, shipping_rate)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)""",
             (g_code, aid, name, phone, address,
              (data.get("line_id") or "").strip(), (data.get("email") or "").strip(),
-             (data.get("note") or "").strip(), now)
+             (data.get("note") or "").strip(), now, rate_val)
         )
         conn.commit()
     except sqlite3.IntegrityError as e:
@@ -1077,6 +1104,24 @@ def admin_update_member(g_code):
             if col == "status" and v not in ("active", "disabled"):
                 continue
             fields.append(f"{col}=?"); values.append(v)
+    # 會員專屬費率
+    if "shipping_rate" in data:
+        raw = data["shipping_rate"]
+        if raw in (None, "", 0, "0"):
+            rate_val = 0.0
+        else:
+            try:
+                rate_val = float(raw)
+            except (ValueError, TypeError):
+                conn.close()
+                return jsonify({"success": False, "error": "運費必須為數字"})
+            if aid > 0:
+                ag_row = conn.execute("SELECT min_rate FROM agents WHERE id=?", (aid,)).fetchone()
+                min_rate = float(ag_row["min_rate"] or 180) if ag_row else 180.0
+                if rate_val < min_rate:
+                    conn.close()
+                    return jsonify({"success": False, "error": f"運費 NT${rate_val}/kg 低於您的最低費率 NT${int(min_rate)}/kg"})
+        fields.append("shipping_rate=?"); values.append(rate_val)
     if not fields:
         conn.close()
         return jsonify({"success": False, "error": "沒有可更新欄位"})
@@ -1349,7 +1394,10 @@ def verify_customer():
             # 找該代理的最低費率
             ag = conn.execute("SELECT min_rate, name FROM agents WHERE id=?", (m["agent_id"],)).fetchone()
             conn.close()
-            rate_twd = int(float(ag["min_rate"])) if ag and ag["min_rate"] else DEFAULT_SHIPPING_RATE
+            agent_min = float(ag["min_rate"]) if ag and ag["min_rate"] else float(DEFAULT_SHIPPING_RATE)
+            # 會員專屬費率 > 0 → 用該費率；否則用代理 min_rate
+            member_rate = float(m.get("shipping_rate") or 0)
+            rate_twd = int(member_rate if member_rate > 0 else agent_min)
             return jsonify({
                 "success": True,
                 "customer": {
