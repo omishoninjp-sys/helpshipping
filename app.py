@@ -1043,19 +1043,33 @@ def get_all_members():
                 "source": "agent_local",
             })
 
-        # ===== 主管理員：Shopify + 本地離職移交的會員 =====
+        # ===== 主管理員：Shopify + 全部本地會員（含所有代理底下的）=====
         force = request.args.get("refresh") == "1"
         members = get_all_goyoutati_customers(force_refresh=force)
-        # 附加 agent_id=0 的本地會員（離職代理移交來的）
+        # 附加所有本地會員（含代理 agent_id>0 的、以及離職移交 agent_id=0 的）
         try:
             conn0 = get_db()
             local_rows = conn0.execute(
-                "SELECT * FROM members WHERE agent_id=0 ORDER BY g_code"
+                "SELECT m.*, a.name AS agent_name, a.prefix AS agent_prefix, a.min_rate AS agent_min_rate "
+                "FROM members m LEFT JOIN agents a ON a.id = m.agent_id "
+                "ORDER BY m.g_code"
             ).fetchall()
             conn0.close()
             for r in local_rows:
                 d = dict(r)
                 m_rate = float(d.get("shipping_rate") or 0)
+                aid_of_member = int(d.get("agent_id") or 0)
+                if aid_of_member > 0:
+                    # 代理底下的會員：member rate > 0 用會員專屬、否則用代理 min_rate
+                    agent_min = float(d.get("agent_min_rate") or DEFAULT_SHIPPING_RATE)
+                    effective_rate = m_rate if m_rate > 0 else agent_min
+                    source = "agent"
+                    agent_name = d.get("agent_name", "") or ""
+                else:
+                    # 離職移交 / 主管理員直接管
+                    effective_rate = m_rate if m_rate > 0 else DEFAULT_SHIPPING_RATE
+                    source = "transferred"
+                    agent_name = ""
                 members.append({
                     "g_code": d.get("g_code", ""),
                     "name": d.get("name", ""),
@@ -1063,10 +1077,12 @@ def get_all_members():
                     "address": d.get("address", ""),
                     "line_id": d.get("line_id", ""),
                     "email": d.get("email", ""),
-                    "shipping_rate": m_rate if m_rate > 0 else DEFAULT_SHIPPING_RATE,
+                    "shipping_rate": effective_rate,
                     "note": d.get("note", ""),
                     "status": d.get("status", "active"),
-                    "source": "transferred",  # 標記為移交來的
+                    "source": source,
+                    "agent_name": agent_name,
+                    "agent_id": aid_of_member,
                     "customer_id": "",  # 本地會員無 Shopify ID
                 })
         except Exception as e:

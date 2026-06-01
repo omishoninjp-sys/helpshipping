@@ -340,7 +340,7 @@
                 </div>
                 <!-- 搜尋框 -->
                 <div class="member-filter-bar">
-                    <input type="text" id="member-search" placeholder="🔍 搜尋會員編號、姓名、地址或手機..." autocomplete="off">
+                    <input type="text" id="member-search" placeholder="🔍 搜尋會員編號、姓名、地址、手機、代理名稱..." autocomplete="off">
                     <span class="member-count" id="member-count"></span>
                 </div>
                 <div class="table-wrap">
@@ -1543,7 +1543,8 @@ function applyMemberFilter() {
             m.g_code.toUpperCase().includes(memberSearchQuery) ||
             (m.name || '').toUpperCase().includes(memberSearchQuery) ||
             (m.address || '').toUpperCase().includes(memberSearchQuery) ||
-            (m.phone || '').includes(memberSearchQuery)
+            (m.phone || '').includes(memberSearchQuery) ||
+            (m.agent_name || '').toUpperCase().includes(memberSearchQuery)
         );
     } else {
         filteredMembers = [...membersData];
@@ -1580,11 +1581,28 @@ function renderMembersPage() {
         // 計算在 membersData 中的原始 index（用於 pendingChanges 等操作）
         const globalIdx = membersData.indexOf(m);
         const rateDisplay = m.shipping_rate || '';
+        // 來源徽章：source = 'agent' / 'transferred' / undefined (Shopify)
+        var sourceBadge = '';
+        if (m.source === 'agent' && m.agent_name) {
+            sourceBadge = `<span style="display:inline-block;margin-top:3px;font-size:10px;padding:2px 7px;border-radius:8px;background:rgba(155,89,182,0.18);color:#a673c4;font-weight:600;">🤝 ${m.agent_name}</span>`;
+        } else if (m.source === 'transferred') {
+            sourceBadge = `<span style="display:inline-block;margin-top:3px;font-size:10px;padding:2px 7px;border-radius:8px;background:rgba(52,152,219,0.18);color:#3498db;font-weight:600;">↩ 離職移交</span>`;
+        }
+        // 代理底下的會員：運費鎖定（避免從這裡誤改、應該回代理那邊改）
+        var isAgentRow = m.source === 'agent';
         return `<tr>
-            <td style="white-space:nowrap;"><div style="line-height:1.4;"><span class="g-code" style="font-size:13px;">${m.g_code}</span><div style="font-size:13px;color:#fff;margin-top:2px;">${m.name||'-'}</div></div></td>
+            <td style="white-space:nowrap;"><div style="line-height:1.4;"><span class="g-code" style="font-size:13px;">${m.g_code}</span><div style="font-size:13px;color:#fff;margin-top:2px;">${m.name||'-'}</div>${sourceBadge}</div></td>
             <td style="font-size:12px;">${m.address||'-'}</td>
             <td>${m.phone||'-'}</td>
             <td>
+                ${isAgentRow ? `
+                <div style="display:flex;align-items:center;gap:6px;font-size:13px;color:#aaa;">
+                    <span style="color:#f39c12;font-weight:700;">NT$${rateDisplay}</span>
+                    <span style="color:#888;">/kg</span>
+                    <span style="color:#666;font-size:11px;">≈ ¥${jpyPreview(rateDisplay)}</span>
+                    <span style="font-size:10px;color:#a673c4;margin-left:4px;">（代理管理）</span>
+                </div>
+                ` : `
                 <div class="rate-input-wrap">
                     <input type="number" class="rate-input" id="rate-${globalIdx}" value="${rateDisplay}"
                         placeholder="未設定" min="0"
@@ -1595,6 +1613,7 @@ function renderMembersPage() {
                     <span class="rate-jpy-preview" id="jpy-${globalIdx}">${rateDisplay ? jpyPreview(rateDisplay) : ''}</span>
                     <button class="rate-save-btn" id="save-${globalIdx}" onclick="saveSingleRate(${globalIdx})">儲存</button>
                 </div>
+                `}
             </td>
             <td>
                 <button class="copy-btn" onclick="copyInfo('${m.g_code}','${m.phone}')">📋 複製</button>
