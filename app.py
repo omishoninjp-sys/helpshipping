@@ -14,6 +14,7 @@ import io
 import time
 import re
 import secrets
+import threading
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
@@ -49,11 +50,25 @@ DB_PATH = os.environ.get("DB_PATH", "packages.db")
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    # 等鎖最多 5 秒（預設 0 秒）→ 大幅減少「database is locked」錯誤、
+    # 多 worker / LINE Bot / 客戶端同時操作時不互卡
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
 def init_db():
     conn = get_db()
+    # ===== 啟用 WAL 模式（一次性設定，會持久化在 DB 檔案內）=====
+    # WAL：讀寫不互鎖、併發效能大幅提升（讀者不擋寫者、寫者不擋讀者）
+    # synchronous=NORMAL：搭配 WAL 安全，速度比 FULL 快很多
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        mode_row = conn.execute("PRAGMA journal_mode").fetchone()
+        print(f"[DB] ✅ SQLite journal_mode = {mode_row[0]}", flush=True)
+    except Exception as e:
+        print(f"[DB] ⚠️ 啟用 WAL 失敗（將使用預設模式）: {e}", flush=True)
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS packages (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -298,38 +313,134 @@ def shopify_request(endpoint, method="GET", data=None):
         return {"error": str(e)}
 
 
-# 會員快取（避免每次登入都打 Shopify API）
-_customers_cache = {"data": None, "time": 0, "loading": False}
+# ============ Shopify 會員快取 ============
+# 持久化到磁碟（容器重啟、Zeabur 重新部署都不用重抓）+ stale-while-revalidate
+
+# 快取檔案位置：跟 DB 放同個目錄（Zeabur Volume 持久化）
+_db_dir = os.path.dirname(os.path.abspath(DB_PATH))
+SHOPIFY_CACHE_FILE = os.environ.get(
+    "SHOPIFY_CACHE_FILE",
+    os.path.join(_db_dir or ".", "shopify_cache.json")
+)
 CACHE_TTL = 600  # 10 分鐘
+
+_customers_cache = {"data": None, "time": 0}
+_cache_lock = threading.Lock()
+_refresh_thread = None  # 背景更新執行緒（同時間只允許一個）
+
+
+def _load_cache_from_disk():
+    """容器啟動時嘗試從磁碟讀取快取，避免每次重啟都要等 Shopify 慢慢回應。"""
+    global _customers_cache
+    try:
+        if os.path.exists(SHOPIFY_CACHE_FILE):
+            with open(SHOPIFY_CACHE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if data.get("data"):
+                _customers_cache = {"data": data["data"], "time": data.get("time", 0)}
+                age = int(time.time() - _customers_cache["time"])
+                print(f"[Shopify] 📂 從磁碟讀取快取：{len(_customers_cache['data'])} 位會員（{age}秒前）", flush=True)
+    except Exception as e:
+        print(f"[Shopify] ⚠️ 讀取磁碟快取失敗: {e}", flush=True)
+
+
+def _save_cache_to_disk():
+    """以原子方式寫入磁碟（先寫 .tmp 再 rename，避免多 worker 競爭時寫到一半）"""
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(SHOPIFY_CACHE_FILE)) or ".", exist_ok=True)
+        tmp = SHOPIFY_CACHE_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(_customers_cache, f, ensure_ascii=False)
+        os.replace(tmp, SHOPIFY_CACHE_FILE)
+    except Exception as e:
+        print(f"[Shopify] ⚠️ 寫入磁碟快取失敗: {e}", flush=True)
+
+
+def _refresh_shopify_async():
+    """背景靜默更新（呼叫者立刻回舊資料、不阻塞使用者）"""
+    global _customers_cache, _refresh_thread
+    try:
+        t0 = time.time()
+        print("[Shopify] 🔄 背景重新抓取會員…", flush=True)
+        customers = _fetch_customers_from_shopify()
+        elapsed = time.time() - t0
+        if customers:
+            with _cache_lock:
+                _customers_cache = {"data": customers, "time": time.time()}
+            _save_cache_to_disk()
+            print(f"[perf] Shopify 背景更新完成: {len(customers)} 位、{elapsed:.2f}s", flush=True)
+        else:
+            print(f"[Shopify] ⚠️ 背景抓取回空，保留舊快取（{elapsed:.2f}s）", flush=True)
+    except Exception as e:
+        print(f"[Shopify] ❌ 背景抓取失敗: {e}", flush=True)
+    finally:
+        with _cache_lock:
+            _refresh_thread = None
 
 
 def get_all_goyoutati_customers(force_refresh=False):
-    global _customers_cache
+    """
+    取得 Shopify 會員清單。Stale-while-revalidate 行為：
+      • force_refresh=True：同步等新資料（admin 按「整理」用）
+      • 完全無快取（冷啟動、磁碟也沒有）：同步等
+      • 有快取但過期：立刻回舊資料，背景靜默更新
+      • 有快取且新鮮：直接回（最快路徑，無 print）
+    """
+    global _customers_cache, _refresh_thread
     now = time.time()
-    # 快取有效就直接回
-    if not force_refresh and _customers_cache["data"] is not None and (now - _customers_cache["time"]) < CACHE_TTL:
-        return _customers_cache["data"]
+    has_cache = _customers_cache.get("data") is not None
+    age = now - _customers_cache.get("time", 0)
+    is_stale = age >= CACHE_TTL
 
-    # 防止重複拉取
-    if _customers_cache["loading"]:
-        return _customers_cache["data"] or []
-    
-    _customers_cache["loading"] = True
-    try:
-        print("[Shopify] 🔄 開始拉取會員資料...", flush=True)
-        customers = _fetch_customers_from_shopify()
-        if customers:
-            _customers_cache = {"data": customers, "time": time.time(), "loading": False}
-            print(f"[Shopify] ✅ 拉取完成，共 {len(customers)} 位會員", flush=True)
-        else:
-            _customers_cache["loading"] = False
-            if _customers_cache["data"] is not None:
-                return _customers_cache["data"]
-        return customers
-    except Exception as e:
-        print(f"[Shopify] ❌ 拉取失敗: {e}", flush=True)
-        _customers_cache["loading"] = False
-        return _customers_cache["data"] or []
+    # 情境 1：強制重抓（admin 按「整理」）→ 同步等新資料
+    if force_refresh:
+        t0 = time.time()
+        try:
+            customers = _fetch_customers_from_shopify()
+            elapsed = time.time() - t0
+            if customers:
+                with _cache_lock:
+                    _customers_cache = {"data": customers, "time": time.time()}
+                _save_cache_to_disk()
+                print(f"[perf] Shopify force_refresh: {len(customers)} 位、{elapsed:.2f}s", flush=True)
+                return customers
+            print(f"[Shopify] ⚠️ force_refresh 回空，回傳舊快取（{elapsed:.2f}s）", flush=True)
+            return _customers_cache.get("data") or []
+        except Exception as e:
+            print(f"[Shopify] ❌ force_refresh 失敗: {e}", flush=True)
+            return _customers_cache.get("data") or []
+
+    # 情境 2：完全無快取（容器啟動 + 磁碟也沒有）→ 同步等首次抓取
+    if not has_cache:
+        t0 = time.time()
+        try:
+            customers = _fetch_customers_from_shopify()
+            elapsed = time.time() - t0
+            if customers:
+                with _cache_lock:
+                    _customers_cache = {"data": customers, "time": time.time()}
+                _save_cache_to_disk()
+                print(f"[perf] Shopify cold-start: {len(customers)} 位、{elapsed:.2f}s", flush=True)
+            return customers or []
+        except Exception as e:
+            print(f"[Shopify] ❌ cold-start 失敗: {e}", flush=True)
+            return []
+
+    # 情境 3：有快取但過期 → 啟動背景更新（lock 確保同時間只一個）
+    if is_stale:
+        with _cache_lock:
+            if _refresh_thread is None or not _refresh_thread.is_alive():
+                _refresh_thread = threading.Thread(
+                    target=_refresh_shopify_async, daemon=True, name="ShopifyRefresh"
+                )
+                _refresh_thread.start()
+
+    # 情境 3/4：立刻回現有資料（最多就是舊一點點，等背景更新完下次就新的）
+    return _customers_cache.get("data") or []
+
+
+# 啟動時嘗試從磁碟讀取快取
+_load_cache_from_disk()
 
 
 def _fetch_customers_from_shopify():
@@ -343,12 +454,13 @@ def _fetch_customers_from_shopify():
         after_arg = f', after: "{cursor}"' if cursor else ''
         graphql_query = '{metafieldDefinitions(first:1,ownerType:CUSTOMER,namespace:"custom",key:"goyoutati_id"){edges{node{id metafields(first:100' + after_arg + '){edges{node{value owner{...on Customer{id firstName lastName email phone defaultAddress{phone province city address1 address2} createdAt shippingRate:metafield(namespace:"custom",key:"shipping_rate"){value}}}} cursor} pageInfo{hasNextPage}}}}}}'
 
-        print(f"[Shopify] Fetching customers page {page}, cursor={cursor}", flush=True)
+        page_t0 = time.time()
         result = shopify_graphql(graphql_query)
+        page_ms = int((time.time() - page_t0) * 1000)
         has_next = False
 
         if "data" not in result:
-            print(f"[Shopify] Error: {result}", flush=True)
+            print(f"[Shopify] page {page} error ({page_ms}ms): {result}", flush=True)
             break
 
         definitions = result["data"].get("metafieldDefinitions", {}).get("edges", [])
@@ -360,7 +472,7 @@ def _fetch_customers_from_shopify():
         edges = metafields_data.get("edges", [])
         page_info = metafields_data.get("pageInfo", {})
         has_next = page_info.get("hasNextPage", False)
-        print(f"[Shopify] Page {page}: got {len(edges)} metafields, hasNextPage={has_next}", flush=True)
+        print(f"[Shopify] page {page} ({page_ms}ms): got {len(edges)} metafields, hasNextPage={has_next}", flush=True)
 
         for mf in edges:
             node = mf["node"]
