@@ -595,7 +595,7 @@
                         收件人：自己的名字＋<span class="highlight member-code-placeholder">會員編號</span><br>
                         電話：080-1325-8885<br><br>
                         <span style="color: #e74c3c; font-size: 13px;">⚠️ 要提貨過來之前請先聯絡，避免白跑一趟</span><br>
-                        <a href="https://line.me/R/ti/p/@544kaytb" target="_blank" style="color: #06C755; text-decoration: none; font-weight: 600;">官方 LINE：@544kaytb</a>
+                        <a href="https://line.me/R/ti/p/@544kaytb" target="_blank" class="warehouse-line-link" style="color: #06C755; text-decoration: none; font-weight: 600;">官方 LINE：@544kaytb</a>
                     </p>
                     <div style="background: rgba(231,76,60,0.12); border: 1px solid rgba(231,76,60,0.35); border-left: 3px solid #e74c3c; border-radius: 8px; padding: 12px 14px; margin-top: 14px;">
                         <div style="color: #e74c3c; font-size: 13px; font-weight: 700; margin-bottom: 4px;">💰 代付／代收貨款包裹</div>
@@ -745,7 +745,7 @@
                         收件人：自己的名字＋<span class="highlight member-code-placeholder">會員編號</span><br>
                         電話：080-1325-8885<br><br>
                         <span style="color: #e74c3c; font-size: 13px;">⚠️ 要提貨過來之前請先聯絡，避免白跑一趟</span><br>
-                        <a href="https://line.me/R/ti/p/@544kaytb" target="_blank" style="color: #06C755; text-decoration: none; font-weight: 600;">官方 LINE：@544kaytb</a>
+                        <a href="https://line.me/R/ti/p/@544kaytb" target="_blank" class="warehouse-line-link" style="color: #06C755; text-decoration: none; font-weight: 600;">官方 LINE：@544kaytb</a>
                     </p>
                     <div style="background: rgba(231,76,60,0.12); border: 1px solid rgba(231,76,60,0.35); border-left: 3px solid #e74c3c; border-radius: 8px; padding: 12px 14px; margin-top: 14px;">
                         <div style="color: #e74c3c; font-size: 13px; font-weight: 700; margin-bottom: 4px;">💰 代付／代收貨款包裹</div>
@@ -980,6 +980,30 @@
                         sec.style.display = '';
                     }
                 });
+
+                // 4) warehouse-box 內的「官方 LINE：@544kaytb」連結（集運介紹 + 預報包裹 兩個 tab）
+                var lineLinks = document.querySelectorAll('.warehouse-line-link');
+                if (b.is_agent && b.contact_line) {
+                    var rawLine = String(b.contact_line).trim();
+                    var lineUrl = rawLine.indexOf('http') === 0
+                        ? rawLine
+                        : ('https://line.me/R/ti/p/' + encodeURIComponent(rawLine));
+                    // 顯示文字：@xxx 格式 → 「官方 LINE：@xxx」；網址格式 → 「聯絡客服 LINE」
+                    var lineDisplay = rawLine.indexOf('@') === 0
+                        ? '官方 LINE：' + rawLine
+                        : '聯絡客服 LINE';
+                    lineLinks.forEach(function(a){
+                        a.href = lineUrl;
+                        a.textContent = lineDisplay;
+                    });
+                } else if (!b.is_agent) {
+                    // 還原為預設（情境：訪客先打開代理連結 → 登入主帳號的 G 客戶）
+                    lineLinks.forEach(function(a){
+                        a.href = 'https://line.me/R/ti/p/@544kaytb';
+                        a.textContent = '官方 LINE：@544kaytb';
+                    });
+                }
+                // 若 b.is_agent 但代理沒設 contact_line → 保持預設的 @544kaytb（fallback 到主帳號客服）
             } catch(e) { console.warn('applyBranding error:', e); }
         }
 
