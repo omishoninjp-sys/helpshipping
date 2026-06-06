@@ -1902,10 +1902,10 @@ def get_orders():
 
 @app.route("/api/admin/stats/monthly/detail", methods=["GET"])
 def admin_monthly_detail():
-    """取得指定月份的出貨明細"""
+    """取得指定週/月的出貨明細（month 參數值可為 '2026-06' 或 '2026-W23'）"""
     month = request.args.get("month", "")
     if not month:
-        return jsonify({"success": False, "error": "缺少月份"})
+        return jsonify({"success": False, "error": "缺少期間"})
     aid = get_current_agent_id()
     try:
         conn = get_db()
@@ -1926,7 +1926,7 @@ def admin_monthly_detail():
         for r in rows:
             rd = dict(r)
             date_str = rd.get("updated_at") or rd.get("created_at") or ""
-            if date_str[:7] != month:
+            if not _matches_period(date_str, month):
                 continue
             extras = []
             try:
@@ -1976,12 +1976,12 @@ def admin_monthly_excel():
             """).fetchall()
         conn.close()
 
-        # 篩選指定月份
+        # 篩選指定週/月
         filtered = []
         for r in rows:
             rd = dict(r)
             date_str = rd.get("updated_at") or rd.get("created_at") or ""
-            if date_str[:7] == month:
+            if _matches_period(date_str, month):
                 filtered.append(rd)
 
         wb = Workbook()
@@ -2088,10 +2088,53 @@ def admin_monthly_excel():
         return jsonify({"success": False, "error": str(e)})
 
 
+def _period_key_from_date(date_str, period_type):
+    """
+    把 'YYYY-MM-DD HH:MM:SS' 轉成 (period_key, period_label)
+    - month → ('2026-06', '2026-06')
+    - week  → ('2026-W23', '6/1 - 6/7')  (ISO 週、週一開始)
+    """
+    if period_type == "week":
+        from datetime import datetime as _dt, timedelta as _td
+        try:
+            d = _dt.strptime(date_str[:10], "%Y-%m-%d")
+        except Exception:
+            return None, None
+        iso_year, iso_week, iso_weekday = d.isocalendar()
+        monday = d - _td(days=iso_weekday - 1)
+        sunday = monday + _td(days=6)
+        key = f"{iso_year}-W{iso_week:02d}"
+        if monday.year == sunday.year and monday.month == sunday.month:
+            label = f"{monday.month}/{monday.day} - {sunday.day}"
+        elif monday.year == sunday.year:
+            label = f"{monday.month}/{monday.day} - {sunday.month}/{sunday.day}"
+        else:
+            label = f"{monday.year}/{monday.month}/{monday.day} - {sunday.year}/{sunday.month}/{sunday.day}"
+        return key, label
+    else:
+        # month
+        if len(date_str) < 7:
+            return None, None
+        key = date_str[:7]
+        return key, key
+
+
+def _matches_period(date_str, period_key):
+    """date_str 是否屬於 period_key（自動偵測週/月）"""
+    if not date_str or not period_key:
+        return False
+    if "W" in period_key:
+        k, _ = _period_key_from_date(date_str, "week")
+        return k == period_key
+    else:
+        return date_str[:7] == period_key
+
+
 @app.route("/api/admin/stats/monthly", methods=["GET"])
 def admin_monthly_stats():
-    """月報統計：每月出貨公斤數、運費、理貨費、加值服務、總收入"""
+    """月/週統計：代理→按週、主帳號→按月"""
     aid = get_current_agent_id()
+    period_type = "week" if aid > 0 else "month"
     try:
         conn = get_db()
         if aid > 0:
@@ -2108,17 +2151,20 @@ def admin_monthly_stats():
             """).fetchall()
         conn.close()
 
-        monthly = {}
+        buckets = {}
         for row in rows:
             r = dict(row)
             date_str = r.get("updated_at") or r.get("created_at") or ""
             if not date_str:
                 continue
-            month_key = date_str[:7]  # "2026-04"
+            key, label = _period_key_from_date(date_str, period_type)
+            if not key:
+                continue
 
-            if month_key not in monthly:
-                monthly[month_key] = {
-                    "month": month_key,
+            if key not in buckets:
+                buckets[key] = {
+                    "month": key,            # 保留欄位名稱以維持向後相容（前端、明細 API、Excel 都用此）
+                    "period_label": label,
                     "shipments": 0,
                     "total_kg": 0,
                     "shipping_fee": 0,
@@ -2129,7 +2175,7 @@ def admin_monthly_stats():
                     "customers": set()
                 }
 
-            m = monthly[month_key]
+            m = buckets[key]
             m["shipments"] += 1
             m["total_kg"] += float(r["billed_weight"] or 0)
             m["shipping_fee"] += float(r["shipping_fee"] or 0)
@@ -2138,7 +2184,6 @@ def admin_monthly_stats():
             m["total_revenue"] += float(r["total_fee"] or 0)
             m["customers"].add(r["g_code"])
 
-            # 加值服務小計
             try:
                 extras = json.loads(r["extra_services"] or "[]")
                 for e in extras:
@@ -2146,15 +2191,18 @@ def admin_monthly_stats():
             except:
                 pass
 
-        # set 轉 count
         result = []
-        for key in sorted(monthly.keys(), reverse=True):
-            m = monthly[key]
+        for key in sorted(buckets.keys(), reverse=True):
+            m = buckets[key]
             m["customer_count"] = len(m["customers"])
             del m["customers"]
             result.append(m)
 
-        return jsonify({"success": True, "monthly": result})
+        return jsonify({
+            "success": True,
+            "period_type": period_type,
+            "monthly": result
+        })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
