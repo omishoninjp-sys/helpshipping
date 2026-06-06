@@ -1827,12 +1827,30 @@ def get_packages():
     if not g_code:
         return jsonify({"success": False, "error": "缺少會員編號"})
 
+    g_code = g_code.upper()
     conn = get_db()
     rows = conn.execute(
         "SELECT * FROM packages WHERE g_code=? ORDER BY id DESC",
-        (g_code.upper(),)
+        (g_code,)
+    ).fetchall()
+
+    # 找出該會員「進行中」的出貨申請（待處理／處理中），標記其包含的包裹
+    # 用途：前端據此隱藏勾選框、顯示「已申請出貨」徽章，避免重複申請
+    active_reqs = conn.execute(
+        "SELECT id, package_ids FROM shipment_requests "
+        "WHERE g_code=? AND status IN ('待處理', '處理中')",
+        (g_code,)
     ).fetchall()
     conn.close()
+
+    pkg_to_req = {}
+    for r in active_reqs:
+        ids_str = r["package_ids"] or ""
+        for pid_str in ids_str.split(","):
+            try:
+                pkg_to_req[int(pid_str.strip())] = r["id"]
+            except (ValueError, AttributeError):
+                pass
 
     packages = []
     for row in rows:
@@ -1846,6 +1864,7 @@ def get_packages():
             "note":         r["note"] or "",
             "in_date":      r["in_date"] or "",
             "created_at":   r["created_at"],
+            "pending_ship_request_id": pkg_to_req.get(r["id"]),  # None 表示未在出貨申請中
         })
     return jsonify({"success": True, "packages": packages})
 
@@ -2518,6 +2537,50 @@ def create_shipment_request():
 
     # 組合包裹摘要
     conn = get_db()
+
+    # 重複申請檢查：阻擋同一包裹同時出現在多筆「進行中」的出貨申請
+    # 進行中 = 待處理 / 處理中（已出貨會把 packages.status 更新為 已出貨，不會被選到；已拒絕視為釋出）
+    requested_set = set()
+    for p in package_ids:
+        try:
+            requested_set.add(int(p))
+        except (ValueError, TypeError):
+            pass
+
+    active_reqs = conn.execute(
+        "SELECT id, package_ids FROM shipment_requests "
+        "WHERE g_code=? AND status IN ('待處理', '處理中')",
+        (g_code,)
+    ).fetchall()
+    already_pending = set()
+    for r in active_reqs:
+        ids_str = r["package_ids"] or ""
+        for pid_str in ids_str.split(","):
+            try:
+                already_pending.add(int(pid_str.strip()))
+            except (ValueError, AttributeError):
+                pass
+
+    duplicates = requested_set & already_pending
+    if duplicates:
+        # 把重複的包裹 id 對應到 product_name 顯示得更友善
+        dup_rows = conn.execute(
+            f"SELECT id, product_name, logis_num FROM packages "
+            f"WHERE id IN ({','.join(['?']*len(duplicates))})",
+            list(duplicates)
+        ).fetchall()
+        dup_names = []
+        for d in dup_rows:
+            name = d["product_name"] or "未命名"
+            logis = d["logis_num"] or ""
+            dup_names.append(f"{name}（末四碼 {logis}）" if logis and logis != "-" else name)
+        conn.close()
+        return jsonify({
+            "success": False,
+            "error": f"以下包裹已在進行中的出貨申請中，無法重複申請：\n• " + "\n• ".join(dup_names) +
+                     "\n\n請等管理員處理完成後再申請新出貨，或聯繫客服取消舊申請。"
+        })
+
     placeholders = ",".join(["?"] * len(package_ids))
     rows = conn.execute(
         f"SELECT id, logis_num, product_name, weight FROM packages WHERE id IN ({placeholders}) AND g_code=?",

@@ -1210,9 +1210,16 @@
                 const container = document.getElementById('packagesList');
                 if (result.success && result.packages && result.packages.length > 0) {
                     container.innerHTML = result.packages.map(pkg => {
-                        const canSelect = (pkg.status === '已到貨' || pkg.status === '已入庫');
+                        // 已申請出貨待處理中 → 不能再勾選
+                        const isPendingShip = !!pkg.pending_ship_request_id;
+                        const canSelect = (pkg.status === '已到貨' || pkg.status === '已入庫') && !isPendingShip;
+                        const pendingBadge = isPendingShip
+                            ? `<div style="position:absolute;right:8px;top:8px;background:#3498db;color:#fff;font-size:11px;font-weight:600;padding:4px 10px;border-radius:12px;box-shadow:0 2px 6px rgba(52,152,219,0.4);">🚚 已申請出貨</div>`
+                            : '';
+                        const dimStyle = isPendingShip ? 'opacity:0.55;' : '';
                         return `
-                        <div class="package-item" style="position:relative;">
+                        <div class="package-item" style="position:relative;${dimStyle}">
+                            ${pendingBadge}
                             ${canSelect ? `<div style="position:absolute;left:8px;top:50%;transform:translateY(-50%);"><input type="checkbox" class="ship-chk" value="${pkg.id}" data-name="${pkg.product_name||''}" data-weight="${pkg.weight||''}" onchange="updateShipRequestBtn()" style="width:18px;height:18px;accent-color:#f39c12;cursor:pointer;"></div>` : ''}
                             <div style="${canSelect ? 'padding-left:20px;' : ''}"><div class="label">末四碼</div><div class="value" style="font-size:13px;">${pkg.logis_num || '-'}</div></div>
                             <div><div class="label">寄送者</div><div class="value">${pkg.product_name || '-'}</div></div>
