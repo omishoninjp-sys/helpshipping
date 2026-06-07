@@ -659,6 +659,36 @@
                     </div>
                 </div>
 
+                <!-- 💰 銀行帳戶（撥款用） -->
+                <div style="background:rgba(39,174,96,0.06);border:1px solid rgba(39,174,96,0.18);border-radius:10px;padding:18px;margin-top:20px;">
+                    <h4 style="margin:0 0 6px 0;color:#27ae60;font-size:15px;">💰 銀行帳戶（甲方撥款用）</h4>
+                    <div style="font-size:12px;color:#7f8c8d;margin-bottom:14px;">每週週結分潤後，甲方依此帳戶匯款。請務必填正確，匯款手續費由匯入錯帳號之代理自行負擔。</div>
+                    <div class="form-row" style="margin-bottom:10px;">
+                        <div class="form-group">
+                            <label>銀行代碼（3 碼）</label>
+                            <input type="text" id="mb-bank-code" class="form-control" placeholder="例：822（中國信託）" maxlength="3" inputmode="numeric">
+                        </div>
+                        <div class="form-group" style="flex:2;">
+                            <label>銀行名稱</label>
+                            <input type="text" id="mb-bank-name" class="form-control" placeholder="例：中國信託商業銀行">
+                        </div>
+                    </div>
+                    <div class="form-row" style="margin-bottom:10px;">
+                        <div class="form-group">
+                            <label>分行（選填）</label>
+                            <input type="text" id="mb-bank-branch" class="form-control" placeholder="例：永和分行">
+                        </div>
+                        <div class="form-group">
+                            <label>戶名</label>
+                            <input type="text" id="mb-bank-account-name" class="form-control" placeholder="與身分證一致">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>帳號</label>
+                        <input type="text" id="mb-bank-account" class="form-control" placeholder="例：123456789012" inputmode="numeric">
+                    </div>
+                </div>
+
                 <div style="text-align:right;margin-top:18px;">
                     <button class="btn btn-primary" style="padding:10px 28px;" onclick="saveMyBranding()">💾 儲存設定</button>
                 </div>
@@ -1219,6 +1249,11 @@ async function loadMyBranding() {
         document.getElementById('mb-promo-price').value = a.promo_price || '';
         document.getElementById('mb-owner-name').value = a.owner_name || '';
         document.getElementById('mb-owner-address').value = a.owner_address || '';
+        document.getElementById('mb-bank-code').value = a.bank_code || '';
+        document.getElementById('mb-bank-name').value = a.bank_name || '';
+        document.getElementById('mb-bank-branch').value = a.bank_branch || '';
+        document.getElementById('mb-bank-account').value = a.bank_account || '';
+        document.getElementById('mb-bank-account-name').value = a.bank_account_name || '';
         // 客戶網址
         if (a.prefix) {
             var refUrl = window.location.origin + '/?a=' + a.prefix;
@@ -1231,6 +1266,16 @@ function copyMyReferralUrl() {
     if (!_myBrandingPrefix) { showToast('資料還在載入', 'error'); return; }
     var refUrl = window.location.origin + '/?a=' + _myBrandingPrefix;
     navigator.clipboard.writeText(refUrl).then(function(){ showToast('✅ 已複製：' + refUrl, 'success'); });
+}
+
+// 通用複製：給代理銀行資訊一鍵複製用
+function copyText(text, label) {
+    if (!text) { showToast('沒有可複製的內容', 'error'); return; }
+    navigator.clipboard.writeText(text).then(function(){
+        showToast('✅ 已複製' + (label ? label + '：' : '：') + text, 'success');
+    }).catch(function(){
+        showToast('❌ 複製失敗（請手動選取）', 'error');
+    });
 }
 
 async function saveMyBranding() {
@@ -1248,6 +1293,11 @@ async function saveMyBranding() {
         promo_price: document.getElementById('mb-promo-price').value.trim(),
         owner_name: document.getElementById('mb-owner-name').value.trim(),
         owner_address: document.getElementById('mb-owner-address').value.trim(),
+        bank_code: document.getElementById('mb-bank-code').value.trim(),
+        bank_name: document.getElementById('mb-bank-name').value.trim(),
+        bank_branch: document.getElementById('mb-bank-branch').value.trim(),
+        bank_account: document.getElementById('mb-bank-account').value.trim().replace(/\s|-/g, ''),
+        bank_account_name: document.getElementById('mb-bank-account-name').value.trim(),
     };
     if (!body.name) { showToast('顯示名稱必填', 'error'); return; }
     try {
@@ -1381,6 +1431,29 @@ async function loadAgents() {
                 +   (a.owner_name ? '<span><span style="color:#888;">負責人：</span><strong style="color:#fff;">' + a.owner_name + '</strong></span>' : '')
                 + '</div>'
                 + (a.owner_address ? '<div style="font-size:12px;color:#aaa;background:rgba(243,156,18,0.06);border-left:3px solid rgba(243,156,18,0.4);border-radius:4px;padding:6px 10px;margin-bottom:8px;">📍 ' + a.owner_address + '</div>' : '')
+                + (function(){
+                    // 💰 銀行資訊（撥款用）— 至少要有帳號才顯示
+                    if (!a.bank_account) {
+                        return '<div style="font-size:12px;color:#e67e22;background:rgba(230,126,34,0.08);border-left:3px solid rgba(230,126,34,0.4);border-radius:4px;padding:6px 10px;margin-bottom:8px;">⚠️ 尚未填寫銀行帳戶（無法撥款，請通知此代理至「我的品牌設定」填寫）</div>';
+                    }
+                    var safeAcc = a.bank_account.replace(/'/g, "\\'");
+                    var safeCode = (a.bank_code || '').replace(/'/g, "\\'");
+                    var bankLine = (a.bank_code ? '(' + a.bank_code + ') ' : '') + (a.bank_name || '未填銀行名稱')
+                                  + (a.bank_branch ? ' · ' + a.bank_branch : '');
+                    return '<div style="background:rgba(39,174,96,0.06);border:1px solid rgba(39,174,96,0.18);border-radius:8px;padding:10px 12px;margin-bottom:8px;">'
+                        + '<div style="font-size:11px;color:#27ae60;font-weight:700;margin-bottom:6px;">💰 撥款帳戶</div>'
+                        + '<div style="display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:#ddd;">'
+                        +   '<span><span style="color:#888;">銀行：</span>' + bankLine + '</span>'
+                        +   '<span><span style="color:#888;">戶名：</span><strong style="color:#fff;">' + (a.bank_account_name || '－') + '</strong></span>'
+                        +   '<span style="display:inline-flex;align-items:center;gap:6px;">'
+                        +     '<span style="color:#888;">帳號：</span>'
+                        +     '<strong style="color:#fff;font-family:ui-monospace,monospace;letter-spacing:0.5px;">' + a.bank_account + '</strong>'
+                        +     '<button onclick="copyText(\'' + safeAcc + '\',\'帳號\')" style="background:rgba(52,152,219,0.2);border:1px solid rgba(52,152,219,0.4);color:#3498db;padding:2px 8px;border-radius:4px;font-size:11px;cursor:pointer;">📋 複製</button>'
+                        +     (a.bank_code ? '<button onclick="copyText(\'' + safeCode + '\',\'代碼\')" style="background:rgba(155,89,182,0.18);border:1px solid rgba(155,89,182,0.4);color:#9b59b6;padding:2px 8px;border-radius:4px;font-size:11px;cursor:pointer;">📋 代碼</button>' : '')
+                        +   '</span>'
+                        + '</div>'
+                        + '</div>';
+                })()
                 + (a.note ? '<div style="font-size:12px;color:#888;background:rgba(0,0,0,.2);border-radius:6px;padding:8px 10px;margin-bottom:10px;">📝 ' + a.note + '</div>' : '')
                 + '<div class="sr-actions">'
                 +   '<button class="btn-edit-sm" style="padding:6px 14px;font-size:12px;" onclick=\'openAgentModal(' + JSON.stringify(a) + ')\'>✏️ 編輯</button>'

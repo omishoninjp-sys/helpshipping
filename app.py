@@ -233,6 +233,11 @@ def init_db():
         ("promo_price", "TEXT", "''"),
         ("owner_name", "TEXT", "''"),
         ("owner_address", "TEXT", "''"),
+        ("bank_code", "TEXT", "''"),
+        ("bank_name", "TEXT", "''"),
+        ("bank_branch", "TEXT", "''"),
+        ("bank_account", "TEXT", "''"),
+        ("bank_account_name", "TEXT", "''"),
     ]:
         try:
             conn.execute(f"ALTER TABLE agents ADD COLUMN {col} {col_type} DEFAULT {default}")
@@ -725,7 +730,8 @@ def admin_list_agents():
     rows = conn.execute(
         "SELECT id, username, prefix, name, min_rate, contact_phone, contact_email, status, note, created_at,"
         " contact_line, insurance_url, insurance_label, insurance_desc, signup_guide, promo_text, promo_price,"
-        " owner_name, owner_address"
+        " owner_name, owner_address,"
+        " bank_code, bank_name, bank_branch, bank_account, bank_account_name"
         " FROM agents ORDER BY id"
     ).fetchall()
     # 順便統計每個代理底下的會員數
@@ -825,16 +831,22 @@ def agent_my_branding():
                 "promo_price": d.get("promo_price", ""),
                 "owner_name": d.get("owner_name", ""),
                 "owner_address": d.get("owner_address", ""),
+                "bank_code": d.get("bank_code", ""),
+                "bank_name": d.get("bank_name", ""),
+                "bank_branch": d.get("bank_branch", ""),
+                "bank_account": d.get("bank_account", ""),
+                "bank_account_name": d.get("bank_account_name", ""),
             }
         })
     # PUT：更新自己的品牌欄位（不能改帳號、前綴、密碼、狀態、min_rate）
     data = request.json or {}
     fields, values = [], []
-    # 允許代理自己改的欄位：聯絡方式 + 品牌 + 特價徽章 + 負責人資訊
+    # 允許代理自己改的欄位：聯絡方式 + 品牌 + 特價徽章 + 負責人資訊 + 銀行帳戶
     for col in ["name", "contact_phone", "contact_email", "contact_line",
                 "insurance_url", "insurance_label", "insurance_desc", "signup_guide",
                 "promo_text", "promo_price",
-                "owner_name", "owner_address"]:
+                "owner_name", "owner_address",
+                "bank_code", "bank_name", "bank_branch", "bank_account", "bank_account_name"]:
         if col in data:
             fields.append(f"{col}=?"); values.append((data[col] or "").strip())
     # min_rate 開放代理自設費率
@@ -937,9 +949,10 @@ def admin_update_agent(agent_id):
         fields.append("note=?"); values.append(data["note"] or "")
     if data.get("password"):
         fields.append("password=?"); values.append(data["password"])
-    # 品牌欄位（referral URL + 登入後內容客製）
+    # 品牌欄位（referral URL + 登入後內容客製） + 銀行帳戶（撥款用）
     for col in ["contact_line", "insurance_url", "insurance_label", "insurance_desc", "signup_guide",
-                "promo_text", "promo_price", "owner_name", "owner_address"]:
+                "promo_text", "promo_price", "owner_name", "owner_address",
+                "bank_code", "bank_name", "bank_branch", "bank_account", "bank_account_name"]:
         if col in data:
             fields.append(f"{col}=?"); values.append((data[col] or "").strip())
     # 前綴與帳號名建立後不可改（避免關聯混亂）
