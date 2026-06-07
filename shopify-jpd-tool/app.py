@@ -160,12 +160,27 @@ def index():
 
 @app.route("/health")
 def health():
-    """健康檢查"""
+    """健康檢查 + DB 診斷"""
+    db_info = {}
+    try:
+        conn = get_db()
+        count = conn.execute("SELECT COUNT(*) FROM order_history").fetchone()[0]
+        latest = conn.execute("SELECT created_at FROM order_history ORDER BY id DESC LIMIT 1").fetchone()
+        conn.close()
+        db_info = {
+            "db_path": DB_PATH,
+            "order_count": count,
+            "latest_order": latest[0] if latest else None
+        }
+    except Exception as e:
+        db_info = {"db_path": DB_PATH, "error": str(e)}
+
     return jsonify({
         "status": "ok",
         "timestamp": datetime.now().isoformat(),
         "shopify_store": SHOPIFY_STORE,
-        "jpd_configured": bool(JPD_EMAIL)
+        "jpd_configured": bool(JPD_EMAIL),
+        "db": db_info
     })
 
 
