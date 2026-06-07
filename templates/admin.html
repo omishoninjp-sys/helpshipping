@@ -3095,6 +3095,21 @@ async function toggleMonthDetail(row, month) {
                 + '<td style="padding:6px 8px;text-align:right;font-weight:700;color:#27ae60;">$' + Math.round(d.total_fee).toLocaleString() + '</td>'
                 + '</tr>';
         });
+
+        // 代理才顯示分潤金額（依合約第六條第 4 項：(rate - 180) × kg，最低 20 × kg）
+        if (result.is_agent && result.commission) {
+            var c = result.commission;
+            html += '<tr style="background:rgba(39,174,96,0.12);border-top:2px solid rgba(39,174,96,0.4);">'
+                + '<td colspan="9" style="padding:12px 8px;font-weight:700;color:#27ae60;font-size:14px;">'
+                +   '💰 本期分潤金額'
+                +   '<span style="font-size:11px;color:#999;font-weight:400;margin-left:10px;">'
+                +     '（' + c.total_kg + ' kg × 平均 NT$' + Math.round(c.total / Math.max(c.total_kg, 0.01)) + '/kg；基底 NT$180 起、最低 NT$' + c.min_per_kg + '/kg）'
+                +   '</span>'
+                + '</td>'
+                + '<td style="padding:12px 8px;text-align:right;font-weight:700;color:#27ae60;font-size:16px;">NT$ ' + c.total.toLocaleString() + '</td>'
+                + '</tr>';
+        }
+
         html += '</table></div></td>';
         detailRow.innerHTML = html;
     } catch(e) {

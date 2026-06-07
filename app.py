@@ -1961,7 +1961,27 @@ def admin_monthly_detail():
                 "extra_services": extras,
                 "total_fee": float(rd.get("total_fee") or 0),
             })
-        return jsonify({"success": True, "details": details})
+        # 代理檢視時計算分潤（依合約第六條第 4 項公式）
+        # 公式：(該客戶運費 − NT$180/kg) × 包裹重量，最低 NT$20/kg × 包裹重量
+        commission = None
+        if aid > 0:
+            base_cost = 180  # NT$/kg 甲方批發成本
+            min_per_kg = 20  # NT$/kg 最低分潤
+            total_commission = 0
+            total_kg = 0
+            for d in details:
+                kg = d["billed_weight"]
+                per_kg = max(d["rate_per_kg"] - base_cost, min_per_kg)
+                d["commission"] = round(per_kg * kg)
+                total_commission += d["commission"]
+                total_kg += kg
+            commission = {
+                "total": round(total_commission),
+                "total_kg": round(total_kg, 1),
+                "min_per_kg": min_per_kg,
+                "base_cost_per_kg": base_cost,
+            }
+        return jsonify({"success": True, "details": details, "is_agent": aid > 0, "commission": commission})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
@@ -2185,17 +2205,25 @@ def admin_monthly_stats():
                     "consolidation_fee": 0,
                     "extra_fee": 0,
                     "total_revenue": 0,
+                    "commission": 0,        # 代理分潤累計（主帳號為 0）
                     "customers": set()
                 }
 
             m = buckets[key]
             m["shipments"] += 1
-            m["total_kg"] += float(r["billed_weight"] or 0)
+            kg = float(r["billed_weight"] or 0)
+            m["total_kg"] += kg
             m["shipping_fee"] += float(r["shipping_fee"] or 0)
             m["handling_fee"] += float(r["handling_fee"] or 0)
             m["consolidation_fee"] += float(r.get("consolidation_fee") or 0)
             m["total_revenue"] += float(r["total_fee"] or 0)
             m["customers"].add(r["g_code"])
+
+            # 代理分潤累加：(rate - 180) × kg，最低 20 × kg
+            if aid > 0 and kg > 0:
+                rate = float(r["rate_per_kg"] or 0)
+                per_kg = max(rate - 180, 20)
+                m["commission"] += per_kg * kg
 
             try:
                 extras = json.loads(r["extra_services"] or "[]")
@@ -2208,12 +2236,14 @@ def admin_monthly_stats():
         for key in sorted(buckets.keys(), reverse=True):
             m = buckets[key]
             m["customer_count"] = len(m["customers"])
+            m["commission"] = round(m["commission"])
             del m["customers"]
             result.append(m)
 
         return jsonify({
             "success": True,
             "period_type": period_type,
+            "is_agent": aid > 0,
             "monthly": result
         })
     except Exception as e:
