@@ -3013,19 +3013,46 @@ def admin_exports_pending():
         ).fetchall()
         for c in code_rows:
             codes_map.setdefault(c["g_code"], {})[c["vendor"]] = c["code"]
+
+    # Fallback 資料來源（與 /generate 一致）：members 表 + Shopify cache
+    members_map = {}
+    if g_codes:
+        placeholders = ",".join(["?"] * len(g_codes))
+        for m in conn.execute(
+            f"SELECT g_code, name, phone, address FROM members WHERE g_code IN ({placeholders})",
+            g_codes
+        ).fetchall():
+            members_map[m["g_code"]] = {"name": m["name"], "phone": m["phone"], "address": m["address"]}
+    shopify_map = {}
+    try:
+        for c in (get_all_goyoutati_customers() or []):
+            if c.get("g_code") in g_codes:
+                shopify_map[c["g_code"]] = {"name": c.get("name", ""), "phone": c.get("phone", ""), "address": c.get("address", "")}
+    except Exception:
+        pass
     conn.close()
 
     items = []
     for r in rows:
         rd = dict(r)
         pids = [int(x.strip()) for x in (rd.get("package_ids") or "").split(",") if x.strip().isdigit()]
+        # ship_* 為空時用 fallback 在 UI 也能看到正確資料
+        ship_recipient = (rd.get("ship_recipient") or "").strip()
+        ship_phone     = (rd.get("ship_phone") or "").strip()
+        ship_address   = (rd.get("ship_address") or "").strip()
+        if not (ship_recipient and ship_phone and ship_address):
+            fb = members_map.get(rd["g_code"]) or shopify_map.get(rd["g_code"]) or {}
+            if not ship_recipient: ship_recipient = (fb.get("name") or rd.get("customer_name") or "").strip()
+            if not ship_phone:     ship_phone     = (fb.get("phone") or "").strip()
+            if not ship_address:   ship_address   = (fb.get("address") or "").strip()
+
         items.append({
             "id":               rd["id"],
             "g_code":           rd["g_code"],
             "customer_name":    rd.get("customer_name") or "",
-            "ship_recipient":   rd.get("ship_recipient") or "",
-            "ship_phone":       rd.get("ship_phone") or "",
-            "ship_address":     rd.get("ship_address") or "",
+            "ship_recipient":   ship_recipient,
+            "ship_phone":       ship_phone,
+            "ship_address":     ship_address,
             "billed_weight":    rd.get("billed_weight") or 0,
             "total_fee":        rd.get("total_fee") or 0,
             "payment_at":       rd.get("payment_at") or "",
@@ -3087,8 +3114,29 @@ def admin_exports_generate():
         ).fetchall():
             pkg_map[p["id"]] = dict(p)
 
+    # 撈會員資料做 fallback（舊出貨單 ship_* 欄位可能空白）
+    g_codes_needed = list({r["g_code"] for r in rows})
+    members_map = {}  # g_code → {name, phone, address}
+    if g_codes_needed:
+        ph = ",".join(["?"] * len(g_codes_needed))
+        for m in conn.execute(
+            f"SELECT g_code, name, phone, address FROM members WHERE g_code IN ({ph})",
+            g_codes_needed
+        ).fetchall():
+            members_map[m["g_code"]] = {"name": m["name"], "phone": m["phone"], "address": m["address"]}
+    # Shopify 客戶 fallback：從快取撈 G 開頭客戶
+    shopify_map = {}
+    try:
+        shopify_customers = get_all_goyoutati_customers()
+        for c in shopify_customers or []:
+            if c.get("g_code") in g_codes_needed:
+                shopify_map[c["g_code"]] = {"name": c.get("name", ""), "phone": c.get("phone", ""), "address": c.get("address", "")}
+    except Exception as ex:
+        print(f"[export] Shopify fallback 失敗（不致命）: {ex}", flush=True)
+
     # 組 shipments list
     shipments = []
+    fallback_updates = []  # (id, ship_recipient, ship_phone, ship_address) - 把 fallback 後的值寫回 DB
     for r in rows:
         rd = dict(r)
         pids = [int(x.strip()) for x in (rd.get("package_ids") or "").split(",") if x.strip().isdigit()]
@@ -3096,12 +3144,27 @@ def admin_exports_generate():
         if not pkgs:
             # 沒包裹資料就跳過（不該發生但保險）
             continue
+
+        # Fallback 順序：shipment_requests.ship_* → members 表 → Shopify cache → customer_name
+        ship_recipient = (rd.get("ship_recipient") or "").strip()
+        ship_phone     = (rd.get("ship_phone") or "").strip()
+        ship_address   = (rd.get("ship_address") or "").strip()
+        if not (ship_recipient and ship_phone and ship_address):
+            g_code = rd["g_code"]
+            fallback_src = members_map.get(g_code) or shopify_map.get(g_code) or {}
+            if not ship_recipient: ship_recipient = (fallback_src.get("name") or rd.get("customer_name") or "").strip()
+            if not ship_phone:     ship_phone     = (fallback_src.get("phone") or "").strip()
+            if not ship_address:   ship_address   = (fallback_src.get("address") or "").strip()
+            # 如果填到任何值，順手寫回 DB（下次匯出不用再 fallback）
+            if ship_recipient or ship_phone or ship_address:
+                fallback_updates.append((ship_recipient, ship_phone, ship_address, rd["id"]))
+
         shipments.append({
             "id":                   rd["id"],
             "g_code":               rd["g_code"],
-            "ship_recipient":       rd.get("ship_recipient") or "",
-            "ship_phone":           rd.get("ship_phone") or "",
-            "ship_address":         rd.get("ship_address") or "",
+            "ship_recipient":       ship_recipient,
+            "ship_phone":           ship_phone,
+            "ship_address":         ship_address,
             "billed_weight":        rd.get("billed_weight") or 0,
             "total_fee":            rd.get("total_fee") or 0,
             # 打包日期來源：admin 標記出貨時的 updated_at（fallback 到客戶申請的 created_at）
@@ -3161,6 +3224,13 @@ def admin_exports_generate():
         """,
         [now, vendor_id, batch_id] + shipment_ids_actually_used
     )
+    # 順手把 fallback 出來的 ship_* 值寫回（下次匯出不用再算）
+    if fallback_updates:
+        conn.executemany(
+            "UPDATE shipment_requests SET ship_recipient=?, ship_phone=?, ship_address=? WHERE id=?",
+            fallback_updates
+        )
+        print(f"[export] fallback 補回 ship_* 欄位 {len(fallback_updates)} 筆", flush=True)
     conn.commit()
     conn.close()
 
