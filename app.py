@@ -18,6 +18,9 @@ import threading
 
 # 廠商出貨檔案範本（Nigel / JpD…）
 import vendors as vendor_templates
+
+# PWA（manifest / service worker）
+from pwa import register_pwa
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
@@ -27,6 +30,9 @@ app.secret_key = os.environ.get("SESSION_SECRET") or secrets.token_hex(32)
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=7)
+
+# PWA：註冊 /sw.js + /manifest.webmanifest + /admin-manifest.webmanifest 三條路由
+register_pwa(app)
 
 # ============ 設定區（從環境變數讀取）============
 JPD_BASE_URL = "https://biz.cloudwh.jp"
