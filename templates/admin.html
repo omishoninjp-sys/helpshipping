@@ -940,7 +940,7 @@
                                 <th>金額</th>
                                 <th>付款時間</th>
                                 <th>後五碼</th>
-                                <th>廠商編號（Nigel）</th>
+                                <th>預覽編號</th>
                             </tr>
                         </thead>
                         <tbody id="exports-tbody">
@@ -3173,7 +3173,16 @@ function renderExportsTable() {
         return;
     }
     tbody.innerHTML = _exportsCache.map(function(i){
-        var nigelCode = (i.vendor_codes && i.vendor_codes.nigel) || '';
+        // 自動產生「客戶編號-MMDD」預覽碼。日期以 admin 標記出貨那刻 (updated_at) 為準。
+        var dateSrc = i.updated_at || i.payment_at || '';
+        var mmdd = '';
+        if (dateSrc && dateSrc.length >= 10) {
+            mmdd = dateSrc.substring(5, 7) + dateSrc.substring(8, 10);  // 'YYYY-MM-DD' → 'MMDD'
+        } else {
+            var d = new Date();
+            mmdd = String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+        }
+        var previewCode = i.g_code + '-' + mmdd;
         return '<tr>'
             + '<td><input type="checkbox" class="exp-chk" data-id="' + i.id + '" data-kg="' + i.billed_weight + '" data-fee="' + i.total_fee + '" onchange="updateExportSelection()" style="width:16px;height:16px;"></td>'
             + '<td><strong>' + i.g_code + '</strong></td>'
@@ -3184,11 +3193,8 @@ function renderExportsTable() {
             + '<td style="font-weight:600;color:#27ae60;">NT$ ' + Math.round(i.total_fee || 0).toLocaleString() + '</td>'
             + '<td style="font-size:11px;color:#999;">' + (i.payment_at || '').slice(5, 16) + '</td>'
             + '<td style="font-family:ui-monospace,monospace;font-size:12px;">' + (i.payment_last5 || '') + '</td>'
-            + '<td>'
-            +   '<input type="text" value="' + nigelCode + '" placeholder="FWT____" '
-            +   '  data-gcode="' + i.g_code + '" '
-            +   '  onblur="saveVendorCode(this,\'nigel\')" '
-            +   '  style="width:90px;padding:4px 8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:6px;font-size:12px;font-family:ui-monospace,monospace;">'
+            + '<td style="font-family:ui-monospace,monospace;font-size:13px;font-weight:600;color:#c9a55c;">'
+            +   previewCode
             + '</td>'
             + '</tr>';
     }).join('');
@@ -3214,51 +3220,11 @@ function updateExportSelection() {
     document.getElementById('exports-toolbar').style.display = count > 0 ? 'flex' : 'none';
 }
 
-async function saveVendorCode(input, vendor) {
-    var g_code = input.dataset.gcode;
-    var code = input.value.trim();
-    try {
-        var r = await fetch('/api/admin/customer_vendor_codes', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ g_code: g_code, vendor: vendor, code: code })
-        });
-        var result = await r.json();
-        if (result.success) {
-            input.style.borderColor = 'rgba(39,174,96,0.5)';
-            setTimeout(function(){ input.style.borderColor = 'rgba(255,255,255,.15)'; }, 1200);
-            // 更新快取
-            var item = _exportsCache.find(function(x){ return x.g_code === g_code; });
-            if (item) { item.vendor_codes = item.vendor_codes || {}; item.vendor_codes[vendor] = code; }
-        } else {
-            showToast(result.error || '儲存失敗', 'error');
-            input.style.borderColor = '#c0392b';
-        }
-    } catch(e) {
-        showToast('儲存失敗', 'error');
-    }
-}
-
 async function generateExport() {
     var checks = document.querySelectorAll('.exp-chk:checked');
     if (!checks.length) { showToast('請先勾選要出檔案的單', 'error'); return; }
     var ids = Array.from(checks).map(function(c){ return parseInt(c.dataset.id); });
     var vendor = document.getElementById('exports-vendor-select').value;
-
-    // 警告：Nigel 廠商的單如果有沒填編號的會空白
-    if (vendor === 'nigel') {
-        var missing = [];
-        ids.forEach(function(id){
-            var item = _exportsCache.find(function(x){ return x.id === id; });
-            if (item && !(item.vendor_codes && item.vendor_codes.nigel)) {
-                missing.push(item.g_code);
-            }
-        });
-        if (missing.length) {
-            var uniqMissing = Array.from(new Set(missing));
-            if (!confirm('以下客戶尚未填 Nigel 編號（FWT____），Excel 的「客戶編號」欄位會留空：\n\n' + uniqMissing.join('、') + '\n\n仍要繼續嗎？')) return;
-        }
-    }
 
     try {
         var btn = event.target;

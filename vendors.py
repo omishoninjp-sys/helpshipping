@@ -57,7 +57,7 @@ NIGEL = {
     "row_strategy": "one_per_package",
     "columns": [
         # (header, getter — 接收 ctx dict 回字串/數字)
-        ("客戶編號",       lambda ctx: ctx["vendor_customer_code"]),
+        ("客戶編號",       lambda ctx: f"{ctx['g_code']}-{ctx['packaging_mmdd']}"),
         ("清關號碼",       lambda ctx: ""),  # 由 Nigel 端填入
         ("收件人",         lambda ctx: ctx["ship_recipient"]),
         ("收件人詳細地址", lambda ctx: ctx["ship_address"]),
@@ -80,7 +80,7 @@ JPD = {
     "filename_template": "{date}_JpD_出貨單.xlsx",
     "row_strategy": "one_per_package",
     "columns": [
-        ("客戶運單號",      lambda ctx: f"{ctx['g_code']}-{ctx['shipment_id']}"),
+        ("客戶運單號",      lambda ctx: f"{ctx['g_code']}-{ctx['packaging_mmdd']}"),
         ("JpD包裹ID",       lambda ctx: ""),  # 由 JpD 端填入
         ("運單ID",          lambda ctx: ""),
         ("包裹特殊服務",     lambda ctx: ""),
@@ -137,16 +137,31 @@ def build_rows(vendor_id: str, shipments: list[dict]) -> tuple[list[str], list[l
     rows = []
 
     for s in shipments:
+        # packaging_mmdd = 客戶申請出單（admin 打包）的日期 → MMDD
+        # 來源優先：updated_at（admin 標記已出貨那刻）> created_at（客戶申請時）> 今天
+        packaging_mmdd = ""
+        for src in (s.get("updated_at"), s.get("created_at")):
+            if src and len(str(src)) >= 10:
+                try:
+                    # 接受 'YYYY-MM-DD HH:MM:SS' 或 'YYYY-MM-DD'
+                    dt = datetime.strptime(str(src)[:10], "%Y-%m-%d")
+                    packaging_mmdd = dt.strftime("%m%d")
+                    break
+                except ValueError:
+                    pass
+        if not packaging_mmdd:
+            packaging_mmdd = datetime.now().strftime("%m%d")
+
         for pkg in s["packages"]:
             ctx = {
                 "shipment_id":          s["id"],
                 "g_code":               s["g_code"],
+                "packaging_mmdd":       packaging_mmdd,   # 客戶申請出單日（打包日）MMDD
                 "ship_recipient":       s["ship_recipient"] or "",
                 "ship_address":         s["ship_address"] or "",
                 "ship_phone":           s["ship_phone"] or "",
                 "billed_weight":        s.get("billed_weight") or 0,
                 "total_fee":            s.get("total_fee") or 0,
-                "vendor_customer_code": s.get("vendor_customer_code") or "",
                 "package_id":           pkg["id"],
                 "package_logis_num":    pkg.get("logis_num") or "",
                 "package_product_name": pkg.get("product_name") or "",

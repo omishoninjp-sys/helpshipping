@@ -3087,17 +3087,6 @@ def admin_exports_generate():
         ).fetchall():
             pkg_map[p["id"]] = dict(p)
 
-    # 撈 vendor codes
-    g_codes = list({r["g_code"] for r in rows})
-    codes_map = {}
-    if g_codes:
-        ph = ",".join(["?"] * len(g_codes))
-        for c in conn.execute(
-            f"SELECT g_code, vendor, code FROM customer_vendor_codes WHERE g_code IN ({ph})",
-            g_codes
-        ).fetchall():
-            codes_map.setdefault(c["g_code"], {})[c["vendor"]] = c["code"]
-
     # 組 shipments list
     shipments = []
     for r in rows:
@@ -3115,7 +3104,9 @@ def admin_exports_generate():
             "ship_address":         rd.get("ship_address") or "",
             "billed_weight":        rd.get("billed_weight") or 0,
             "total_fee":            rd.get("total_fee") or 0,
-            "vendor_customer_code": codes_map.get(rd["g_code"], {}).get(vendor_id, ""),
+            # 打包日期來源：admin 標記出貨時的 updated_at（fallback 到客戶申請的 created_at）
+            "updated_at":           rd.get("updated_at") or "",
+            "created_at":           rd.get("created_at") or "",
             "packages":             pkgs,
         })
 
