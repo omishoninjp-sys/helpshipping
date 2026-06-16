@@ -1923,7 +1923,8 @@ async function saveAllChanges() {
 }
 
 function copyInfo(gCode, phone) {
-    navigator.clipboard.writeText(`會員編號：${gCode}\n密碼：${phone}`).then(() => showToast('已複製', 'success'));
+    var text = `https://goyoutati-shipping.zeabur.app/\n會員編號：${gCode}\n密碼：${phone}`;
+    navigator.clipboard.writeText(text).then(() => showToast('已複製', 'success'));
 }
 
 // ── 到貨管理 ──
