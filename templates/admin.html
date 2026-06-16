@@ -306,6 +306,7 @@
                 <div class="sidebar-item" id="sidebar-announcements" onclick="switchAdminTab('announcements')">📢 公告管理</div>
                 <div class="sidebar-item" onclick="switchAdminTab('stats')">📊 統計</div>
                 <div class="sidebar-divider"></div>
+                <div class="sidebar-item" id="sidebar-exports" onclick="switchAdminTab('exports')" style="display:none;">📤 出檔案 <span id="exports-badge" class="sidebar-badge" style="display:none;background:#3498db;">0</span></div>
                 <div class="sidebar-item" id="sidebar-agents" onclick="switchAdminTab('agents')" style="display:none;">🤝 代理管理</div>
                 <div class="sidebar-item" id="sidebar-my-branding" onclick="switchAdminTab('mybranding')" style="display:none;">🎨 我的品牌設定</div>
                 <div class="sidebar-item" onclick="openChangePwd()" style="color:#666;">🔑 變更密碼</div>
@@ -903,6 +904,77 @@
             </div>
         </div>
 
+        <!-- 出檔案給廠商 -->
+        <div class="admin-panel" id="panel-exports">
+            <div class="card">
+                <div class="toolbar">
+                    <h3>📤 出檔案給廠商</h3>
+                    <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadExports()">🔄 重新整理</button>
+                </div>
+
+                <div id="exports-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px;"></div>
+
+                <div style="background:rgba(52,152,219,0.06);border:1px solid rgba(52,152,219,0.18);border-radius:10px;padding:14px 18px;margin-bottom:18px;font-size:13px;color:#bbb;">
+                    💡 這裡顯示<strong style="color:#fff">「已標記出貨」且<strong>已收到客戶匯款後五碼</strong></strong>、但<strong style="color:#fff">尚未出檔案給廠商</strong>的單。勾選後選廠商下載 Excel，被勾的單自動標記「已出檔案」、下次不會再出現。
+                </div>
+
+                <div id="exports-toolbar" style="display:none;background:rgba(39,174,96,0.08);border:1px solid rgba(39,174,96,0.25);border-radius:10px;padding:14px 18px;margin-bottom:14px;align-items:center;gap:14px;flex-wrap:wrap;">
+                    <span style="color:#27ae60;font-weight:700;">已選 <span id="exports-selected-count">0</span> 筆</span>
+                    <span style="color:#aaa;font-size:13px;">總重 <strong id="exports-selected-kg">0</strong> kg · 總額 NT$ <strong id="exports-selected-fee">0</strong></span>
+                    <label style="margin-left:auto;color:#fff;font-size:13px;">廠商：
+                        <select id="exports-vendor-select" class="form-control" style="width:auto;display:inline-block;padding:6px 12px;font-size:13px;margin-left:6px;"></select>
+                    </label>
+                    <button class="btn btn-primary" style="padding:8px 20px;font-weight:700;" onclick="generateExport()">📥 下載 Excel + 標記已出檔案</button>
+                </div>
+
+                <div style="overflow-x:auto;">
+                    <table class="data-table" id="exports-table">
+                        <thead>
+                            <tr>
+                                <th style="width:42px;"><input type="checkbox" id="exports-select-all" onchange="toggleAllExports(this.checked)" style="width:16px;height:16px;"></th>
+                                <th>客編</th>
+                                <th>收件人</th>
+                                <th>地址</th>
+                                <th>電話</th>
+                                <th>重量</th>
+                                <th>金額</th>
+                                <th>付款時間</th>
+                                <th>後五碼</th>
+                                <th>廠商編號（Nigel）</th>
+                            </tr>
+                        </thead>
+                        <tbody id="exports-tbody">
+                            <tr><td colspan="10" style="text-align:center;color:#666;padding:30px;">載入中…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 歷史批次 -->
+            <div class="card" style="margin-top:20px;">
+                <div class="toolbar">
+                    <h3 style="font-size:16px;color:#aaa;">📚 歷史匯出批次（最近 50 批）</h3>
+                </div>
+                <div style="overflow-x:auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>批次 ID</th>
+                                <th>廠商</th>
+                                <th>匯出時間</th>
+                                <th>出貨單數</th>
+                                <th>總重量</th>
+                                <th>總金額</th>
+                            </tr>
+                        </thead>
+                        <tbody id="exports-history-tbody">
+                            <tr><td colspan="6" style="text-align:center;color:#666;padding:20px;">—</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <!-- 帳單管理 -->
         <div class="admin-panel" id="panel-billing">
             <div class="card">
@@ -1170,6 +1242,8 @@ async function adminLogin() {
             // 主管理員專屬分頁（代理隱藏）
             var sbAgents = document.getElementById('sidebar-agents');
             if (sbAgents) sbAgents.style.display = currentAdmin.user_type === 'admin' ? '' : 'none';
+            var sbExports = document.getElementById('sidebar-exports');
+            if (sbExports) sbExports.style.display = currentAdmin.user_type === 'admin' ? '' : 'none';
             var sbAnn = document.getElementById('sidebar-announcements');
             if (sbAnn) sbAnn.style.display = currentAdmin.user_type === 'admin' ? '' : 'none';
             // 代理專屬：我的品牌設定
@@ -1223,6 +1297,7 @@ function switchAdminTab(tab) {
     if (tab === 'forecasts') loadForecasts();
     if (tab === 'announcements') loadAnnouncements();
     if (tab === 'stats') loadStats();
+    if (tab === 'exports') loadExports();
     if (tab === 'agents') loadAgents();
     if (tab === 'mybranding') loadMyBranding();
 }
@@ -3034,6 +3109,222 @@ async function loadStats() {
         + '<td></td>'
         + '</tr>';
     } catch(e) { console.error('loadStats error:', e); }
+}
+
+// ===================== 📤 出檔案給廠商 =====================
+
+var _exportsCache = [];   // 後端回來的 items 快取
+var _exportsVendors = []; // 廠商清單
+
+async function loadExports() {
+    try {
+        // 廠商清單只抓一次
+        if (_exportsVendors.length === 0) {
+            const vRes = await fetch('/api/admin/vendors');
+            const vJson = await vRes.json();
+            if (vJson.success) {
+                _exportsVendors = vJson.vendors || [];
+                var sel = document.getElementById('exports-vendor-select');
+                sel.innerHTML = _exportsVendors.map(function(v){
+                    return '<option value="' + v.id + '">' + v.display_name + '</option>';
+                }).join('');
+            }
+        }
+
+        const res = await fetch('/api/admin/exports/pending');
+        const result = await res.json();
+        if (!result.success) {
+            showToast(result.error || '載入失敗', 'error');
+            return;
+        }
+        _exportsCache = result.items || [];
+
+        // 統計卡
+        var totalKg = 0, totalFee = 0, customers = {};
+        _exportsCache.forEach(function(i){
+            totalKg += i.billed_weight || 0;
+            totalFee += i.total_fee || 0;
+            customers[i.g_code] = true;
+        });
+        document.getElementById('exports-stats').innerHTML = ''
+            + '<div style="padding:20px;background:rgba(52,152,219,.08);border:1px solid rgba(52,152,219,.2);border-radius:12px;text-align:center;">'
+            + '<div style="font-size:30px;font-weight:700;color:#3498db;">' + _exportsCache.length + '</div>'
+            + '<div style="font-size:12px;color:#888;margin-top:4px;">待出檔案筆數</div></div>'
+            + '<div style="padding:20px;background:rgba(243,156,18,.08);border:1px solid rgba(243,156,18,.2);border-radius:12px;text-align:center;">'
+            + '<div style="font-size:30px;font-weight:700;color:#f39c12;">' + totalKg.toFixed(1) + ' <small style="font-size:14px;">kg</small></div>'
+            + '<div style="font-size:12px;color:#888;margin-top:4px;">總重量</div></div>'
+            + '<div style="padding:20px;background:rgba(39,174,96,.08);border:1px solid rgba(39,174,96,.2);border-radius:12px;text-align:center;">'
+            + '<div style="font-size:30px;font-weight:700;color:#27ae60;">NT$ ' + Math.round(totalFee).toLocaleString() + '</div>'
+            + '<div style="font-size:12px;color:#888;margin-top:4px;">總金額（涉及 ' + Object.keys(customers).length + ' 位客戶）</div></div>';
+
+        renderExportsTable();
+        loadExportsHistory();
+    } catch (e) {
+        console.error('loadExports error:', e);
+        showToast('載入出檔案清單失敗', 'error');
+    }
+}
+
+function renderExportsTable() {
+    var tbody = document.getElementById('exports-tbody');
+    if (!_exportsCache.length) {
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#666;padding:40px;">🎉 沒有待出檔案的單<br><small style="color:#444;">客戶付款後（後五碼確認）才會出現在這裡</small></td></tr>';
+        document.getElementById('exports-toolbar').style.display = 'none';
+        return;
+    }
+    tbody.innerHTML = _exportsCache.map(function(i){
+        var nigelCode = (i.vendor_codes && i.vendor_codes.nigel) || '';
+        return '<tr>'
+            + '<td><input type="checkbox" class="exp-chk" data-id="' + i.id + '" data-kg="' + i.billed_weight + '" data-fee="' + i.total_fee + '" onchange="updateExportSelection()" style="width:16px;height:16px;"></td>'
+            + '<td><strong>' + i.g_code + '</strong></td>'
+            + '<td>' + (i.ship_recipient || '－') + '</td>'
+            + '<td style="font-size:12px;max-width:240px;">' + (i.ship_address || '－') + '</td>'
+            + '<td style="font-size:12px;">' + (i.ship_phone || '－') + '</td>'
+            + '<td style="font-weight:600;color:#f39c12;">' + (i.billed_weight || 0).toFixed(1) + ' kg</td>'
+            + '<td style="font-weight:600;color:#27ae60;">NT$ ' + Math.round(i.total_fee || 0).toLocaleString() + '</td>'
+            + '<td style="font-size:11px;color:#999;">' + (i.payment_at || '').slice(5, 16) + '</td>'
+            + '<td style="font-family:ui-monospace,monospace;font-size:12px;">' + (i.payment_last5 || '') + '</td>'
+            + '<td>'
+            +   '<input type="text" value="' + nigelCode + '" placeholder="FWT____" '
+            +   '  data-gcode="' + i.g_code + '" '
+            +   '  onblur="saveVendorCode(this,\'nigel\')" '
+            +   '  style="width:90px;padding:4px 8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:6px;font-size:12px;font-family:ui-monospace,monospace;">'
+            + '</td>'
+            + '</tr>';
+    }).join('');
+    updateExportSelection();
+}
+
+function toggleAllExports(checked) {
+    document.querySelectorAll('.exp-chk').forEach(function(c){ c.checked = checked; });
+    updateExportSelection();
+}
+
+function updateExportSelection() {
+    var checks = document.querySelectorAll('.exp-chk:checked');
+    var count = checks.length;
+    var kg = 0, fee = 0;
+    checks.forEach(function(c){
+        kg += parseFloat(c.dataset.kg) || 0;
+        fee += parseFloat(c.dataset.fee) || 0;
+    });
+    document.getElementById('exports-selected-count').textContent = count;
+    document.getElementById('exports-selected-kg').textContent = kg.toFixed(1);
+    document.getElementById('exports-selected-fee').textContent = Math.round(fee).toLocaleString();
+    document.getElementById('exports-toolbar').style.display = count > 0 ? 'flex' : 'none';
+}
+
+async function saveVendorCode(input, vendor) {
+    var g_code = input.dataset.gcode;
+    var code = input.value.trim();
+    try {
+        var r = await fetch('/api/admin/customer_vendor_codes', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ g_code: g_code, vendor: vendor, code: code })
+        });
+        var result = await r.json();
+        if (result.success) {
+            input.style.borderColor = 'rgba(39,174,96,0.5)';
+            setTimeout(function(){ input.style.borderColor = 'rgba(255,255,255,.15)'; }, 1200);
+            // 更新快取
+            var item = _exportsCache.find(function(x){ return x.g_code === g_code; });
+            if (item) { item.vendor_codes = item.vendor_codes || {}; item.vendor_codes[vendor] = code; }
+        } else {
+            showToast(result.error || '儲存失敗', 'error');
+            input.style.borderColor = '#c0392b';
+        }
+    } catch(e) {
+        showToast('儲存失敗', 'error');
+    }
+}
+
+async function generateExport() {
+    var checks = document.querySelectorAll('.exp-chk:checked');
+    if (!checks.length) { showToast('請先勾選要出檔案的單', 'error'); return; }
+    var ids = Array.from(checks).map(function(c){ return parseInt(c.dataset.id); });
+    var vendor = document.getElementById('exports-vendor-select').value;
+
+    // 警告：Nigel 廠商的單如果有沒填編號的會空白
+    if (vendor === 'nigel') {
+        var missing = [];
+        ids.forEach(function(id){
+            var item = _exportsCache.find(function(x){ return x.id === id; });
+            if (item && !(item.vendor_codes && item.vendor_codes.nigel)) {
+                missing.push(item.g_code);
+            }
+        });
+        if (missing.length) {
+            var uniqMissing = Array.from(new Set(missing));
+            if (!confirm('以下客戶尚未填 Nigel 編號（FWT____），Excel 的「客戶編號」欄位會留空：\n\n' + uniqMissing.join('、') + '\n\n仍要繼續嗎？')) return;
+        }
+    }
+
+    try {
+        var btn = event.target;
+        btn.disabled = true;
+        btn.textContent = '⏳ 產生中…';
+
+        var r = await fetch('/api/admin/exports/generate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ vendor: vendor, ids: ids })
+        });
+
+        if (!r.ok) {
+            var errJson = await r.json().catch(function(){ return {error: 'HTTP ' + r.status}; });
+            throw new Error(errJson.error || '產生失敗');
+        }
+
+        // 從 header 撈檔名
+        var disp = r.headers.get('Content-Disposition') || '';
+        var fnMatch = disp.match(/filename\*=UTF-8''([^;]+)/) || disp.match(/filename="([^"]+)"/);
+        var filename = fnMatch ? decodeURIComponent(fnMatch[1]) : 'export.xlsx';
+        var batchId = r.headers.get('X-Batch-Id') || '';
+        var exported = r.headers.get('X-Shipments-Exported') || ids.length;
+
+        // 觸發下載
+        var blob = await r.blob();
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+
+        showToast('✅ 已產生 ' + exported + ' 筆出貨單（批次 ' + batchId + '）', 'success');
+
+        // 重新載入
+        loadExports();
+    } catch(e) {
+        console.error('generateExport error:', e);
+        showToast('產生失敗: ' + (e.message || e), 'error');
+    } finally {
+        var btn2 = document.querySelector('#exports-toolbar .btn-primary');
+        if (btn2) { btn2.disabled = false; btn2.textContent = '📥 下載 Excel + 標記已出檔案'; }
+    }
+}
+
+async function loadExportsHistory() {
+    try {
+        var r = await fetch('/api/admin/exports/history');
+        var result = await r.json();
+        var tbody = document.getElementById('exports-history-tbody');
+        if (!result.success || !result.batches.length) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#666;padding:20px;">尚無歷史批次</td></tr>';
+            return;
+        }
+        tbody.innerHTML = result.batches.map(function(b){
+            return '<tr>'
+                + '<td style="font-family:ui-monospace,monospace;font-size:11px;color:#aaa;">' + (b.exported_batch_id || '') + '</td>'
+                + '<td><span style="background:rgba(52,152,219,.2);color:#3498db;padding:3px 10px;border-radius:6px;font-size:11px;">' + (b.exported_vendor || '') + '</span></td>'
+                + '<td style="font-size:12px;">' + (b.exported_at || '').slice(0, 16) + '</td>'
+                + '<td>' + (b.shipment_count || 0) + '</td>'
+                + '<td>' + (b.total_kg || 0).toFixed(1) + ' kg</td>'
+                + '<td style="font-weight:600;color:#27ae60;">NT$ ' + Math.round(b.total_fee || 0).toLocaleString() + '</td>'
+                + '</tr>';
+        }).join('');
+    } catch(e) {
+        console.error('loadExportsHistory error:', e);
+    }
 }
 
 async function toggleMonthDetail(row, month) {

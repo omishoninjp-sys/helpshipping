@@ -15,6 +15,9 @@ import time
 import re
 import secrets
 import threading
+
+# 廠商出貨檔案範本（Nigel / JpD…）
+import vendors as vendor_templates
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
@@ -194,6 +197,10 @@ def init_db():
         ("ship_phone", "TEXT", "''"),
         ("ship_address", "TEXT", "''"),
         ("consolidation_fee", "REAL", "0"),
+        # 出檔案給廠商（Nigel / JpD）追蹤欄位
+        ("exported_at", "TEXT", "''"),
+        ("exported_vendor", "TEXT", "''"),
+        ("exported_batch_id", "TEXT", "''"),
     ]:
         try:
             conn.execute(f"ALTER TABLE shipment_requests ADD COLUMN {col} {col_type} DEFAULT {default}")
@@ -221,6 +228,18 @@ def init_db():
         print("[migrate] 已加 members.shipping_rate 欄位", flush=True)
     except:
         pass
+
+    # ===== 客戶 × 廠商編號對照（出檔案給 Nigel / JpD 等廠商時用） =====
+    # 對 Shopify 主帳號客戶 + 代理客戶都通用
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS customer_vendor_codes (
+            g_code TEXT NOT NULL,
+            vendor TEXT NOT NULL,
+            code TEXT NOT NULL,
+            updated_at TEXT,
+            PRIMARY KEY (g_code, vendor)
+        )
+    """)
 
     # ===== 代理品牌欄位（用於 referral URL + 登入後客製內容）=====
     for col, col_type, default in [
@@ -2879,6 +2898,317 @@ def admin_unconfirm_payment(req_id):
     conn.commit()
     conn.close()
     return jsonify({"success": True, "message": "已取消匯款確認"})
+
+
+# ============ 出檔案給廠商（Nigel / JpD ） ============
+
+@app.route("/api/admin/vendors", methods=["GET"])
+def admin_list_vendors():
+    """前端 UI 廠商下拉選單用"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    return jsonify({"success": True, "vendors": vendor_templates.list_vendors()})
+
+
+@app.route("/api/admin/customer_vendor_codes", methods=["GET"])
+def admin_get_vendor_codes():
+    """查詢一批客戶的廠商編號（FWT0001 等）"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    g_codes_str = request.args.get("g_codes", "")
+    g_codes = [s.strip().upper() for s in g_codes_str.split(",") if s.strip()]
+    conn = get_db()
+    if g_codes:
+        placeholders = ",".join(["?"] * len(g_codes))
+        rows = conn.execute(
+            f"SELECT g_code, vendor, code FROM customer_vendor_codes WHERE g_code IN ({placeholders})",
+            g_codes
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT g_code, vendor, code FROM customer_vendor_codes ORDER BY g_code, vendor"
+        ).fetchall()
+    conn.close()
+    # 回傳 nested dict: {g_code: {vendor: code}}
+    result = {}
+    for r in rows:
+        result.setdefault(r["g_code"], {})[r["vendor"]] = r["code"]
+    return jsonify({"success": True, "codes": result})
+
+
+@app.route("/api/admin/customer_vendor_codes", methods=["POST"])
+def admin_set_vendor_code():
+    """設定／更新某客戶的廠商編號"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    data = request.json or {}
+    g_code = (data.get("g_code") or "").strip().upper()
+    vendor = (data.get("vendor") or "").strip().lower()
+    code = (data.get("code") or "").strip()
+    if not g_code or not vendor:
+        return jsonify({"success": False, "error": "缺少 g_code 或 vendor"})
+    if vendor not in vendor_templates.VENDORS:
+        return jsonify({"success": False, "error": f"未知廠商：{vendor}"})
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_db()
+    if code:
+        # INSERT OR REPLACE
+        conn.execute(
+            "INSERT INTO customer_vendor_codes (g_code, vendor, code, updated_at) VALUES (?,?,?,?) "
+            "ON CONFLICT(g_code, vendor) DO UPDATE SET code=excluded.code, updated_at=excluded.updated_at",
+            (g_code, vendor, code, now)
+        )
+    else:
+        # 空字串 = 刪除
+        conn.execute(
+            "DELETE FROM customer_vendor_codes WHERE g_code=? AND vendor=?",
+            (g_code, vendor)
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "message": "已儲存"})
+
+
+@app.route("/api/admin/exports/pending", methods=["GET"])
+def admin_exports_pending():
+    """列出已付款但未匯出給廠商的出貨單"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT * FROM shipment_requests
+        WHERE status='已出貨'
+          AND payment_last5 IS NOT NULL AND payment_last5 != ''
+          AND (exported_at IS NULL OR exported_at = '')
+        ORDER BY payment_at ASC, id ASC
+    """).fetchall()
+
+    # 撈所有相關 packages
+    pkg_ids = set()
+    for r in rows:
+        for x in (r["package_ids"] or "").split(","):
+            x = x.strip()
+            if x.isdigit():
+                pkg_ids.add(int(x))
+
+    pkg_map = {}
+    if pkg_ids:
+        placeholders = ",".join(["?"] * len(pkg_ids))
+        pkg_rows = conn.execute(
+            f"SELECT id, g_code, logis_num, product_name, weight FROM packages WHERE id IN ({placeholders})",
+            list(pkg_ids)
+        ).fetchall()
+        for p in pkg_rows:
+            pkg_map[p["id"]] = dict(p)
+
+    # 撈 vendor codes
+    g_codes = list({r["g_code"] for r in rows})
+    codes_map = {}
+    if g_codes:
+        placeholders = ",".join(["?"] * len(g_codes))
+        code_rows = conn.execute(
+            f"SELECT g_code, vendor, code FROM customer_vendor_codes WHERE g_code IN ({placeholders})",
+            g_codes
+        ).fetchall()
+        for c in code_rows:
+            codes_map.setdefault(c["g_code"], {})[c["vendor"]] = c["code"]
+    conn.close()
+
+    items = []
+    for r in rows:
+        rd = dict(r)
+        pids = [int(x.strip()) for x in (rd.get("package_ids") or "").split(",") if x.strip().isdigit()]
+        items.append({
+            "id":               rd["id"],
+            "g_code":           rd["g_code"],
+            "customer_name":    rd.get("customer_name") or "",
+            "ship_recipient":   rd.get("ship_recipient") or "",
+            "ship_phone":       rd.get("ship_phone") or "",
+            "ship_address":     rd.get("ship_address") or "",
+            "billed_weight":    rd.get("billed_weight") or 0,
+            "total_fee":        rd.get("total_fee") or 0,
+            "payment_at":       rd.get("payment_at") or "",
+            "payment_last5":    rd.get("payment_last5") or "",
+            "updated_at":       rd.get("updated_at") or "",
+            "package_count":    len(pids),
+            "packages":         [pkg_map[i] for i in pids if i in pkg_map],
+            "vendor_codes":     codes_map.get(rd["g_code"], {}),
+        })
+    return jsonify({"success": True, "items": items})
+
+
+@app.route("/api/admin/exports/generate", methods=["POST"])
+def admin_exports_generate():
+    """匯出選定的出貨單為廠商 Excel，並標記 exported_*"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    data = request.json or {}
+    vendor_id = (data.get("vendor") or "").strip().lower()
+    ids = data.get("ids") or []
+
+    vendor = vendor_templates.get_vendor(vendor_id)
+    if not vendor:
+        return jsonify({"success": False, "error": f"未知廠商：{vendor_id}"})
+    if not ids:
+        return jsonify({"success": False, "error": "請至少選一筆"})
+    ids = [int(x) for x in ids if str(x).isdigit()]
+    if not ids:
+        return jsonify({"success": False, "error": "無有效 ID"})
+
+    conn = get_db()
+    placeholders = ",".join(["?"] * len(ids))
+    rows = conn.execute(
+        f"""SELECT * FROM shipment_requests
+            WHERE id IN ({placeholders})
+              AND status='已出貨'
+              AND payment_last5 IS NOT NULL AND payment_last5 != ''
+              AND (exported_at IS NULL OR exported_at = '')
+        """,
+        ids
+    ).fetchall()
+    if not rows:
+        conn.close()
+        return jsonify({"success": False, "error": "選定的單都已匯出或狀態不符"})
+
+    # 撈所有相關 packages
+    all_pkg_ids = set()
+    for r in rows:
+        for x in (r["package_ids"] or "").split(","):
+            x = x.strip()
+            if x.isdigit():
+                all_pkg_ids.add(int(x))
+    pkg_map = {}
+    if all_pkg_ids:
+        ph = ",".join(["?"] * len(all_pkg_ids))
+        for p in conn.execute(
+            f"SELECT id, g_code, logis_num, product_name, weight FROM packages WHERE id IN ({ph})",
+            list(all_pkg_ids)
+        ).fetchall():
+            pkg_map[p["id"]] = dict(p)
+
+    # 撈 vendor codes
+    g_codes = list({r["g_code"] for r in rows})
+    codes_map = {}
+    if g_codes:
+        ph = ",".join(["?"] * len(g_codes))
+        for c in conn.execute(
+            f"SELECT g_code, vendor, code FROM customer_vendor_codes WHERE g_code IN ({ph})",
+            g_codes
+        ).fetchall():
+            codes_map.setdefault(c["g_code"], {})[c["vendor"]] = c["code"]
+
+    # 組 shipments list
+    shipments = []
+    for r in rows:
+        rd = dict(r)
+        pids = [int(x.strip()) for x in (rd.get("package_ids") or "").split(",") if x.strip().isdigit()]
+        pkgs = [pkg_map[i] for i in pids if i in pkg_map]
+        if not pkgs:
+            # 沒包裹資料就跳過（不該發生但保險）
+            continue
+        shipments.append({
+            "id":                   rd["id"],
+            "g_code":               rd["g_code"],
+            "ship_recipient":       rd.get("ship_recipient") or "",
+            "ship_phone":           rd.get("ship_phone") or "",
+            "ship_address":         rd.get("ship_address") or "",
+            "billed_weight":        rd.get("billed_weight") or 0,
+            "total_fee":            rd.get("total_fee") or 0,
+            "vendor_customer_code": codes_map.get(rd["g_code"], {}).get(vendor_id, ""),
+            "packages":             pkgs,
+        })
+
+    if not shipments:
+        conn.close()
+        return jsonify({"success": False, "error": "選定的單沒有包裹資料"})
+
+    # 產生 Excel
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    headers, table_rows = vendor_templates.build_rows(vendor_id, shipments)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = vendor["display_name"]
+
+    # 標頭樣式
+    hdr_font = Font(bold=True, color="FFFFFF", size=11)
+    hdr_fill = PatternFill(start_color="2C3E50", end_color="2C3E50", fill_type="solid")
+    hdr_align = Alignment(horizontal="center", vertical="center")
+    thin = Border(left=Side(style="thin"), right=Side(style="thin"),
+                  top=Side(style="thin"), bottom=Side(style="thin"))
+
+    for col_idx, h in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=h)
+        cell.font = hdr_font; cell.fill = hdr_fill
+        cell.alignment = hdr_align; cell.border = thin
+
+    for row_idx, row_data in enumerate(table_rows, start=2):
+        for col_idx, val in enumerate(row_data, start=1):
+            cell = ws.cell(row=row_idx, column=col_idx, value=val)
+            cell.border = thin
+
+    # 欄寬自動
+    for col_idx, h in enumerate(headers, start=1):
+        max_len = len(str(h))
+        for row_data in table_rows:
+            v = row_data[col_idx - 1] if col_idx - 1 < len(row_data) else ""
+            if v is not None:
+                max_len = max(max_len, len(str(v)))
+        ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = min(max_len + 4, 40)
+
+    # 標記 exported
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    batch_id = f"{vendor_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    shipment_ids_actually_used = [s["id"] for s in shipments]
+    ph = ",".join(["?"] * len(shipment_ids_actually_used))
+    conn.execute(
+        f"""UPDATE shipment_requests
+            SET exported_at=?, exported_vendor=?, exported_batch_id=?
+            WHERE id IN ({ph})
+        """,
+        [now, vendor_id, batch_id] + shipment_ids_actually_used
+    )
+    conn.commit()
+    conn.close()
+
+    # 輸出檔案
+    filename = vendor_templates.filename_for(vendor_id)
+    bio = io.BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+    from urllib.parse import quote
+    response = make_response(bio.read())
+    response.headers["Content-Type"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    response.headers["Content-Disposition"] = f'attachment; filename="{quote(filename)}"; filename*=UTF-8\'\'{quote(filename)}'
+    response.headers["X-Batch-Id"] = batch_id
+    response.headers["X-Shipments-Exported"] = str(len(shipments))
+    return response
+
+
+@app.route("/api/admin/exports/history", methods=["GET"])
+def admin_exports_history():
+    """檢視歷史批次（最近 50 批）"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT exported_batch_id, exported_vendor, MIN(exported_at) AS exported_at,
+               COUNT(*) AS shipment_count,
+               SUM(billed_weight) AS total_kg,
+               SUM(total_fee) AS total_fee
+        FROM shipment_requests
+        WHERE exported_at IS NOT NULL AND exported_at != ''
+        GROUP BY exported_batch_id, exported_vendor
+        ORDER BY MIN(exported_at) DESC
+        LIMIT 50
+    """).fetchall()
+    conn.close()
+    return jsonify({
+        "success": True,
+        "batches": [dict(r) for r in rows]
+    })
 
 
 @app.route("/api/admin/shipment_requests", methods=["GET"])
