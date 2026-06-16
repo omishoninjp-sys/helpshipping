@@ -390,8 +390,14 @@
                         <input type="text" id="pkg-weight" class="form-control" placeholder="1.5" inputmode="decimal">
                     </div>
                     <div class="form-group" style="margin:0;">
-                        <label>寄送者</label>
-                        <input type="text" id="pkg-name" class="form-control" placeholder="例：Amazon、ZOZOTOWN、Yahoo">
+                        <label>物流業者</label>
+                        <select id="pkg-name" class="form-control">
+                            <option value="">請選擇</option>
+                            <option value="日本郵政">日本郵政</option>
+                            <option value="SAKAWA急便">SAKAWA急便</option>
+                            <option value="YAMATO運輸">YAMATO運輸</option>
+                            <option value="AMAZON">AMAZON</option>
+                        </select>
                     </div>
                     <div class="form-group" style="margin:0;">
                         <label>狀態</label>
@@ -420,7 +426,7 @@
                     </div>
                 </div>
                 <div class="filter-bar">
-                    <input type="text" id="pkg-filter" placeholder="🔍 搜尋客戶編號、末四碼或寄送者（會搜全部含已出貨）...">
+                    <input type="text" id="pkg-filter" placeholder="🔍 搜尋客戶編號、末四碼或物流業者（會搜全部含已出貨）...">
                     <select id="pkg-status-filter" class="form-control" style="width:auto;padding:9px 12px;font-size:13px;" onchange="filterPackages()">
                         <option value="已到貨" selected>📦 已到貨</option>
                         <option value="待入庫">⏳ 待入庫</option>
@@ -1014,7 +1020,7 @@
         <div class="pkg-form-grid" style="grid-template-columns:1fr 1fr;">
             <div class="form-group" style="margin:0;position:relative;"><label>客戶 <span id="edit-selected-info" style="font-size:11px;color:#27ae60;font-weight:600;"></span></label><input type="text" id="edit-customer-search" class="form-control" placeholder="🔍 編號、姓名、電話" autocomplete="off" oninput="onEditCustomerSearch(this.value)" onblur="setTimeout(closeEditSearch,200)" onfocus="onEditCustomerSearch(this.value)"><input type="hidden" id="edit-g-code"><div id="edit-search-results" class="customer-search-dropdown" style="display:none;"></div></div>
             <div class="form-group" style="margin:0;"><label>物流號末四碼</label><input type="text" id="edit-logis" class="form-control" inputmode="numeric" maxlength="4"></div>
-            <div class="form-group" style="margin:0;"><label>寄送者</label><input type="text" id="edit-name" class="form-control"></div>
+            <div class="form-group" style="margin:0;"><label>物流業者</label><select id="edit-name" class="form-control"><option value="">請選擇</option><option value="日本郵政">日本郵政</option><option value="SAKAWA急便">SAKAWA急便</option><option value="YAMATO運輸">YAMATO運輸</option><option value="AMAZON">AMAZON</option></select></div>
             <div class="form-group" style="margin:0;"><label>重量 (kg)</label><input type="text" id="edit-weight" class="form-control" inputmode="decimal"></div>
             <div class="form-group" style="margin:0;"><label>狀態</label>
                 <select id="edit-status" class="form-control">
@@ -1984,7 +1990,7 @@ function renderPackages(list) {
             +   '<span style="font-size:12px;color:#aaa;flex:0 0 auto;">📅 ' + (p.in_date || '-') + '</span>'
             + '</div>'
             + '<div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:10px;font-size:13px;">'
-            +   '<span><span style="color:#888;">寄送者：</span><span style="color:#fff;">' + (p.product_name || '-') + '</span></span>'
+            +   '<span><span style="color:#888;">物流業者：</span><span style="color:#fff;">' + (p.product_name || '-') + '</span></span>'
             +   '<span><span style="color:#888;">末四碼：</span><span style="color:#fff;">' + (p.logis_num || '-') + '</span></span>'
             +   '<span><span style="color:#888;">重量：</span><span style="color:#f39c12;font-weight:600;">' + (p.weight ? p.weight + ' kg' : '-') + '</span></span>'
             +   (p.note ? '<span><span style="color:#888;">備註：</span><span style="color:#ccc;">' + p.note + '</span></span>' : '')
@@ -2096,7 +2102,23 @@ function openEdit(id) {
     document.getElementById('edit-selected-info').textContent = '目前：' + (p.g_code || '');
     document.getElementById('edit-search-results').style.display = 'none';
     document.getElementById('edit-logis').value   = p.logis_num||'';
-    document.getElementById('edit-name').value    = p.product_name||'';
+    // 物流業者下拉：若舊資料不在選項列表中（如 Amazon、ZOZOTOWN 等舊值），動態加為選項以免遺失
+    var editNameSel = document.getElementById('edit-name');
+    var oldVal = p.product_name || '';
+    if (oldVal) {
+        var found = false;
+        for (var i = 0; i < editNameSel.options.length; i++) {
+            if (editNameSel.options[i].value === oldVal) { found = true; break; }
+        }
+        if (!found) {
+            // 加在最後並標示為舊值，避免遺失資料
+            var opt = document.createElement('option');
+            opt.value = oldVal;
+            opt.textContent = oldVal + '（舊值）';
+            editNameSel.appendChild(opt);
+        }
+    }
+    editNameSel.value = oldVal;
     document.getElementById('edit-weight').value  = p.weight||'';
     document.getElementById('edit-status').value  = p.status;
     document.getElementById('edit-note').value    = p.note||'';
@@ -2518,7 +2540,7 @@ async function checkOldPackages() {
                             + '<span class="status-tag status-' + p.status + '" style="font-size:10px;">' + p.status + '</span>'
                         + '</div>'
                         + '<div style="font-size:12px;color:#888;margin-top:4px;">'
-                            + '寄送者：' + (p.product_name || '-')
+                            + '物流業者：' + (p.product_name || '-')
                             + '　|　末四碼：' + (p.logis_num || '-')
                             + '　|　重量：' + (p.weight ? p.weight + ' kg' : '-')
                         + '</div>'
