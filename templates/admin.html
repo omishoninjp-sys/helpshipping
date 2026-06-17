@@ -406,6 +406,7 @@
                             <option value="SAKAWA急便">SAKAWA急便</option>
                             <option value="YAMATO運輸">YAMATO運輸</option>
                             <option value="AMAZON">AMAZON</option>
+                            <option value="其它">其它</option>
                         </select>
                     </div>
                     <div class="form-group" style="margin:0;">
@@ -1029,7 +1030,7 @@
         <div class="pkg-form-grid" style="grid-template-columns:1fr 1fr;">
             <div class="form-group" style="margin:0;position:relative;"><label>客戶 <span id="edit-selected-info" style="font-size:11px;color:#27ae60;font-weight:600;"></span></label><input type="text" id="edit-customer-search" class="form-control" placeholder="🔍 編號、姓名、電話" autocomplete="off" oninput="onEditCustomerSearch(this.value)" onblur="setTimeout(closeEditSearch,200)" onfocus="onEditCustomerSearch(this.value)"><input type="hidden" id="edit-g-code"><div id="edit-search-results" class="customer-search-dropdown" style="display:none;"></div></div>
             <div class="form-group" style="margin:0;"><label>物流號末四碼</label><input type="text" id="edit-logis" class="form-control" inputmode="numeric" maxlength="4"></div>
-            <div class="form-group" style="margin:0;"><label>物流業者</label><select id="edit-name" class="form-control"><option value="">請選擇</option><option value="日本郵政">日本郵政</option><option value="SAKAWA急便">SAKAWA急便</option><option value="YAMATO運輸">YAMATO運輸</option><option value="AMAZON">AMAZON</option></select></div>
+            <div class="form-group" style="margin:0;"><label>物流業者</label><select id="edit-name" class="form-control"><option value="">請選擇</option><option value="日本郵政">日本郵政</option><option value="SAKAWA急便">SAKAWA急便</option><option value="YAMATO運輸">YAMATO運輸</option><option value="AMAZON">AMAZON</option><option value="其它">其它</option></select></div>
             <div class="form-group" style="margin:0;"><label>重量 (kg)</label><input type="text" id="edit-weight" class="form-control" inputmode="decimal"></div>
             <div class="form-group" style="margin:0;"><label>狀態</label>
                 <select id="edit-status" class="form-control">
