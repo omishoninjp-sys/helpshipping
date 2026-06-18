@@ -943,6 +943,14 @@
                     <button class="btn btn-primary" style="padding:8px 20px;font-weight:700;" onclick="generateExport()">📥 下載 Excel + 標記已出檔案</button>
                 </div>
 
+                <div style="display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-bottom:10px;">
+                    <label style="color:#aaa;font-size:13px;">排序：</label>
+                    <select id="exports-sort" onchange="renderExportsTable()" class="form-control" style="width:auto;display:inline-block;padding:6px 12px;font-size:13px;">
+                        <option value="payment_asc">付款時間（舊 → 新）</option>
+                        <option value="payment_desc">付款時間（新 → 舊）</option>
+                    </select>
+                </div>
+
                 <div style="overflow-x:auto;">
                     <table class="data-table" id="exports-table">
                         <thead>
@@ -3207,7 +3215,23 @@ function renderExportsTable() {
         document.getElementById('exports-toolbar').style.display = 'none';
         return;
     }
-    tbody.innerHTML = _exportsCache.map(function(i){
+    // 排序：依下拉選單的選項
+    var sortMode = (document.getElementById('exports-sort') || {}).value || 'payment_asc';
+    var sorted = _exportsCache.slice();  // 複製避免動原陣列
+    sorted.sort(function(a, b){
+        var pa = a.payment_at || '';
+        var pb = b.payment_at || '';
+        // 空字串排最後（無論升降）
+        if (!pa && !pb) return 0;
+        if (!pa) return 1;
+        if (!pb) return -1;
+        if (sortMode === 'payment_desc') {
+            return pb.localeCompare(pa);   // 新 → 舊
+        }
+        return pa.localeCompare(pb);       // 舊 → 新（預設）
+    });
+
+    tbody.innerHTML = sorted.map(function(i){
         // 自動產生「客戶編號-MMDD」預覽碼。日期以 admin 標記出貨那刻 (updated_at) 為準。
         var dateSrc = i.updated_at || i.payment_at || '';
         var mmdd = '';
