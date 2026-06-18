@@ -1933,7 +1933,7 @@ async function saveAllChanges() {
 }
 
 function copyInfo(gCode, phone) {
-    var text = `https://goyoutati-shipping.zeabur.app/\n會員編號：${gCode}\n密碼：${phone}`;
+    var text = `https://shipping.goyoutati.com/\n會員編號：${gCode}\n密碼：${phone}`;
     navigator.clipboard.writeText(text).then(() => showToast('已複製', 'success'));
 }
 
