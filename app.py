@@ -3213,12 +3213,22 @@ def _admin_exports_generate_impl():
     # 組 shipments list
     shipments = []
     fallback_updates = []  # (id, ship_recipient, ship_phone, ship_address) - 把 fallback 後的值寫回 DB
+    missing_pkg_count = 0
     for r in rows:
         rd = dict(r)
         pids = [int(x.strip()) for x in (rd.get("package_ids") or "").split(",") if x.strip().isdigit()]
-        pkgs = [pkg_map[i] for i in pids if i in pkg_map]
+        # 包裹資料：找到的用真實值、找不到的用 stub
+        # vendor 範本實際上只用 package_id 當隨機種子，不用 logis_num/weight 等具體欄位
+        # 所以孤立資料（migration 後 packages 表沒對應）也能撐過 Excel 產出
+        pkgs = []
+        for i in pids:
+            if i in pkg_map:
+                pkgs.append(pkg_map[i])
+            else:
+                pkgs.append({"id": i, "g_code": rd["g_code"], "logis_num": "", "product_name": "", "weight": 0})
+                missing_pkg_count += 1
+        # 若 package_ids 字串完全解析不出任何整數 → 真的沒辦法產，跳過
         if not pkgs:
-            # 沒包裹資料就跳過（不該發生但保險）
             continue
 
         # Fallback 順序：shipment_requests.ship_* → members 表 → Shopify cache → customer_name
@@ -3321,6 +3331,9 @@ def _admin_exports_generate_impl():
     response.headers["Content-Disposition"] = f'attachment; filename="{quote(filename)}"; filename*=UTF-8\'\'{quote(filename)}'
     response.headers["X-Batch-Id"] = batch_id
     response.headers["X-Shipments-Exported"] = str(len(shipments))
+    if missing_pkg_count:
+        response.headers["X-Missing-Packages"] = str(missing_pkg_count)
+        print(f"[export] ⚠️ 本批有 {missing_pkg_count} 個包裹資料缺失（用 stub 撐過），shipments={len(shipments)} 筆", flush=True)
     return response
 
 
