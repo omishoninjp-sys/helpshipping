@@ -15,7 +15,7 @@
         header { text-align: center; padding: 30px 0; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 30px; }
         header h1 { font-size: 2rem; background: linear-gradient(90deg, #f39c12, #e74c3c); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; }
         header p { color: #888; }
-        .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+        .tabs { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
         .tab { padding: 12px 24px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; cursor: pointer; transition: all 0.3s; }
         .tab:hover { background: rgba(255,255,255,0.1); }
         .tab.active { background: linear-gradient(90deg, #f39c12, #e74c3c); border-color: transparent; }
@@ -66,6 +66,10 @@
         .refresh-btn { float: right; }
         .order-actions { display: flex; gap: 5px; }
         .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; background: rgba(255,255,255,0.1); }
+        /* 出檔案專用 */
+        .export-toolbar { display: flex; gap: 12px; align-items: center; padding: 12px 16px; background: rgba(243,156,18,0.08); border: 1px solid rgba(243,156,18,0.3); border-radius: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+        .export-toolbar select { padding: 8px 12px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #fff; border-radius: 6px; font-size: 13px; }
+        .export-stat { color: #f39c12; font-weight: 600; }
     </style>
 </head>
 <body>
@@ -79,6 +83,7 @@
             <div class="tab active" data-tab="orders">📦 Shopify 訂單</div>
             <div class="tab" data-tab="jpd">🚚 JPD 運單</div>
             <div class="tab" data-tab="packages">📋 倉庫包裹</div>
+            <div class="tab" data-tab="exports">📤 出檔案</div>
         </div>
         
         <!-- Shopify 訂單 -->
@@ -186,6 +191,68 @@
                 </table>
             </div>
         </div>
+
+        <!-- 📤 出檔案 -->
+        <div class="panel" id="panel-exports">
+            <div class="card">
+                <h3>
+                    📤 出檔案給廠商
+                    <button class="btn btn-secondary refresh-btn" onclick="loadExports()">🔄 重新整理</button>
+                </h3>
+                <p style="color:#888;font-size:13px;margin-bottom:14px;line-height:1.6;">
+                    勾選下方訂單 → 選擇廠商（Nigel / 小客戶大價值）→ 下載 Excel。<br>
+                    匯出後該筆訂單會被標記「已出檔案」，下次不會再出現。
+                    <span style="color:#f39c12;">編號自動產生「客戶訂單號-MMDD」</span>，例如 <code style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:4px;font-family:ui-monospace,monospace;">1234-0616</code>。
+                </p>
+
+                <div class="export-toolbar" id="export-toolbar" style="display:none;">
+                    <span>✅ 已勾選 <span class="export-stat" id="export-selected-count">0</span> 筆</span>
+                    <div style="margin-left:auto;display:flex;gap:10px;align-items:center;">
+                        <label>廠商：</label>
+                        <select id="exports-vendor-select">
+                            <!-- 由 JS 從 /api/exports/vendors 填入 -->
+                        </select>
+                        <button class="btn btn-primary" onclick="generateExportFile()">📥 下載 Excel + 標記已出檔案</button>
+                    </div>
+                </div>
+
+                <div id="exports-loading" class="loading">載入中</div>
+                <table id="exports-table" style="display:none;">
+                    <thead>
+                        <tr>
+                            <th style="width:36px;"><input type="checkbox" id="export-chk-all" onchange="toggleAllExports(this)" style="accent-color:#f39c12;cursor:pointer;width:15px;height:15px;"></th>
+                            <th>客戶單號</th>
+                            <th>收件人</th>
+                            <th>地址</th>
+                            <th>電話</th>
+                            <th>包裹 ID</th>
+                            <th>建立日期</th>
+                            <th>運單號</th>
+                            <th>預覽編號</th>
+                        </tr>
+                    </thead>
+                    <tbody id="exports-body"></tbody>
+                </table>
+
+                <!-- 出檔案歷史 -->
+                <div style="margin-top:30px;">
+                    <h4 style="color:#aaa;font-size:14px;margin-bottom:10px;">📜 最近匯出記錄</h4>
+                    <table id="exports-history-table" style="font-size:13px;">
+                        <thead>
+                            <tr>
+                                <th>批次 ID</th>
+                                <th>廠商</th>
+                                <th>訂單數</th>
+                                <th>匯出時間</th>
+                            </tr>
+                        </thead>
+                        <tbody id="exports-history-body">
+                            <tr><td colspan="4" style="text-align:center;color:#666;padding:20px;">無記錄</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
     </div>
     
     <!-- 創建運單 Modal -->
@@ -256,6 +323,10 @@
         const ORDER_PAGE_SIZE = 30;
         let orderPage = 1;
         let filteredShopifyOrders = [];
+
+        // === 出檔案用 ===
+        let exportsCache = [];          // 目前待出檔案的訂單
+        let exportsVendorsCache = [];   // 廠商清單
         
         document.addEventListener('DOMContentLoaded', () => {
             loadShopifyOrders();
@@ -267,6 +338,7 @@
                     document.getElementById(`panel-${tab.dataset.tab}`).classList.add('active');
                     if (tab.dataset.tab === 'jpd') loadJpdOrders();
                     if (tab.dataset.tab === 'packages') loadJpdPackages();
+                    if (tab.dataset.tab === 'exports') loadExports();
                 });
             });
             document.getElementById('create-order-form').addEventListener('submit', handleCreateOrder);
@@ -683,6 +755,153 @@
             toast.textContent = message;
             document.body.appendChild(toast);
             setTimeout(() => toast.remove(), 3000);
+        }
+
+        // =====================================================
+        // 📤 出檔案
+        // =====================================================
+
+        async function loadExports() {
+            document.getElementById('exports-loading').style.display = 'block';
+            document.getElementById('exports-table').style.display = 'none';
+            document.getElementById('export-toolbar').style.display = 'none';
+            try {
+                // 並行載入廠商清單、待出訂單、歷史記錄
+                const [vRes, pRes, hRes] = await Promise.all([
+                    fetch('/api/exports/vendors').then(r => r.json()),
+                    fetch('/api/exports/pending').then(r => r.json()),
+                    fetch('/api/exports/history').then(r => r.json()),
+                ]);
+                if (vRes.success) {
+                    exportsVendorsCache = vRes.vendors || [];
+                    const sel = document.getElementById('exports-vendor-select');
+                    sel.innerHTML = exportsVendorsCache.map(v =>
+                        `<option value="${v.id}">${v.display_name}</option>`
+                    ).join('');
+                }
+                if (pRes.success) {
+                    exportsCache = pRes.items || [];
+                    renderExportsTable();
+                } else {
+                    showToast('載入失敗: ' + (pRes.error || '未知錯誤'), 'error');
+                }
+                if (hRes.success) renderExportsHistory(hRes.history || []);
+            } catch (e) {
+                console.error(e);
+                showToast('網路錯誤', 'error');
+            }
+            document.getElementById('exports-loading').style.display = 'none';
+            document.getElementById('exports-table').style.display = 'table';
+        }
+
+        function renderExportsTable() {
+            const tbody = document.getElementById('exports-body');
+            if (!exportsCache.length) {
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#666;padding:40px;">🎉 沒有待出檔案的訂單<br><small style="color:#444;">所有 JPD 運單都已匯出給廠商</small></td></tr>';
+                document.getElementById('export-toolbar').style.display = 'none';
+                return;
+            }
+            tbody.innerHTML = exportsCache.map(o => {
+                // 自動產生「訂單號-MMDD」預覽碼
+                const dateSrc = o.created_at || '';
+                let mmdd = '';
+                if (dateSrc && dateSrc.length >= 10) {
+                    mmdd = dateSrc.substring(5, 7) + dateSrc.substring(8, 10);
+                } else {
+                    const d = new Date();
+                    mmdd = String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+                }
+                const coid = (o.customer_order_id || '').toString().replace(/^#/, '').trim() || `ORD${o.id}`;
+                const previewCode = `${coid}-${mmdd}`;
+                return `<tr>
+                    <td><input type="checkbox" class="export-chk" data-id="${o.id}" onchange="updateExportSelection()" style="accent-color:#f39c12;cursor:pointer;width:15px;height:15px;"></td>
+                    <td><strong>${o.customer_order_id || '-'}</strong></td>
+                    <td>${o.recipient || '-'}</td>
+                    <td style="font-size:12px;max-width:200px;">${o.address || '-'}</td>
+                    <td style="font-size:12px;">${o.phone || '-'}</td>
+                    <td style="font-size:12px;color:#3498db;font-weight:600;">${o.package_ids || '-'} <span style="color:#666;">(${o.package_count})</span></td>
+                    <td style="font-size:11px;color:#999;">${(o.created_at || '').slice(5, 16)}</td>
+                    <td style="font-size:12px;">${o.logis_num || '-'}</td>
+                    <td style="font-family:ui-monospace,monospace;font-size:13px;font-weight:600;color:#c9a55c;">${previewCode}</td>
+                </tr>`;
+            }).join('');
+            updateExportSelection();
+        }
+
+        function toggleAllExports(chk) {
+            document.querySelectorAll('.export-chk').forEach(c => c.checked = chk.checked);
+            updateExportSelection();
+        }
+
+        function updateExportSelection() {
+            const count = document.querySelectorAll('.export-chk:checked').length;
+            document.getElementById('export-selected-count').textContent = count;
+            document.getElementById('export-toolbar').style.display = count > 0 ? 'flex' : 'none';
+        }
+
+        async function generateExportFile() {
+            const checks = document.querySelectorAll('.export-chk:checked');
+            if (!checks.length) { showToast('請先勾選要出檔案的訂單', 'error'); return; }
+            const ids = Array.from(checks).map(c => parseInt(c.dataset.id));
+            const vendor = document.getElementById('exports-vendor-select').value;
+            const vendorName = (exportsVendorsCache.find(v => v.id === vendor) || {}).display_name || vendor;
+            if (!confirm(`確定要產生 ${vendorName} 的 Excel 並標記 ${ids.length} 筆訂單為「已出檔案」？\n\n標記後該批訂單下次不會再出現。`)) return;
+
+            const btn = event.target;
+            const origText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = '⏳ 產生中…';
+
+            try {
+                const res = await fetch('/api/exports/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ vendor, ids })
+                });
+                if (!res.ok) {
+                    const errJson = await res.json().catch(() => ({ error: '產生失敗' }));
+                    showToast('❌ ' + (errJson.error || '產生失敗'), 'error');
+                    btn.disabled = false; btn.textContent = origText;
+                    return;
+                }
+                // 下載 Excel
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                // 從 Content-Disposition 抓檔名
+                const cd = res.headers.get('Content-Disposition') || '';
+                const m = cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
+                a.download = m ? decodeURIComponent(m[1]) : `${vendor}_export.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+
+                showToast(`✅ 已產生 ${ids.length} 筆訂單的 ${vendorName} Excel`, 'success');
+                // 重新載入清單（剛標記的不會再出現）
+                loadExports();
+            } catch (e) {
+                console.error(e);
+                showToast('網路錯誤', 'error');
+                btn.disabled = false; btn.textContent = origText;
+            }
+        }
+
+        function renderExportsHistory(history) {
+            const tbody = document.getElementById('exports-history-body');
+            if (!history.length) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#666;padding:20px;">無記錄</td></tr>';
+                return;
+            }
+            tbody.innerHTML = history.map(h => `
+                <tr>
+                    <td style="font-family:ui-monospace,monospace;font-size:12px;">${h.batch_id || '-'}</td>
+                    <td>${h.vendor_name || h.vendor || '-'}</td>
+                    <td><strong>${h.order_count}</strong> 筆</td>
+                    <td style="font-size:12px;color:#999;">${h.exported_at || '-'}</td>
+                </tr>
+            `).join('');
         }
     </script>
 </body>

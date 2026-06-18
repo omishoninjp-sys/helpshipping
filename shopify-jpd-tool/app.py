@@ -4,12 +4,16 @@ Shopify × JPD 雲倉 串接工具
 御用達-光頭哥 專用
 """
 
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_file
 import requests
 import json
 import os
 import sqlite3
+from io import BytesIO
 from datetime import datetime, timedelta
+
+# 廠商出貨檔案範本（Nigel / 小客戶大價值 JpD…）
+import vendors as vendor_templates
 
 app = Flask(__name__)
 
@@ -57,6 +61,18 @@ def init_db():
             created_at      TEXT NOT NULL
         )
     """)
+
+    # ── 出檔案 migration：補上 exported_* 三欄（既有資料不影響）──
+    for col, col_type, default in [
+        ("exported_at",        "TEXT", "''"),
+        ("exported_vendor",    "TEXT", "''"),
+        ("exported_batch_id",  "TEXT", "''"),
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE order_history ADD COLUMN {col} {col_type} DEFAULT {default}")
+        except sqlite3.OperationalError:
+            pass  # 欄位已存在
+
     conn.commit()
     conn.close()
 
@@ -723,6 +739,182 @@ def fulfill_shopify_order():
                 return jsonify({"success": False, "error": f"回寫失敗: {error_msg}"})
     
     return jsonify({"success": False, "error": "找不到可出貨的訂單項目（可能已出貨）"})
+
+
+# ============================================================
+# 📤 出檔案給廠商（Nigel / 小客戶大價值 JpD）
+# ============================================================
+
+@app.route("/api/exports/vendors")
+def list_export_vendors():
+    """前端用：列出可用的廠商"""
+    return jsonify({"success": True, "vendors": vendor_templates.list_vendors()})
+
+
+@app.route("/api/exports/pending")
+def list_pending_exports():
+    """列出尚未出檔案的訂單（order_history.exported_at 為空）"""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT * FROM order_history
+        WHERE (exported_at IS NULL OR exported_at = '')
+        ORDER BY id DESC
+    """).fetchall()
+    conn.close()
+
+    items = []
+    for r in rows:
+        rd = dict(r)
+        pids = [int(x.strip()) for x in str(rd.get("package_ids") or "").split(",") if x.strip().isdigit()]
+        # 解析商品 JSON 給前端參考
+        try:
+            items_parsed = json.loads(rd.get("items_json") or "[]")
+        except:
+            items_parsed = []
+        items.append({
+            "id":                 rd["id"],
+            "customer_order_id":  rd.get("customer_order_id") or "",
+            "logis_num":          rd.get("logis_num") or "",
+            "recipient":          rd.get("recipient") or "",
+            "phone":              rd.get("phone") or "",
+            "address":            rd.get("address") or "",
+            "package_ids":        rd.get("package_ids") or "",
+            "package_count":      len(pids),
+            "created_at":         rd.get("created_at") or "",
+            "mode":               rd.get("mode") or "self",
+            "status":             rd.get("status") or "",
+            "items":              items_parsed,
+        })
+    return jsonify({"success": True, "items": items})
+
+
+@app.route("/api/exports/generate", methods=["POST"])
+def generate_export():
+    """產生指定廠商的 Excel + 標記已出檔案"""
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+    except ImportError:
+        return jsonify({"success": False, "error": "缺少 openpyxl 套件，請執行 pip install openpyxl"}), 500
+
+    data = request.json or {}
+    vendor_id = data.get("vendor", "").strip()
+    ids = data.get("ids") or []
+
+    if not vendor_id:
+        return jsonify({"success": False, "error": "請選擇廠商"}), 400
+    if not vendor_templates.get_vendor(vendor_id):
+        return jsonify({"success": False, "error": f"未知廠商：{vendor_id}"}), 400
+    if not isinstance(ids, list) or not ids:
+        return jsonify({"success": False, "error": "請至少選一筆訂單"}), 400
+
+    # 撈訂單資料
+    conn = get_db()
+    placeholders = ",".join(["?"] * len(ids))
+    rows = conn.execute(f"""
+        SELECT * FROM order_history
+        WHERE id IN ({placeholders})
+          AND (exported_at IS NULL OR exported_at = '')
+    """, ids).fetchall()
+
+    if not rows:
+        conn.close()
+        return jsonify({"success": False, "error": "選取的訂單沒有可出貨的資料（可能已被別人匯出過）"}), 400
+
+    orders = [dict(r) for r in rows]
+
+    # 用 vendors 模組產生 headers + rows
+    try:
+        headers, data_rows = vendor_templates.build_rows(vendor_id, orders)
+    except Exception as e:
+        conn.close()
+        return jsonify({"success": False, "error": f"產生失敗：{e}"}), 500
+
+    # 建 Excel
+    wb = Workbook()
+    ws = wb.active
+    ws.title = vendor_templates.get_vendor(vendor_id)["display_name"][:30]
+
+    # 標頭樣式
+    header_font = Font(bold=True, color="FFFFFF", size=12)
+    header_fill = PatternFill(start_color="1A2B4A", end_color="1A2B4A", fill_type="solid")
+    header_align = Alignment(horizontal="center", vertical="center")
+    for col_idx, h in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+
+    # 資料列
+    for row_idx, row in enumerate(data_rows, start=2):
+        for col_idx, value in enumerate(row, start=1):
+            ws.cell(row=row_idx, column=col_idx, value=value)
+
+    # 欄寬自動調整（簡易版）
+    for col_idx, h in enumerate(headers, start=1):
+        max_len = max(
+            [len(str(h))] + [len(str(r[col_idx - 1])) for r in data_rows[:50]]  # 取前 50 行抽樣
+        )
+        ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = min(max(max_len + 2, 8), 50)
+
+    # 凍結首列
+    ws.freeze_panes = "A2"
+
+    # 標記已出檔案
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    batch_id = f"{vendor_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    used_ids = [o["id"] for o in orders]
+    placeholders = ",".join(["?"] * len(used_ids))
+    conn.execute(f"""
+        UPDATE order_history
+        SET exported_at = ?, exported_vendor = ?, exported_batch_id = ?
+        WHERE id IN ({placeholders})
+    """, [now, vendor_id, batch_id] + used_ids)
+    conn.commit()
+    conn.close()
+
+    # 輸出 Excel
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    filename = vendor_templates.filename_for(vendor_id)
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.route("/api/exports/history")
+def list_export_history():
+    """列出最近 50 批匯出"""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT exported_batch_id    AS batch_id,
+               exported_vendor      AS vendor,
+               exported_at          AS exported_at,
+               COUNT(*)             AS order_count
+        FROM order_history
+        WHERE exported_at IS NOT NULL AND exported_at != ''
+        GROUP BY exported_batch_id, exported_vendor, exported_at
+        ORDER BY exported_at DESC
+        LIMIT 50
+    """).fetchall()
+    conn.close()
+
+    history = []
+    for r in rows:
+        rd = dict(r)
+        history.append({
+            "batch_id":    rd["batch_id"],
+            "vendor":      rd["vendor"],
+            "vendor_name": (vendor_templates.get_vendor(rd["vendor"]) or {}).get("display_name", rd["vendor"]),
+            "exported_at": rd["exported_at"],
+            "order_count": rd["order_count"],
+        })
+    return jsonify({"success": True, "history": history})
 
 
 if __name__ == "__main__":
