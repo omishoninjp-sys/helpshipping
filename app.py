@@ -3029,13 +3029,25 @@ def admin_exports_pending():
             g_codes
         ).fetchall():
             members_map[m["g_code"]] = {"name": m["name"], "phone": m["phone"], "address": m["address"]}
+    # ★ 重要：用「目前已快取」的 Shopify 客戶，不觸發新抓取（避免冷啟動阻塞）
+    # 如果快取為空 → shopify_map 空 → fallback 只用 members 表 + customer_name
     shopify_map = {}
     try:
-        for c in (get_all_goyoutati_customers() or []):
+        cached = _customers_cache.get("data") or []
+        for c in cached:
             if c.get("g_code") in g_codes:
                 shopify_map[c["g_code"]] = {"name": c.get("name", ""), "phone": c.get("phone", ""), "address": c.get("address", "")}
-    except Exception:
-        pass
+        # 順手在背景觸發更新（如果過期、不會阻塞請求）
+        if cached and (time.time() - _customers_cache.get("time", 0)) >= CACHE_TTL:
+            with _cache_lock:
+                global _refresh_thread
+                if _refresh_thread is None or not _refresh_thread.is_alive():
+                    _refresh_thread = threading.Thread(
+                        target=_refresh_shopify_async, daemon=True, name="ShopifyRefresh"
+                    )
+                    _refresh_thread.start()
+    except Exception as e:
+        print(f"[export-pending] Shopify cache 讀取失敗（不致命）: {e}", flush=True)
     conn.close()
 
     items = []
@@ -3130,11 +3142,11 @@ def admin_exports_generate():
             g_codes_needed
         ).fetchall():
             members_map[m["g_code"]] = {"name": m["name"], "phone": m["phone"], "address": m["address"]}
-    # Shopify 客戶 fallback：從快取撈 G 開頭客戶
+    # Shopify 客戶 fallback：從「目前已快取」撈，不觸發新抓取（避免冷啟動阻塞）
     shopify_map = {}
     try:
-        shopify_customers = get_all_goyoutati_customers()
-        for c in shopify_customers or []:
+        cached = _customers_cache.get("data") or []
+        for c in cached:
             if c.get("g_code") in g_codes_needed:
                 shopify_map[c["g_code"]] = {"name": c.get("name", ""), "phone": c.get("phone", ""), "address": c.get("address", "")}
     except Exception as ex:
