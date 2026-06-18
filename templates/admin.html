@@ -1933,7 +1933,9 @@ async function saveAllChanges() {
 }
 
 function copyInfo(gCode, phone) {
-    var text = `https://goyoutati-shipping.zeabur.app/\n會員編號：${gCode}\n密碼：${phone}`;
+    // 注意：URL 一定要放最後，否則 LINE 官方帳號輸入框會把整段
+    //      （包括換行字元 \n 與中文）誤判成 URL 並做 percent-encoding。
+    var text = `會員編號：${gCode}\n密碼：${phone}\n登入網址：https://shipping.goyoutati.com/`;
     navigator.clipboard.writeText(text).then(() => showToast('已複製', 'success'));
 }
 
