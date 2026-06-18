@@ -2913,7 +2913,12 @@ def admin_list_vendors():
     """前端 UI 廠商下拉選單用"""
     if not is_super_admin():
         return jsonify({"success": False, "error": "權限不足"}), 403
-    return jsonify({"success": True, "vendors": vendor_templates.list_vendors()})
+    try:
+        return jsonify({"success": True, "vendors": vendor_templates.list_vendors()})
+    except Exception as e:
+        import traceback
+        print(f"[vendors] 💥 例外:\n{traceback.format_exc()}", flush=True)
+        return jsonify({"success": False, "error": f"{type(e).__name__}: {e}"}), 500
 
 
 @app.route("/api/admin/customer_vendor_codes", methods=["GET"])
@@ -2981,6 +2986,21 @@ def admin_exports_pending():
     """列出已付款但未匯出給廠商的出貨單"""
     if not is_super_admin():
         return jsonify({"success": False, "error": "權限不足"}), 403
+    try:
+        return _admin_exports_pending_impl()
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        print(f"[exports/pending] 💥 例外:\n{tb}", flush=True)
+        # 回 JSON 而不是 HTML 500，讓前端能解析
+        return jsonify({
+            "success": False,
+            "error": f"後端錯誤: {type(e).__name__}: {e}",
+            "traceback_excerpt": tb.splitlines()[-1] if tb else "",
+        }), 500
+
+
+def _admin_exports_pending_impl():
     conn = get_db()
     rows = conn.execute("""
         SELECT * FROM shipment_requests
