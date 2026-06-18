@@ -3301,6 +3301,17 @@ async function generateExport() {
             throw new Error(errJson.error || '產生失敗');
         }
 
+        // 防呆：確認回應真的是 Excel binary，不是 JSON 錯誤訊息
+        var contentType = r.headers.get('Content-Type') || '';
+        if (contentType.includes('application/json')) {
+            // 後端意外回了 JSON（success: false）但 HTTP 200 — 直接從 JSON 撈錯誤訊息
+            var errJson2 = await r.json().catch(function(){ return {error: '回應格式錯誤'}; });
+            throw new Error(errJson2.error || '產生失敗');
+        }
+        if (!contentType.includes('spreadsheet') && !contentType.includes('octet-stream')) {
+            throw new Error('回應內容不是 Excel（Content-Type: ' + contentType + '）');
+        }
+
         // 從 header 撈檔名
         var disp = r.headers.get('Content-Disposition') || '';
         var fnMatch = disp.match(/filename\*=UTF-8''([^;]+)/) || disp.match(/filename="([^"]+)"/);

@@ -3132,18 +3132,32 @@ def admin_exports_generate():
     """匯出選定的出貨單為廠商 Excel，並標記 exported_*"""
     if not is_super_admin():
         return jsonify({"success": False, "error": "權限不足"}), 403
+    try:
+        return _admin_exports_generate_impl()
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        print(f"[exports/generate] 💥 例外:\n{tb}", flush=True)
+        return jsonify({
+            "success": False,
+            "error": f"後端錯誤: {type(e).__name__}: {e}",
+            "traceback_excerpt": tb.splitlines()[-1] if tb else "",
+        }), 500
+
+
+def _admin_exports_generate_impl():
     data = request.json or {}
     vendor_id = (data.get("vendor") or "").strip().lower()
     ids = data.get("ids") or []
 
     vendor = vendor_templates.get_vendor(vendor_id)
     if not vendor:
-        return jsonify({"success": False, "error": f"未知廠商：{vendor_id}"})
+        return jsonify({"success": False, "error": f"未知廠商：{vendor_id}"}), 400
     if not ids:
-        return jsonify({"success": False, "error": "請至少選一筆"})
+        return jsonify({"success": False, "error": "請至少選一筆"}), 400
     ids = [int(x) for x in ids if str(x).isdigit()]
     if not ids:
-        return jsonify({"success": False, "error": "無有效 ID"})
+        return jsonify({"success": False, "error": "無有效 ID"}), 400
 
     conn = get_db()
     placeholders = ",".join(["?"] * len(ids))
@@ -3158,7 +3172,7 @@ def admin_exports_generate():
     ).fetchall()
     if not rows:
         conn.close()
-        return jsonify({"success": False, "error": "選定的單都已匯出或狀態不符"})
+        return jsonify({"success": False, "error": "選定的單都已匯出或狀態不符（可能被別人剛剛搶先匯出了）"}), 400
 
     # 撈所有相關 packages
     all_pkg_ids = set()
@@ -3237,7 +3251,7 @@ def admin_exports_generate():
 
     if not shipments:
         conn.close()
-        return jsonify({"success": False, "error": "選定的單沒有包裹資料"})
+        return jsonify({"success": False, "error": "選定的單沒有包裹資料"}), 400
 
     # 產生 Excel
     from openpyxl import Workbook
