@@ -1,81 +1,56 @@
 """
-廠商出貨檔案範本（config-driven）
+廠商出貨檔案範本（config-driven）— shopify-jpd-tool 專用版本
 
-shopify-jpd-tool 專用版本，跟 helpshipping 的 vendors.py 同一個設計，
-但因為這邊資料模型不同（沒有會員編號 g_code），改用 Shopify 訂單號當識別。
+跟 helpshipping 的 vendors.py 同一套設計，但兩邊資料模型不同：
+  - helpshipping（集運）：one_per_package + 亂數品名（倉庫只核對、不知道每箱裝什麼）
+  - 本檔（Shopify）：one_per_item + 真實品名/數量/金額（資料直接來自 Shopify 訂單品項）
 
-每個廠商一份 dict，描述：
-  - id:               內部識別字串（'nigel' / 'jpd'）
-  - display_name:     UI 顯示用
-  - filename_template: 下載檔名格式
-  - columns:          Excel 欄位定義（header + getter）
-  - row_strategy:     'one_per_package'（一個包裹一行）
-
-客戶編號規則：`{customer_order_id}-{MMDD}`
-  例如：1234-0616 表示 Shopify 訂單 #1234，於 6/16 建單。
-  MMDD 來源：order_history.created_at（建立 JPD 運單那刻）。
+輸出規則（依用戶 2026-06 需求）：
+  1. 品項全部輸出：items_json 每個商品一列，用真實 product_name_local / product_num / product_price
+  2. 同一訂單（同一箱）的前段欄位（客戶編號/運單號、清關號碼/JpD包裹ID、收件人、
+     地址、電話、申報人…）全部相同；不同箱 = 不同 order_history 列，自然有不同號
+  3. 客戶編號（Nigel）/ 客戶運單號（JpD）= 注文番號（customer_order_id，去掉 # 與前後空白）
+  4. 清關號碼（Nigel）/ JpD包裹ID（JpD）= logis_num（建立運單時拿到的物流/包裹號）
 
 新增廠商只要加一份 dict 到 VENDORS 即可，不用改其他 code。
 """
 from __future__ import annotations
+import json
 import random
 from datetime import datetime
 
 
-# ============ 隨機資料產生器 ============
+# ============ 產地隨機產生器（items 沒有產地欄位，用固定 seed 保持每次匯出一致） ============
 
-_PRODUCT_NAME_POOL = [
-    "雑貨", "衣類", "玩具", "鞋子", "包包", "化妝品", "食品",
-    "日用品", "餅乾", "髮夾", "上衣", "褲子", "外套", "手帕",
-    "毛巾", "資料夾", "杯子", "公仔", "面膜", "卡片",
-]
 _ORIGIN_POOL = ["japan"] * 6 + ["china"] * 4  # 60% japan, 40% china
 
 
-def _seed_for(order_id: int, package_id: int = 0) -> random.Random:
-    """每筆出貨用固定 seed → 同一筆每次匯出結果一樣（避免亂跳）"""
-    return random.Random(f"jpd-{order_id}-{package_id}")
-
-
-def random_product_name(order_id: int, package_id: int = 0) -> str:
-    return _seed_for(order_id, package_id).choice(_PRODUCT_NAME_POOL)
-
-
-def random_quantity(order_id: int, package_id: int = 0) -> int:
-    return _seed_for(order_id, package_id + 1).randint(1, 30)
-
-
-def random_jpy_amount(order_id: int, package_id: int = 0) -> int:
-    """單品 JPY 申報價：200~2000、四捨五入到百"""
-    rng = _seed_for(order_id, package_id + 2)
-    return rng.randint(2, 20) * 100
-
-
-def random_origin(order_id: int, package_id: int = 0) -> str:
-    return _seed_for(order_id, package_id + 3).choice(_ORIGIN_POOL)
+def random_origin(order_id, item_index: int = 0) -> str:
+    """每筆訂單的每個品項用固定 seed → 同一筆每次匯出結果一樣（避免亂跳）"""
+    return random.Random(f"jpd-origin-{order_id}-{item_index}").choice(_ORIGIN_POOL)
 
 
 # ============ 廠商範本 ============
+# getter 接收 ctx dict（每個「商品」一份），回字串/數字
 
 NIGEL = {
     "id": "nigel",
     "display_name": "Nigel",
     "filename_template": "{date}_Nigel_出貨單.xlsx",
-    "row_strategy": "one_per_package",
+    "row_strategy": "one_per_item",
     "columns": [
-        # (header, getter — 接收 ctx dict 回字串/數字)
-        ("客戶編號",       lambda ctx: f"{ctx['customer_order_id']}-{ctx['packaging_mmdd']}"),
-        ("清關號碼",       lambda ctx: ""),  # 由 Nigel 端填入
+        ("客戶編號",       lambda ctx: ctx["customer_order_id"]),   # 注文番號
+        ("清關號碼",       lambda ctx: ctx["logis_num"]),           # 物流號（建單時取得）
         ("收件人",         lambda ctx: ctx["recipient"]),
         ("收件人詳細地址", lambda ctx: ctx["address"]),
         ("收件人電話號碼", lambda ctx: ctx["phone"]),
-        ("申報人",         lambda ctx: ctx["recipient"]),         # 預設 = 收件人
+        ("申報人",         lambda ctx: ctx["recipient"]),           # 預設 = 收件人
         ("申報人詳細地址", lambda ctx: ctx["address"]),
         ("申報人電話號碼", lambda ctx: ctx["phone"]),
-        ("品名",           lambda ctx: random_product_name(ctx["order_id"], ctx["package_id"])),
-        ("數量",           lambda ctx: random_quantity(ctx["order_id"], ctx["package_id"])),
-        ("金額",           lambda ctx: random_jpy_amount(ctx["order_id"], ctx["package_id"])),
-        ("產地",           lambda ctx: random_origin(ctx["order_id"], ctx["package_id"])),
+        ("品名",           lambda ctx: ctx["product_name"]),
+        ("數量",           lambda ctx: ctx["product_num"]),
+        ("金額",           lambda ctx: ctx["product_price"]),
+        ("產地",           lambda ctx: random_origin(ctx["order_id"], ctx["item_index"])),
         ("URL/JanCode",    lambda ctx: ""),
     ],
 }
@@ -85,10 +60,10 @@ JPD = {
     "id": "jpd",
     "display_name": "小客戶大價值 (JpD)",
     "filename_template": "{date}_JpD_出貨單.xlsx",
-    "row_strategy": "one_per_package",
+    "row_strategy": "one_per_item",
     "columns": [
-        ("客戶運單號",      lambda ctx: f"{ctx['customer_order_id']}-{ctx['packaging_mmdd']}"),
-        ("JpD包裹ID",       lambda ctx: ""),  # 由 JpD 端填入
+        ("客戶運單號",      lambda ctx: ctx["customer_order_id"]),  # 注文番號
+        ("JpD包裹ID",       lambda ctx: ctx["logis_num"]),          # 物流/包裹號
         ("運單ID",          lambda ctx: ""),
         ("包裹特殊服務",     lambda ctx: ""),
         ("收件人",          lambda ctx: ctx["recipient"]),
@@ -102,11 +77,11 @@ JPD = {
         ("申報人身份證ID",   lambda ctx: ""),
         ("申報人詳細地址",   lambda ctx: ctx["address"]),
         ("申報人电话号码",   lambda ctx: ctx["phone"]),
-        ("品名",            lambda ctx: random_product_name(ctx["order_id"], ctx["package_id"])),
-        ("数量",            lambda ctx: random_quantity(ctx["order_id"], ctx["package_id"])),
-        ("金额",            lambda ctx: random_jpy_amount(ctx["order_id"], ctx["package_id"])),
+        ("品名",            lambda ctx: ctx["product_name"]),
+        ("数量",            lambda ctx: ctx["product_num"]),
+        ("金额",            lambda ctx: ctx["product_price"]),
         ("材質",            lambda ctx: ""),
-        ("產地",            lambda ctx: random_origin(ctx["order_id"], ctx["package_id"])),
+        ("產地",            lambda ctx: random_origin(ctx["order_id"], ctx["item_index"])),
         ("URL/JanCode",     lambda ctx: ""),
     ],
 }
@@ -127,16 +102,49 @@ def get_vendor(vendor_id: str) -> dict | None:
     return VENDORS.get(vendor_id)
 
 
+def _parse_items(raw) -> list[dict]:
+    """解析 order_history.items_json → list[dict]。
+    items_json 來源是建單時的 declare_list，每項含：
+      product_name / product_name_local / product_num / product_price
+    壞掉或空 → 回 []。
+    """
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else raw
+    except (ValueError, TypeError):
+        return []
+    return data if isinstance(data, list) else []
+
+
+def _item_fields(item: dict) -> tuple[str, int, int]:
+    """從單一品項 dict 抽出 (品名, 數量, 金額)，容錯處理缺欄/型別。"""
+    name = (item.get("product_name_local")
+            or item.get("product_name")
+            or item.get("title")
+            or "商品")
+    try:
+        num = int(item.get("product_num", item.get("quantity", 1)) or 1)
+    except (ValueError, TypeError):
+        num = 1
+    try:
+        price = int(float(item.get("product_price", item.get("price", 0)) or 0))
+    except (ValueError, TypeError):
+        price = 0
+    return str(name).strip(), num, price
+
+
 def build_rows(vendor_id: str, orders: list[dict]) -> tuple[list[str], list[list]]:
     """
     依範本產生 (headers, rows)。
-    orders 結構：每個 dict = 一筆 order_history + 該筆的 package_ids list。
+    orders 結構：每個 dict = 一筆 order_history（含 items_json / logis_num / customer_order_id …）。
 
-    每個 package_id 一列。
+    row_strategy = one_per_item：items_json 每個商品一列；同一訂單的前段欄位相同。
+    若某訂單沒有任何可解析的品項 → 仍出 1 列（品名留空），避免整筆漏掉。
 
     Returns:
       headers: List[str] — 第一列標頭
-      rows:    List[List] — 資料列（每個 package 一列）
+      rows:    List[List] — 資料列
     """
     vendor = get_vendor(vendor_id)
     if not vendor:
@@ -146,46 +154,34 @@ def build_rows(vendor_id: str, orders: list[dict]) -> tuple[list[str], list[list
     rows = []
 
     for o in orders:
-        # packaging_mmdd = 建立 JPD 運單那一刻的 MMDD
-        # 來源優先：created_at（本地存 order_history 時的時間） > 今天
-        packaging_mmdd = ""
-        for src in (o.get("created_at"),):
-            if src and len(str(src)) >= 10:
-                try:
-                    # 接受 'YYYY-MM-DD HH:MM:SS' 或 'YYYY-MM-DD'
-                    dt = datetime.strptime(str(src)[:10], "%Y-%m-%d")
-                    packaging_mmdd = dt.strftime("%m%d")
-                    break
-                except ValueError:
-                    pass
-        if not packaging_mmdd:
-            packaging_mmdd = datetime.now().strftime("%m%d")
-
-        # customer_order_id 可能含 # 開頭、空白，要清乾淨
+        # 注文番號：customer_order_id 去掉 # 與前後空白；空的話用本地流水號當 fallback
         coid = (o.get("customer_order_id") or "").strip().lstrip("#").strip()
         if not coid:
-            coid = f"ORD{o.get('id', 0)}"  # fallback：本地流水號
+            coid = f"ORD{o.get('id', 0)}"
 
-        # 解析 package_ids（CSV 字串）
-        pkg_ids = [
-            int(x.strip()) for x in str(o.get("package_ids") or "").split(",")
-            if x.strip().isdigit()
-        ]
-        if not pkg_ids:
-            # 沒包裹 ID → 至少出 1 行（用 order.id 當 seed），避免空行
-            pkg_ids = [o.get("id", 0)]
+        logis_num = (o.get("logis_num") or "").strip()
+        recipient = (o.get("recipient") or "").strip()
+        address   = (o.get("address") or "").strip()
+        phone     = (o.get("phone") or "").strip()
+        order_id  = o.get("id", 0)
 
-        for pid in pkg_ids:
+        items = _parse_items(o.get("items_json"))
+        if not items:
+            items = [{}]  # 沒品項也出 1 列（前段欄位照填，品名/數量/金額留空）
+
+        for idx, item in enumerate(items):
+            name, num, price = _item_fields(item)
             ctx = {
-                "order_id":          o.get("id", 0),  # 本地 order_history.id（seed 用）
+                "order_id":          order_id,
                 "customer_order_id": coid,
-                "packaging_mmdd":    packaging_mmdd,
-                "recipient":         (o.get("recipient") or "").strip(),
-                "address":           (o.get("address") or "").strip(),
-                "phone":             (o.get("phone") or "").strip(),
-                "logis_num":         (o.get("logis_num") or "").strip(),
-                "shopify_order_id":  o.get("shopify_order_id") or "",
-                "package_id":        pid,
+                "logis_num":         logis_num,
+                "recipient":         recipient,
+                "address":           address,
+                "phone":             phone,
+                "item_index":        idx,
+                "product_name":      name if item else "",
+                "product_num":       num if item else "",
+                "product_price":     price if item else "",
             }
             row = [getter(ctx) for _, getter in vendor["columns"]]
             rows.append(row)
