@@ -718,6 +718,33 @@ def _safe_str(v):
     return s
 
 
+def _parse_pkg_ids(raw):
+    """容錯解析 package_ids 字串 → [int]（保序、不去重，與舊 list comprehension 行為一致）。
+
+    支援這些髒格式：
+      • "5,8,12"        → [5, 8, 12]   （正常）
+      • "5.0,8.0,12.0"  → [5, 8, 12]   （migration 把整數 floatify；舊版用 .isdigit() 會整批解析成空）
+      • " 5 , 8 "       → [5, 8]       （多餘空白）
+      • "5，8、12"       → [5, 8, 12]   （全形逗號／頓號／空白分隔）
+      • None / ""       → []
+    只接受純整數或「整數.000」格式；"5.7" / "abc" / "-3" / "1e3" 一律忽略，
+    避免把壞資料硬轉成錯誤 ID。
+    """
+    if raw is None:
+        return []
+    out = []
+    for tok in re.split(r"[,，、\s]+", str(raw)):
+        tok = tok.strip()
+        if not tok:
+            continue
+        # 純整數，或整數後接全 0 的小數（"5"、"5.0"、"5.00"）
+        if re.fullmatch(r"\d+(?:\.0+)?", tok):
+            n = int(float(tok))
+            if n > 0:
+                out.append(n)
+    return out
+
+
 @app.route("/api/me", methods=["GET"])
 def api_me():
     """前端查當前身份"""
@@ -3037,10 +3064,7 @@ def _admin_exports_pending_impl():
     # 撈所有相關 packages
     pkg_ids = set()
     for r in rows:
-        for x in (r["package_ids"] or "").split(","):
-            x = x.strip()
-            if x.isdigit():
-                pkg_ids.add(int(x))
+        pkg_ids.update(_parse_pkg_ids(r["package_ids"]))
 
     pkg_map = {}
     if pkg_ids:
@@ -3097,7 +3121,7 @@ def _admin_exports_pending_impl():
     items = []
     for r in rows:
         rd = dict(r)
-        pids = [int(x.strip()) for x in str(rd.get("package_ids") or "").split(",") if x.strip().isdigit()]
+        pids = _parse_pkg_ids(rd.get("package_ids"))
         # ship_* 為空時用 fallback 在 UI 也能看到正確資料
         ship_recipient = _safe_str(rd.get("ship_recipient"))
         ship_phone     = _safe_str(rd.get("ship_phone"))
@@ -3177,10 +3201,7 @@ def _admin_exports_generate_impl():
     # 撈所有相關 packages
     all_pkg_ids = set()
     for r in rows:
-        for x in (r["package_ids"] or "").split(","):
-            x = x.strip()
-            if x.isdigit():
-                all_pkg_ids.add(int(x))
+        all_pkg_ids.update(_parse_pkg_ids(r["package_ids"]))
     pkg_map = {}
     if all_pkg_ids:
         ph = ",".join(["?"] * len(all_pkg_ids))
@@ -3216,7 +3237,7 @@ def _admin_exports_generate_impl():
     missing_pkg_count = 0
     for r in rows:
         rd = dict(r)
-        pids = [int(x.strip()) for x in (rd.get("package_ids") or "").split(",") if x.strip().isdigit()]
+        pids = _parse_pkg_ids(rd.get("package_ids"))
         # 包裹資料：找到的用真實值、找不到的用 stub
         # vendor 範本實際上只用 package_id 當隨機種子，不用 logis_num/weight 等具體欄位
         # 所以孤立資料（migration 後 packages 表沒對應）也能撐過 Excel 產出
@@ -3228,7 +3249,10 @@ def _admin_exports_generate_impl():
                 pkgs.append({"id": i, "g_code": rd["g_code"], "logis_num": "", "product_name": "", "weight": 0})
                 missing_pkg_count += 1
         # 若 package_ids 字串完全解析不出任何整數 → 真的沒辦法產，跳過
+        # （容錯解析已支援 "5.0" 型髒資料；走到這代表原始值真的空/全壞）
         if not pkgs:
+            print(f"[export] ⚠️ shipment id={rd.get('id')} g_code={rd.get('g_code')} 的 "
+                  f"package_ids 解析後為空，跳過（原始值={rd.get('package_ids')!r}）", flush=True)
             continue
 
         # Fallback 順序：shipment_requests.ship_* → members 表 → Shopify cache → customer_name
