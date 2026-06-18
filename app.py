@@ -3277,6 +3277,8 @@ def _admin_exports_generate_impl():
             "ship_address":         ship_address,
             "billed_weight":        rd.get("billed_weight") or 0,
             "total_fee":            rd.get("total_fee") or 0,
+            # 出貨追蹤號碼（多箱換行）→ Nigel 填「清關號碼」/ JpD 填「JpD包裹ID」
+            "tracking_num":         _safe_str(rd.get("tracking_num")),
             # 打包日期來源：admin 標記出貨時的 updated_at（fallback 到客戶申請的 created_at）
             "updated_at":           rd.get("updated_at") or "",
             "created_at":           rd.get("created_at") or "",
@@ -3312,6 +3314,9 @@ def _admin_exports_generate_impl():
         for col_idx, val in enumerate(row_data, start=1):
             cell = ws.cell(row=row_idx, column=col_idx, value=val)
             cell.border = thin
+            # 多箱追蹤號碼是換行字串 → 開自動換行才不會擠成一行
+            if isinstance(val, str) and "\n" in val:
+                cell.alignment = Alignment(wrap_text=True, vertical="center")
 
     # 欄寬自動
     for col_idx, h in enumerate(headers, start=1):

@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 import random
+import re
 from datetime import datetime
 
 
@@ -58,7 +59,7 @@ NIGEL = {
     "columns": [
         # (header, getter — 接收 ctx dict 回字串/數字)
         ("客戶編號",       lambda ctx: f"{ctx['g_code']}-{ctx['packaging_mmdd']}"),
-        ("清關號碼",       lambda ctx: ""),  # 由 Nigel 端填入
+        ("清關號碼",       lambda ctx: ctx["tracking_num"]),  # 出貨追蹤號碼（多箱換行）
         ("收件人",         lambda ctx: ctx["ship_recipient"]),
         ("收件人詳細地址", lambda ctx: ctx["ship_address"]),
         ("收件人電話號碼", lambda ctx: ctx["ship_phone"]),
@@ -81,7 +82,7 @@ JPD = {
     "row_strategy": "one_per_package",
     "columns": [
         ("客戶運單號",      lambda ctx: f"{ctx['g_code']}-{ctx['packaging_mmdd']}"),
-        ("JpD包裹ID",       lambda ctx: ""),  # 由 JpD 端填入
+        ("JpD包裹ID",       lambda ctx: ctx["tracking_num"]),  # 出貨追蹤號碼（多箱換行）
         ("運單ID",          lambda ctx: ""),
         ("包裹特殊服務",     lambda ctx: ""),
         ("收件人",          lambda ctx: ctx["ship_recipient"]),
@@ -152,11 +153,20 @@ def build_rows(vendor_id: str, shipments: list[dict]) -> tuple[list[str], list[l
         if not packaging_mmdd:
             packaging_mmdd = datetime.now().strftime("%m%d")
 
+        # 出貨追蹤號碼正規化：把換行／半形逗號／全形逗號／頓號都統一成換行分隔，去空行
+        # 多箱 → 多行（與後台「多箱請換行」一致）；單箱 → 單一字串
+        tracking_num = "\n".join(
+            t.strip()
+            for t in re.split(r"[\n,，、]+", str(s.get("tracking_num") or ""))
+            if t.strip()
+        )
+
         for pkg in s["packages"]:
             ctx = {
                 "shipment_id":          s["id"],
                 "g_code":               s["g_code"],
                 "packaging_mmdd":       packaging_mmdd,   # 客戶申請出單日（打包日）MMDD
+                "tracking_num":         tracking_num,     # 出貨追蹤號碼（Nigel→清關號碼 / JpD→JpD包裹ID）
                 # str() 防 DB 把 phone 存成 float（912345678.0）造成下游 .strip() 炸
                 "ship_recipient":       str(s["ship_recipient"]) if s["ship_recipient"] else "",
                 "ship_address":         str(s["ship_address"]) if s["ship_address"] else "",
