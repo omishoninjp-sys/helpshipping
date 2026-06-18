@@ -694,6 +694,30 @@ def get_current_agent_id():
     return int(session.get("agent_id", 0))
 
 
+def _safe_str(v):
+    """安全把 None / 數字 / 字串 都轉為 strip 過的字串。
+
+    主要解決 DB 內有些 phone 欄位被存成 float（912345678.0）的問題。
+    無論進來是 float、字串 "912345678.0"、還是已是純字串，都正規化為合理形式：
+      • None              → ""
+      • 912345678.0       → "912345678"   （整數 float 去掉 .0）
+      • "912345678.0"     → "912345678"   （SQLite 存進 TEXT 欄位後變字串）
+      • "0912345678"      → "0912345678"  （原樣保留）
+      • 3.14              → "3.14"        （非整數 float 保留）
+    """
+    if v is None:
+        return ""
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v)).strip()
+    s = str(v).strip()
+    # SQLite TEXT 欄位存進 float 後變字串 "912345678.0" → 去掉 .0
+    if s.endswith(".0"):
+        prefix = s[:-2]
+        if prefix.lstrip("-").isdigit():
+            return prefix
+    return s
+
+
 @app.route("/api/me", methods=["GET"])
 def api_me():
     """前端查當前身份"""
@@ -3073,16 +3097,16 @@ def _admin_exports_pending_impl():
     items = []
     for r in rows:
         rd = dict(r)
-        pids = [int(x.strip()) for x in (rd.get("package_ids") or "").split(",") if x.strip().isdigit()]
+        pids = [int(x.strip()) for x in str(rd.get("package_ids") or "").split(",") if x.strip().isdigit()]
         # ship_* 為空時用 fallback 在 UI 也能看到正確資料
-        ship_recipient = (rd.get("ship_recipient") or "").strip()
-        ship_phone     = (rd.get("ship_phone") or "").strip()
-        ship_address   = (rd.get("ship_address") or "").strip()
+        ship_recipient = _safe_str(rd.get("ship_recipient"))
+        ship_phone     = _safe_str(rd.get("ship_phone"))
+        ship_address   = _safe_str(rd.get("ship_address"))
         if not (ship_recipient and ship_phone and ship_address):
             fb = members_map.get(rd["g_code"]) or shopify_map.get(rd["g_code"]) or {}
-            if not ship_recipient: ship_recipient = (fb.get("name") or rd.get("customer_name") or "").strip()
-            if not ship_phone:     ship_phone     = (fb.get("phone") or "").strip()
-            if not ship_address:   ship_address   = (fb.get("address") or "").strip()
+            if not ship_recipient: ship_recipient = _safe_str(fb.get("name")) or _safe_str(rd.get("customer_name"))
+            if not ship_phone:     ship_phone     = _safe_str(fb.get("phone"))
+            if not ship_address:   ship_address   = _safe_str(fb.get("address"))
 
         items.append({
             "id":               rd["id"],
@@ -3184,15 +3208,15 @@ def admin_exports_generate():
             continue
 
         # Fallback 順序：shipment_requests.ship_* → members 表 → Shopify cache → customer_name
-        ship_recipient = (rd.get("ship_recipient") or "").strip()
-        ship_phone     = (rd.get("ship_phone") or "").strip()
-        ship_address   = (rd.get("ship_address") or "").strip()
+        ship_recipient = _safe_str(rd.get("ship_recipient"))
+        ship_phone     = _safe_str(rd.get("ship_phone"))
+        ship_address   = _safe_str(rd.get("ship_address"))
         if not (ship_recipient and ship_phone and ship_address):
             g_code = rd["g_code"]
             fallback_src = members_map.get(g_code) or shopify_map.get(g_code) or {}
-            if not ship_recipient: ship_recipient = (fallback_src.get("name") or rd.get("customer_name") or "").strip()
-            if not ship_phone:     ship_phone     = (fallback_src.get("phone") or "").strip()
-            if not ship_address:   ship_address   = (fallback_src.get("address") or "").strip()
+            if not ship_recipient: ship_recipient = _safe_str(fallback_src.get("name")) or _safe_str(rd.get("customer_name"))
+            if not ship_phone:     ship_phone     = _safe_str(fallback_src.get("phone"))
+            if not ship_address:   ship_address   = _safe_str(fallback_src.get("address"))
             # 如果填到任何值，順手寫回 DB（下次匯出不用再 fallback）
             if ship_recipient or ship_phone or ship_address:
                 fallback_updates.append((ship_recipient, ship_phone, ship_address, rd["id"]))

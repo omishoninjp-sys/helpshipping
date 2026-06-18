@@ -157,9 +157,10 @@ def build_rows(vendor_id: str, shipments: list[dict]) -> tuple[list[str], list[l
                 "shipment_id":          s["id"],
                 "g_code":               s["g_code"],
                 "packaging_mmdd":       packaging_mmdd,   # 客戶申請出單日（打包日）MMDD
-                "ship_recipient":       s["ship_recipient"] or "",
-                "ship_address":         s["ship_address"] or "",
-                "ship_phone":           s["ship_phone"] or "",
+                # str() 防 DB 把 phone 存成 float（912345678.0）造成下游 .strip() 炸
+                "ship_recipient":       str(s["ship_recipient"]) if s["ship_recipient"] else "",
+                "ship_address":         str(s["ship_address"]) if s["ship_address"] else "",
+                "ship_phone":           str(s["ship_phone"]) if s["ship_phone"] else "",
                 "billed_weight":        s.get("billed_weight") or 0,
                 "total_fee":            s.get("total_fee") or 0,
                 "package_id":           pkg["id"],
