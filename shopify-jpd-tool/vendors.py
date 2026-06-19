@@ -10,7 +10,7 @@
   2. 同一訂單（同一箱）的前段欄位（客戶編號/運單號、清關號碼/JpD包裹ID、收件人、
      地址、電話、申報人…）全部相同；不同箱 = 不同 order_history 列，自然有不同號
   3. 客戶編號（Nigel）/ 客戶運單號（JpD）= 注文番號（customer_order_id，去掉 # 與前後空白）
-  4. 清關號碼（Nigel）/ JpD包裹ID（JpD）= logis_num（建立運單時拿到的物流/包裹號）
+  4. 清關號碼（Nigel）/ JpD包裹ID（JpD）= 留空，由 Nigel / JpD 端工作人員自行填入
 
 新增廠商只要加一份 dict 到 VENDORS 即可，不用改其他 code。
 """
@@ -40,7 +40,7 @@ NIGEL = {
     "row_strategy": "one_per_item",
     "columns": [
         ("客戶編號",       lambda ctx: ctx["customer_order_id"]),   # 注文番號
-        ("清關號碼",       lambda ctx: ctx["logis_num"]),           # 物流號（建單時取得）
+        ("清關號碼",       lambda ctx: ""),                         # 由 Nigel 端工作人員自行填入
         ("收件人",         lambda ctx: ctx["recipient"]),
         ("收件人詳細地址", lambda ctx: ctx["address"]),
         ("收件人電話號碼", lambda ctx: ctx["phone"]),
@@ -63,7 +63,7 @@ JPD = {
     "row_strategy": "one_per_item",
     "columns": [
         ("客戶運單號",      lambda ctx: ctx["customer_order_id"]),  # 注文番號
-        ("JpD包裹ID",       lambda ctx: ctx["logis_num"]),          # 物流/包裹號
+        ("JpD包裹ID",       lambda ctx: ""),                        # 由 JpD 端工作人員自行填入
         ("運單ID",          lambda ctx: ""),
         ("包裹特殊服務",     lambda ctx: ""),
         ("收件人",          lambda ctx: ctx["recipient"]),
@@ -159,7 +159,6 @@ def build_rows(vendor_id: str, orders: list[dict]) -> tuple[list[str], list[list
         if not coid:
             coid = f"ORD{o.get('id', 0)}"
 
-        logis_num = (o.get("logis_num") or "").strip()
         recipient = (o.get("recipient") or "").strip()
         address   = (o.get("address") or "").strip()
         phone     = (o.get("phone") or "").strip()
@@ -174,7 +173,6 @@ def build_rows(vendor_id: str, orders: list[dict]) -> tuple[list[str], list[list
             ctx = {
                 "order_id":          order_id,
                 "customer_order_id": coid,
-                "logis_num":         logis_num,
                 "recipient":         recipient,
                 "address":           address,
                 "phone":             phone,
