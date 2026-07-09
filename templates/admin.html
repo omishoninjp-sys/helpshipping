@@ -1210,6 +1210,19 @@
                 <div style="font-size:11px;color:#888;margin-top:2px;">3個內免費，超過每個+NT$14</div>
             </div>
         </div>
+        <!-- 信件費 -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
+            <div class="form-group" style="margin:0;">
+                <label>信件件數</label>
+                <input type="number" id="bill-letter-count" class="form-control" min="0" value="0" oninput="calcLetter()">
+                <div style="font-size:11px;color:#888;margin-top:2px;">系統依到貨類型自動帶入，可調整</div>
+            </div>
+            <div class="form-group" style="margin:0;">
+                <label>信件費</label>
+                <input type="number" id="bill-letter" class="form-control" min="0" readonly style="color:#3498db;font-weight:700;">
+                <div style="font-size:11px;color:#888;margin-top:2px;">每件 NT$20</div>
+            </div>
+        </div>
         <!-- 加值服務 -->
         <div style="margin-top:14px;padding:14px;background:rgba(155,89,182,0.08);border:1px solid rgba(155,89,182,0.2);border-radius:8px;">
             <div style="font-size:13px;font-weight:600;color:#9b59b6;margin-bottom:10px;">⭐ 加值服務（選填）</div>
@@ -3638,6 +3651,8 @@ async function openBillingModal(reqId, gCode, name, summary) {
     document.getElementById('bill-handling').value = '';
     document.getElementById('bill-handling-weight').value = '';
     document.getElementById('bill-total').value = '';
+    document.getElementById('bill-letter').value = '';
+    document.getElementById('bill-letter-count').value = 0;
     document.getElementById('bill-admin-note').value = '';
     document.getElementById('bill-tracking').value = '';
     document.getElementById('extraServicesContainer').innerHTML = '';
@@ -3665,6 +3680,10 @@ async function openBillingModal(reqId, gCode, name, summary) {
     document.getElementById('bill-pkg-count').value = pkgCount;
     var consolidation = pkgCount > 3 ? (pkgCount - 3) * 14 : 0;
     document.getElementById('bill-consolidation').value = consolidation;
+    // 信件費：依到貨類型自動帶入件數（× NT$20）
+    var letterCount = (req && req.letter_count) ? req.letter_count : 0;
+    document.getElementById('bill-letter-count').value = letterCount;
+    calcLetter();
     document.getElementById('billingModal').classList.add('show');
     document.getElementById('bill-weight').focus();
 }
@@ -3722,6 +3741,9 @@ function openBillingEditModal(reqId) {
     document.getElementById('bill-handling').value = Math.round(r.handling_fee || 0);
     document.getElementById('bill-handling-weight').value = '';  // 未儲存，留空（如需重算可自行填）
     document.getElementById('bill-consolidation').value = Math.round(r.consolidation_fee || 0);
+    var lf = Math.round(r.letter_fee || 0);
+    document.getElementById('bill-letter').value = lf;
+    document.getElementById('bill-letter-count').value = Math.round(lf / 20);
     document.getElementById('bill-pkg-count').value = '';
     document.getElementById('bill-total').value = Math.round(r.total_fee || 0);
     document.getElementById('bill-tracking').value = r.tracking_num || '';
@@ -3810,13 +3832,21 @@ function calcHandling() {
     calcTotal();
 }
 
+function calcLetter() {
+    var cnt = parseInt(document.getElementById('bill-letter-count').value) || 0;
+    if (cnt < 0) cnt = 0;
+    document.getElementById('bill-letter').value = cnt * 20;
+    calcTotal();
+}
+
 function calcTotal() {
     var shipping = parseInt(document.getElementById('bill-shipping').value) || 0;
     var handling = parseInt(document.getElementById('bill-handling').value) || 0;
     var consolidation = parseInt(document.getElementById('bill-consolidation').value) || 0;
+    var letter = parseInt(document.getElementById('bill-letter').value) || 0;
     var extras = getExtraServices();
     var extrasTotal = extras.reduce(function(sum, e) { return sum + e.subtotal; }, 0);
-    document.getElementById('bill-total').value = shipping + handling + consolidation + extrasTotal;
+    document.getElementById('bill-total').value = shipping + handling + consolidation + letter + extrasTotal;
 }
 
 async function submitBilling() {
@@ -3826,6 +3856,7 @@ async function submitBilling() {
     var shipping = parseInt(document.getElementById('bill-shipping').value);
     var handling = parseInt(document.getElementById('bill-handling').value);
     var consolidation = parseInt(document.getElementById('bill-consolidation').value) || 0;
+    var letterFee = parseInt(document.getElementById('bill-letter').value) || 0;
     var total = parseInt(document.getElementById('bill-total').value);
     var adminNote = document.getElementById('bill-admin-note').value;
     var trackingNum = document.getElementById('bill-tracking').value.trim();
@@ -3845,6 +3876,7 @@ async function submitBilling() {
                 shipping_fee: shipping,
                 handling_fee: handling,
                 consolidation_fee: consolidation,
+                letter_fee: letterFee,
                 total_fee: total,
                 tracking_num: trackingNum,
                 extra_services: extras

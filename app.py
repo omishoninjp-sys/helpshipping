@@ -203,6 +203,7 @@ def init_db():
         ("ship_phone", "TEXT", "''"),
         ("ship_address", "TEXT", "''"),
         ("consolidation_fee", "REAL", "0"),
+        ("letter_fee", "REAL", "0"),
         # 出檔案給廠商（Nigel / JpD）追蹤欄位
         ("exported_at", "TEXT", "''"),
         ("exported_vendor", "TEXT", "''"),
@@ -2044,6 +2045,7 @@ def admin_monthly_detail():
                 "shipping_fee": float(rd.get("shipping_fee") or 0),
                 "handling_fee": float(rd.get("handling_fee") or 0),
                 "consolidation_fee": float(rd.get("consolidation_fee") or 0),
+                "letter_fee": float(rd.get("letter_fee") or 0),
                 "extra_services": extras,
                 "total_fee": float(rd.get("total_fee") or 0),
             })
@@ -2117,7 +2119,7 @@ def admin_monthly_excel():
         )
 
         headers = ["出貨日期", "客戶編號", "客戶姓名", "寄送地址", "計費重量(kg)",
-                    "運費單價", "運費小計", "理貨費", "加值服務明細", "加值服務小計", "合計(台幣)"]
+                    "運費單價", "運費小計", "理貨費", "加值服務明細", "加值服務小計", "信件費", "合計(台幣)"]
         for col, h in enumerate(headers, 1):
             cell = ws.cell(row=1, column=col, value=h)
             cell.font = header_font
@@ -2129,6 +2131,7 @@ def admin_monthly_excel():
         total_shipping = 0
         total_handling = 0
         total_extra = 0
+        total_letter = 0
         total_all = 0
 
         for i, r in enumerate(filtered, 2):
@@ -2137,6 +2140,7 @@ def admin_monthly_excel():
             rate = float(r["rate_per_kg"] or 0)
             sf = float(r["shipping_fee"] or 0)
             hf = float(r["handling_fee"] or 0)
+            lf = float(r["letter_fee"] or 0)
             tf = float(r["total_fee"] or 0)
 
             # 加值服務
@@ -2167,12 +2171,14 @@ def admin_monthly_excel():
             ws.cell(row=i, column=8, value=hf).border = thin_border
             ws.cell(row=i, column=9, value=extra_desc).border = thin_border
             ws.cell(row=i, column=10, value=extra_total).border = thin_border
-            ws.cell(row=i, column=11, value=tf).border = thin_border
+            ws.cell(row=i, column=11, value=lf).border = thin_border
+            ws.cell(row=i, column=12, value=tf).border = thin_border
 
             total_kg += bw
             total_shipping += sf
             total_handling += hf
             total_extra += extra_total
+            total_letter += lf
             total_all += tf
 
         # 合計列
@@ -2182,7 +2188,7 @@ def admin_monthly_excel():
         ws.cell(row=sum_row, column=1, value="合計").font = sum_font
         ws.cell(row=sum_row, column=1).fill = sum_fill
         ws.cell(row=sum_row, column=1).border = thin_border
-        for c in range(2, 12):
+        for c in range(2, 13):
             ws.cell(row=sum_row, column=c).border = thin_border
             ws.cell(row=sum_row, column=c).font = sum_font
         ws.cell(row=sum_row, column=2, value=f"{len(filtered)} 筆")
@@ -2190,7 +2196,8 @@ def admin_monthly_excel():
         ws.cell(row=sum_row, column=7, value=total_shipping)
         ws.cell(row=sum_row, column=8, value=total_handling)
         ws.cell(row=sum_row, column=10, value=total_extra)
-        ws.cell(row=sum_row, column=11, value=total_all)
+        ws.cell(row=sum_row, column=11, value=total_letter)
+        ws.cell(row=sum_row, column=12, value=total_all)
 
         # 欄寬
         widths = {'A':12, 'B':10, 'C':12, 'D':30, 'E':12, 'F':10, 'G':12, 'H':10, 'I':30, 'J':12, 'K':12}
@@ -2289,6 +2296,7 @@ def admin_monthly_stats():
                     "shipping_fee": 0,
                     "handling_fee": 0,
                     "consolidation_fee": 0,
+                    "letter_fee": 0,
                     "extra_fee": 0,
                     "total_revenue": 0,
                     "commission": 0,        # 代理分潤累計（主帳號為 0）
@@ -2302,6 +2310,7 @@ def admin_monthly_stats():
             m["shipping_fee"] += float(r["shipping_fee"] or 0)
             m["handling_fee"] += float(r["handling_fee"] or 0)
             m["consolidation_fee"] += float(r.get("consolidation_fee") or 0)
+            m["letter_fee"] += float(r.get("letter_fee") or 0)
             m["total_revenue"] += float(r["total_fee"] or 0)
             m["customers"].add(r["g_code"])
 
@@ -3452,12 +3461,29 @@ def admin_get_shipment_requests():
                     "items": items
                 })
 
+        # 每筆出貨單的「信件」件數 → 帳單自動帶入信件費（件數 × NT$20）
+        req_pids = {}
+        all_pids = set()
+        for r in rows:
+            pids = _parse_pkg_ids(r["package_ids"])
+            req_pids[r["id"]] = pids
+            all_pids.update(pids)
+        letter_ids = set()
+        if all_pids:
+            ph = ",".join(["?"] * len(all_pids))
+            trows = conn.execute(
+                f"SELECT id FROM packages WHERE id IN ({ph}) AND pkg_type='信件'",
+                list(all_pids)
+            ).fetchall()
+            letter_ids = {t["id"] for t in trows}
+
         conn.close()
 
         result = []
         for r in rows:
             d = dict(r)
             d["pending_forecasts"] = forecast_map.get(r["g_code"], [])
+            d["letter_count"] = sum(1 for pid in req_pids.get(r["id"], []) if pid in letter_ids)
             result.append(d)
         return jsonify({"success": True, "requests": result})
     except Exception as e:
@@ -3485,6 +3511,7 @@ def admin_update_shipment_request(req_id):
     shipping_fee = data.get("shipping_fee", 0)
     handling_fee = data.get("handling_fee", 0)
     consolidation_fee = data.get("consolidation_fee", 0)
+    letter_fee = data.get("letter_fee", 0)
     total_fee = data.get("total_fee", 0)
     tracking_num = data.get("tracking_num", "")
     extra_services = json.dumps(data.get("extra_services", []), ensure_ascii=False)
@@ -3495,10 +3522,10 @@ def admin_update_shipment_request(req_id):
         conn.execute(
             """UPDATE shipment_requests 
                SET status=?, admin_note=?, updated_at=?,
-                   billed_weight=?, rate_per_kg=?, shipping_fee=?, handling_fee=?, consolidation_fee=?, total_fee=?,
+                   billed_weight=?, rate_per_kg=?, shipping_fee=?, handling_fee=?, consolidation_fee=?, letter_fee=?, total_fee=?,
                    tracking_num=?, extra_services=?
                WHERE id=?""",
-            (status, admin_note, now, billed_weight, rate_per_kg, shipping_fee, handling_fee, consolidation_fee, total_fee, tracking_num, extra_services, req_id)
+            (status, admin_note, now, billed_weight, rate_per_kg, shipping_fee, handling_fee, consolidation_fee, letter_fee, total_fee, tracking_num, extra_services, req_id)
         )
     else:
         conn.execute(
@@ -3552,7 +3579,7 @@ def admin_revert_shipment_request(req_id):
         """UPDATE shipment_requests 
            SET status='待處理', updated_at=?,
                billed_weight=0, rate_per_kg=0, shipping_fee=0, handling_fee=0,
-               consolidation_fee=0, total_fee=0,
+               consolidation_fee=0, letter_fee=0, total_fee=0,
                tracking_num='', payment_last5='', payment_at='', extra_services=''
            WHERE id=?""",
         (now, req_id)
