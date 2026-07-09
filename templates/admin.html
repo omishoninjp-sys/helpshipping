@@ -913,6 +913,7 @@
                     <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:640px;">
                         <thead>
                             <tr style="color:#888;text-align:left;border-bottom:1px solid rgba(255,255,255,.1);">
+                                <th style="padding:8px;width:28px;"></th>
                                 <th style="padding:8px;">服務名稱</th>
                                 <th style="padding:8px;width:70px;">分類</th>
                                 <th style="padding:8px;">說明</th>
@@ -921,8 +922,8 @@
                                 <th style="padding:8px;width:50px;"></th>
                             </tr>
                         </thead>
-                        <tbody id="catalogTableBody">
-                            <tr><td colspan="6" style="text-align:center;color:#666;padding:30px;">載入中…</td></tr>
+                        <tbody id="catalogTableBody" ondragover="catRowDragOver(event)" ondrop="event.preventDefault()">
+                            <tr><td colspan="7" style="text-align:center;color:#666;padding:30px;">載入中…</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1393,16 +1394,16 @@ function switchAdminTab(tab) {
 // ===== 加值服務目錄管理（主管理員）=====
 async function loadExtraServiceCatalog() {
     var body = document.getElementById('catalogTableBody');
-    body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#666;padding:30px;">載入中…</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#666;padding:30px;">載入中…</td></tr>';
     try {
         var res = await fetch('/api/admin/extra_services/catalog');
         var data = await res.json();
-        if (!data.success) { body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#e74c3c;padding:30px;">' + (data.error||'載入失敗') + '</td></tr>'; return; }
+        if (!data.success) { body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#e74c3c;padding:30px;">' + (data.error||'載入失敗') + '</td></tr>'; return; }
         body.innerHTML = '';
         (data.services||[]).forEach(function(s){ addCatalogRow(s); });
         if (!(data.services||[]).length) addCatalogRow();
     } catch(e) {
-        body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#e74c3c;padding:30px;">網路錯誤</td></tr>';
+        body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#e74c3c;padding:30px;">網路錯誤</td></tr>';
     }
 }
 function _catEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -1415,7 +1416,8 @@ function addCatalogRow(s) {
     tr.style.borderBottom = '1px solid rgba(255,255,255,.05)';
     tr.setAttribute('data-id', _catEsc(s.id||''));
     tr.innerHTML =
-        '<td style="padding:6px 8px;"><input type="text" class="form-control cat-name" value="' + _catEsc(s.name) + '" style="padding:6px 8px;font-size:13px;"></td>'
+        '<td class="cat-grip" draggable="true" ondragstart="catGripDragStart(event)" ondragend="catDragEnd()" title="拖曳調整順序" style="padding:6px 4px;text-align:center;cursor:grab;color:#666;font-size:16px;user-select:none;">⠿</td>'
+      + '<td style="padding:6px 8px;"><input type="text" class="form-control cat-name" value="' + _catEsc(s.name) + '" style="padding:6px 8px;font-size:13px;"></td>'
       + '<td style="padding:6px 8px;"><input type="text" class="form-control cat-cat" value="' + _catEsc(s.cat) + '" style="padding:6px 8px;font-size:13px;"></td>'
       + '<td style="padding:6px 8px;"><input type="text" class="form-control cat-desc" value="' + _catEsc(s.desc) + '" style="padding:6px 8px;font-size:12px;"></td>'
       + '<td style="padding:6px 8px;"><input type="number" class="form-control cat-price" min="0" value="' + (parseInt(s.price)||0) + '" style="padding:6px 8px;font-size:13px;text-align:right;"></td>'
@@ -1423,6 +1425,31 @@ function addCatalogRow(s) {
       + '<td style="padding:6px 8px;text-align:center;"><button onclick="this.closest(\'tr\').remove()" style="background:rgba(231,76,60,.2);border:none;color:#e74c3c;padding:5px 9px;border-radius:6px;cursor:pointer;">✕</button></td>';
     body.appendChild(tr);
 }
+// 目錄拖曳排序（原生 HTML5 DnD，無外部套件）
+var _catDragRow = null;
+function catGripDragStart(e) {
+    _catDragRow = e.target.closest('tr');
+    if (!_catDragRow) return;
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', 'row'); } catch(_) {}
+    _catDragRow.style.opacity = '0.4';
+}
+function catRowDragOver(e) {
+    if (!_catDragRow) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    var over = e.target.closest ? e.target.closest('tr.catalog-row') : null;
+    if (!over || over === _catDragRow) return;
+    var rect = over.getBoundingClientRect();
+    var after = (e.clientY - rect.top) > rect.height / 2;
+    var body = document.getElementById('catalogTableBody');
+    body.insertBefore(_catDragRow, after ? over.nextSibling : over);
+}
+function catDragEnd() {
+    if (_catDragRow) _catDragRow.style.opacity = '';
+    _catDragRow = null;
+}
+
 async function saveExtraServiceCatalog() {
     var services = [];
     document.querySelectorAll('.catalog-row').forEach(function(tr){
