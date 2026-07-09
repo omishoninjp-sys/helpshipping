@@ -2626,6 +2626,26 @@ function renderShipReqs(list) {
             pkgRow = '<span style="color:#666;font-size:12px;">無包裹/預報資料</span>';
         }
 
+        // 客戶申請的加值服務（讓出貨人員在卡片上一眼看到；實際費用以帳單為準）
+        var extraHtml = '';
+        try {
+            var exArr = JSON.parse(r.extra_services || '[]');
+            if (exArr.length) {
+                var exSum = 0;
+                var exItems = exArr.map(function(e){
+                    var sub = (e.subtotal != null) ? e.subtotal : ((e.price||0) * (e.qty||1));
+                    exSum += (sub || 0);
+                    return '<div style="font-size:12px;color:#fff;margin-top:2px;">• ' + (e.name||'') + ' ×' + (e.qty||1)
+                        + (e.price ? ' <span style="color:#9b59b6;">(NT$' + sub + ')</span>' : '') + '</div>';
+                }).join('');
+                extraHtml = '<div style="margin-top:8px;padding:8px 10px;background:rgba(155,89,182,.12);border:1px solid rgba(155,89,182,.3);border-radius:8px;">'
+                    + '<div style="font-size:12px;font-weight:700;color:#9b59b6;">⭐ 客戶申請加值服務'
+                    + (exSum ? ' <span style="color:#888;font-weight:400;">小計 NT$' + exSum + '（以帳單為準）</span>' : '') + '</div>'
+                    + exItems
+                    + '</div>';
+            }
+        } catch(e) {}
+
         // 組合卡片
         return '<div class="sr-card">'
             + '<div class="sr-head">'
@@ -2641,6 +2661,7 @@ function renderShipReqs(list) {
             +   '<div class="sr-col sr-col-meta">'
             +     '<div style="font-size:13px;color:#ccc;margin-bottom:8px;"><span style="color:#888;">客戶備註：</span>' + (r.note || '無') + '</div>'
             +     '<div style="font-size:13px;"><span style="color:#888;">匯款：</span>' + paymentHtml + '</div>'
+            +     extraHtml
             +   '</div>'
             + '</div>'
             + '<div class="sr-actions">' + actions + '</div>'
