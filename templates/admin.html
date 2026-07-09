@@ -316,6 +316,7 @@
                 <div class="sidebar-item" onclick="switchAdminTab('stats')">📊 統計</div>
                 <div class="sidebar-divider"></div>
                 <div class="sidebar-item" id="sidebar-exports" onclick="switchAdminTab('exports')" style="display:none;">📤 出檔案 <span id="exports-badge" class="sidebar-badge" style="display:none;background:#3498db;">0</span></div>
+                <div class="sidebar-item" id="sidebar-extraservices" onclick="switchAdminTab('extraservices')" style="display:none;">⭐ 加值服務</div>
                 <div class="sidebar-item" id="sidebar-agents" onclick="switchAdminTab('agents')" style="display:none;">🤝 代理管理</div>
                 <div class="sidebar-item" id="sidebar-my-branding" onclick="switchAdminTab('mybranding')" style="display:none;">🎨 我的品牌設定</div>
                 <div class="sidebar-item" onclick="openChangePwd()" style="color:#666;">🔑 變更密碼</div>
@@ -894,6 +895,40 @@
             </div>
         </div>
 
+        <div class="admin-panel" id="panel-extraservices">
+            <div class="card">
+                <div class="toolbar" style="margin-bottom:12px;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+                    <h3>⭐ 加值服務目錄</h3>
+                    <div style="display:flex;gap:8px;">
+                        <button class="btn btn-secondary" onclick="addCatalogRow()" style="padding:8px 14px;">➕ 新增項目</button>
+                        <button class="btn btn-primary" onclick="saveExtraServiceCatalog()" style="padding:8px 16px;">💾 儲存目錄</button>
+                    </div>
+                </div>
+                <p style="font-size:12px;color:#888;margin-bottom:12px;">
+                    勾選「客戶可勾」的項目會出現在客戶出貨申請的加值服務清單（建議只開放固定價項目）。
+                    變動價／特殊計費（如氣泡膜「起價」、清點拍照「每10個」、合箱）請取消勾選，由你請款時手動確認。
+                    客戶勾選的服務視為「申請」，最終金額以帳單為準。
+                </p>
+                <div style="overflow-x:auto;">
+                    <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:640px;">
+                        <thead>
+                            <tr style="color:#888;text-align:left;border-bottom:1px solid rgba(255,255,255,.1);">
+                                <th style="padding:8px;">服務名稱</th>
+                                <th style="padding:8px;width:70px;">分類</th>
+                                <th style="padding:8px;">說明</th>
+                                <th style="padding:8px;width:90px;text-align:right;">價格(台幣)</th>
+                                <th style="padding:8px;width:80px;text-align:center;">客戶可勾</th>
+                                <th style="padding:8px;width:50px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="catalogTableBody">
+                            <tr><td colspan="6" style="text-align:center;color:#666;padding:30px;">載入中…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <div class="admin-panel" id="panel-stats">
             <div class="card">
                 <div class="toolbar">
@@ -1294,6 +1329,8 @@ async function adminLogin() {
             if (sbAgents) sbAgents.style.display = currentAdmin.user_type === 'admin' ? '' : 'none';
             var sbExports = document.getElementById('sidebar-exports');
             if (sbExports) sbExports.style.display = currentAdmin.user_type === 'admin' ? '' : 'none';
+            var sbExtra = document.getElementById('sidebar-extraservices');
+            if (sbExtra) sbExtra.style.display = currentAdmin.user_type === 'admin' ? '' : 'none';
             var sbAnn = document.getElementById('sidebar-announcements');
             if (sbAnn) sbAnn.style.display = currentAdmin.user_type === 'admin' ? '' : 'none';
             // 代理專屬：我的品牌設定
@@ -1348,8 +1385,67 @@ function switchAdminTab(tab) {
     if (tab === 'announcements') loadAnnouncements();
     if (tab === 'stats') loadStats();
     if (tab === 'exports') loadExports();
+    if (tab === 'extraservices') loadExtraServiceCatalog();
     if (tab === 'agents') loadAgents();
     if (tab === 'mybranding') loadMyBranding();
+}
+
+// ===== 加值服務目錄管理（主管理員）=====
+async function loadExtraServiceCatalog() {
+    var body = document.getElementById('catalogTableBody');
+    body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#666;padding:30px;">載入中…</td></tr>';
+    try {
+        var res = await fetch('/api/admin/extra_services/catalog');
+        var data = await res.json();
+        if (!data.success) { body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#e74c3c;padding:30px;">' + (data.error||'載入失敗') + '</td></tr>'; return; }
+        body.innerHTML = '';
+        (data.services||[]).forEach(function(s){ addCatalogRow(s); });
+        if (!(data.services||[]).length) addCatalogRow();
+    } catch(e) {
+        body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#e74c3c;padding:30px;">網路錯誤</td></tr>';
+    }
+}
+function _catEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function addCatalogRow(s) {
+    s = s || {};
+    var body = document.getElementById('catalogTableBody');
+    if (body.querySelector('td[colspan]')) body.innerHTML = '';  // 清掉佔位列
+    var tr = document.createElement('tr');
+    tr.className = 'catalog-row';
+    tr.style.borderBottom = '1px solid rgba(255,255,255,.05)';
+    tr.setAttribute('data-id', _catEsc(s.id||''));
+    tr.innerHTML =
+        '<td style="padding:6px 8px;"><input type="text" class="form-control cat-name" value="' + _catEsc(s.name) + '" style="padding:6px 8px;font-size:13px;"></td>'
+      + '<td style="padding:6px 8px;"><input type="text" class="form-control cat-cat" value="' + _catEsc(s.cat) + '" style="padding:6px 8px;font-size:13px;"></td>'
+      + '<td style="padding:6px 8px;"><input type="text" class="form-control cat-desc" value="' + _catEsc(s.desc) + '" style="padding:6px 8px;font-size:12px;"></td>'
+      + '<td style="padding:6px 8px;"><input type="number" class="form-control cat-price" min="0" value="' + (parseInt(s.price)||0) + '" style="padding:6px 8px;font-size:13px;text-align:right;"></td>'
+      + '<td style="padding:6px 8px;text-align:center;"><input type="checkbox" class="cat-sel" ' + (s.sel ? 'checked' : '') + ' style="width:17px;height:17px;accent-color:#9b59b6;"></td>'
+      + '<td style="padding:6px 8px;text-align:center;"><button onclick="this.closest(\'tr\').remove()" style="background:rgba(231,76,60,.2);border:none;color:#e74c3c;padding:5px 9px;border-radius:6px;cursor:pointer;">✕</button></td>';
+    body.appendChild(tr);
+}
+async function saveExtraServiceCatalog() {
+    var services = [];
+    document.querySelectorAll('.catalog-row').forEach(function(tr){
+        var name = (tr.querySelector('.cat-name').value||'').trim();
+        if (!name) return;
+        services.push({
+            id: tr.getAttribute('data-id') || '',
+            name: name,
+            cat: (tr.querySelector('.cat-cat').value||'').trim(),
+            desc: (tr.querySelector('.cat-desc').value||'').trim(),
+            price: parseInt(tr.querySelector('.cat-price').value) || 0,
+            sel: tr.querySelector('.cat-sel').checked
+        });
+    });
+    try {
+        var res = await fetch('/api/admin/extra_services/catalog', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ services: services })
+        });
+        var data = await res.json();
+        if (data.success) { showToast('💾 已儲存 ' + data.count + ' 項加值服務', 'success'); }
+        else { showToast(data.error || '儲存失敗', 'error'); }
+    } catch(e) { showToast('網路錯誤', 'error'); }
 }
 
 // ===== 我的品牌設定（代理自助）=====
@@ -3684,6 +3780,11 @@ async function openBillingModal(reqId, gCode, name, summary) {
     var letterCount = (req && req.letter_count) ? req.letter_count : 0;
     document.getElementById('bill-letter-count').value = letterCount;
     calcLetter();
+    // 帶出客戶在出貨申請時勾選的加值服務（顯示「客戶申請」標記，管理員可增刪，最終以帳單為準）
+    try {
+        var custEx = JSON.parse((req && req.extra_services) || '[]');
+        custEx.forEach(function(e){ addExtraService(e); });
+    } catch(e) {}
     document.getElementById('billingModal').classList.add('show');
     document.getElementById('bill-weight').focus();
 }
@@ -3753,31 +3854,32 @@ function openBillingEditModal(reqId) {
     document.getElementById('extraServicesContainer').innerHTML = '';
     try {
         var ex = JSON.parse(r.extra_services || '[]');
-        ex.forEach(function(e){
-            addExtraService();
-            var rows = document.querySelectorAll('.extra-svc-row');
-            var row = rows[rows.length - 1];
-            row.querySelector('.extra-svc-name').value = e.name || '';
-            row.querySelector('.extra-svc-qty').value = e.qty || 1;
-            row.querySelector('.extra-svc-price').value = e.price || 0;
-        });
+        ex.forEach(function(e){ addExtraService(e); });
     } catch(e) {}
 
     document.getElementById('billingModal').classList.add('show');
 }
 
-function addExtraService() {
+function addExtraService(svc) {
+    svc = svc || {};
+    var nm = (svc.name || '').replace(/"/g, '&quot;');
+    var qty = svc.qty || 1;
+    var price = svc.price || '';
+    var isCust = svc.src === 'customer';
+    var badge = isCust ? '<span class="svc-cust-badge" style="font-size:10px;font-weight:700;color:#3498db;background:rgba(52,152,219,.15);padding:2px 6px;border-radius:8px;white-space:nowrap;">客戶申請</span>' : '';
     var container = document.getElementById('extraServicesContainer');
     container.insertAdjacentHTML('beforeend',
         '<div class="extra-svc-row" style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">'
-        + '<input type="text" class="form-control extra-svc-name" placeholder="服務名稱" style="flex:2;padding:8px 10px;font-size:13px;">'
-        + '<input type="number" class="form-control extra-svc-qty" value="1" min="1" style="width:50px;flex:none;padding:8px 6px;font-size:13px;text-align:center;" oninput="calcTotal()">'
+        + badge
+        + '<input type="text" class="form-control extra-svc-name" placeholder="服務名稱" value="' + nm + '" style="flex:2;padding:8px 10px;font-size:13px;">'
+        + '<input type="number" class="form-control extra-svc-qty" value="' + qty + '" min="1" style="width:50px;flex:none;padding:8px 6px;font-size:13px;text-align:center;" oninput="calcTotal()">'
         + '<span style="color:#888;font-size:11px;">×</span>'
-        + '<input type="number" class="form-control extra-svc-price" placeholder="單價" style="flex:1;padding:8px 10px;font-size:13px;text-align:right;" min="0" oninput="calcTotal()">'
+        + '<input type="number" class="form-control extra-svc-price" placeholder="單價" value="' + price + '" style="flex:1;padding:8px 10px;font-size:13px;text-align:right;" min="0" oninput="calcTotal()">'
         + '<span style="color:#888;font-size:11px;white-space:nowrap;">台幣</span>'
         + '<button onclick="this.parentElement.remove();calcTotal();" style="background:rgba(231,76,60,.2);border:none;color:#e74c3c;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;">✕</button>'
         + '</div>'
     );
+    calcTotal();
 }
 
 function getExtraServices() {

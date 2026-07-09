@@ -875,6 +875,15 @@
                 <button onclick="closeShipAddressModal()" style="background:none;border:none;color:#fff;font-size:22px;cursor:pointer;">✕</button>
             </div>
             <div id="shipAddressList"></div>
+            <!-- 加值服務選取（可選，送出後為「申請」，實際費用以管理員帳單為準）-->
+            <div style="margin-top:16px;">
+                <div style="font-size:13px;font-weight:700;color:#9b59b6;margin-bottom:4px;">⭐ 加值服務（選填）</div>
+                <div style="font-size:11px;color:#888;margin-bottom:8px;">勾選你需要的服務，這是「申請」，實際費用會由客服在帳單確認。</div>
+                <div id="shipServicesList" style="max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;">
+                    <div style="color:#666;font-size:12px;text-align:center;padding:10px;">載入中…</div>
+                </div>
+                <div id="shipServicesTotal" style="text-align:right;font-size:12px;color:#9b59b6;font-weight:600;margin-top:6px;display:none;"></div>
+            </div>
             <div class="form-group" style="margin-top:14px;">
                 <label style="font-size:12px;color:#888;">備註（選填）</label>
                 <input type="text" id="shipNote" class="form-control" placeholder="例：合箱出貨、請儘快" style="padding:8px 10px;font-size:13px;">
@@ -1369,6 +1378,7 @@
         async function openShipAddressModal() {
             document.getElementById('shipAddressModal').style.display = 'flex';
             document.getElementById('shipNote').value = '';
+            loadShipServices();
             try {
                 const res = await fetch(`/api/addresses?g_code=${currentCustomer.g_code}`);
                 const data = await res.json();
@@ -1397,6 +1407,57 @@
             document.getElementById('shipAddressModal').style.display = 'none';
         }
 
+        // ── 加值服務選取 ──
+        var _shipServicesCache = null;
+        async function loadShipServices() {
+            var box = document.getElementById('shipServicesList');
+            document.getElementById('shipServicesTotal').style.display = 'none';
+            try {
+                if (!_shipServicesCache) {
+                    const res = await fetch('/api/extra_services/catalog');
+                    const data = await res.json();
+                    _shipServicesCache = (data.success && data.services) ? data.services : [];
+                }
+                if (!_shipServicesCache.length) {
+                    box.innerHTML = '<div style="color:#666;font-size:12px;text-align:center;padding:10px;">目前沒有可選的加值服務</div>';
+                    return;
+                }
+                box.innerHTML = _shipServicesCache.map(function(s){
+                    return '<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.06);border-radius:8px;cursor:pointer;">'
+                        + '<input type="checkbox" class="ship-svc-chk" data-id="' + s.id + '" data-price="' + s.price + '" onchange="onShipSvcToggle(this);updateShipServicesTotal();" style="accent-color:#9b59b6;width:16px;height:16px;flex:0 0 auto;">'
+                        + '<span style="flex:1;font-size:13px;color:#fff;">' + s.name + (s.desc ? '<span style="display:block;font-size:11px;color:#888;">' + s.desc + '</span>' : '') + '</span>'
+                        + '<span style="font-size:12px;color:#9b59b6;font-weight:600;flex:0 0 auto;">NT$' + s.price + '</span>'
+                        + '<input type="number" class="ship-svc-qty" min="1" value="1" disabled onchange="updateShipServicesTotal()" oninput="updateShipServicesTotal()" style="width:52px;padding:4px 6px;font-size:12px;flex:0 0 auto;border-radius:6px;border:1px solid rgba(255,255,255,.1);background:rgba(0,0,0,.3);color:#fff;">'
+                        + '</label>';
+                }).join('');
+            } catch(e) {
+                box.innerHTML = '<div style="color:#666;font-size:12px;text-align:center;padding:10px;">加值服務載入失敗（不影響出貨）</div>';
+            }
+        }
+        function onShipSvcToggle(chk) {
+            var qty = chk.closest('label').querySelector('.ship-svc-qty');
+            if (qty) qty.disabled = !chk.checked;
+        }
+        function updateShipServicesTotal() {
+            var total = 0;
+            document.querySelectorAll('.ship-svc-chk:checked').forEach(function(chk){
+                var qty = parseInt(chk.closest('label').querySelector('.ship-svc-qty').value) || 1;
+                total += (parseInt(chk.dataset.price) || 0) * qty;
+            });
+            var el = document.getElementById('shipServicesTotal');
+            if (total > 0) { el.textContent = '加值服務小計：NT$' + total + '（申請，實際以帳單為準）'; el.style.display = 'block'; }
+            else { el.style.display = 'none'; }
+        }
+        function getShipSelectedServices() {
+            var out = [];
+            document.querySelectorAll('.ship-svc-chk:checked').forEach(function(chk){
+                var qty = parseInt(chk.closest('label').querySelector('.ship-svc-qty').value) || 1;
+                if (qty < 1) qty = 1;
+                out.push({ id: chk.dataset.id, qty: qty });
+            });
+            return out;
+        }
+
         async function confirmShipRequest() {
             const selected = document.querySelector('input[name="ship-addr"]:checked');
             if (!selected) { showToast('請選擇寄送地址', 'error'); return; }
@@ -1412,7 +1473,8 @@
                         note: note,
                         ship_recipient: selected.dataset.recipient,
                         ship_phone: selected.dataset.phone,
-                        ship_address: selected.dataset.address
+                        ship_address: selected.dataset.address,
+                        extra_services: getShipSelectedServices()
                     })
                 });
                 const result = await res.json();

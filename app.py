@@ -65,6 +65,58 @@ def get_db():
     return conn
 
 
+# ============ 加值服務預設目錄 ============
+# 存進 admin_settings（key='extra_service_catalog'）後即可後台管理；此處僅為首次 seed。
+# sel=True 才會出現在客戶端出貨申請的可勾選清單（變動價/特殊計費項目 sel=False，由管理員請款時確認）。
+DEFAULT_EXTRA_SERVICES = [
+    {"id": "es01", "name": "報關單修改",           "cat": "申報", "desc": "申報相關",                                   "price": 1573, "sel": True},
+    {"id": "es02", "name": "出口子單申報",         "cat": "申報", "desc": "申報相關",                                   "price": 515,  "sel": True},
+    {"id": "es03", "name": "特大型包裝箱加固",     "cat": "加固", "desc": "厚度 8mm，長寬高和 180cm（操作費＋資材費）", "price": 143,  "sel": True},
+    {"id": "es04", "name": "套箱 — 長寬高和 160cm", "cat": "資材", "desc": "厚度 8mm，長寬高和 160cm",                    "price": 129,  "sel": True},
+    {"id": "es05", "name": "套箱 — 長寬高和 140cm", "cat": "資材", "desc": "厚度 8mm，長寬高和 140cm",                    "price": 100,  "sel": True},
+    {"id": "es06", "name": "特長件加值費",         "cat": "操作", "desc": "最長邊超過 1.5m 的包裹都需要添加此服務",       "price": 86,   "sel": True},
+    {"id": "es07", "name": "普通包裝箱加固",       "cat": "加固", "desc": "厚度 8mm，長寬高和 160cm（操作費＋資材費）",   "price": 86,   "sel": True},
+    {"id": "es08", "name": "外箱氣泡膜加固",       "cat": "加固", "desc": "依尺寸 NT$86～343/圈（變動）",                 "price": 86,   "sel": False},
+    {"id": "es09", "name": "日本國內退換貨服務",   "cat": "操作", "desc": "服務費（1 個包裹手續費），運費以佐川官方為準", "price": 86,   "sel": True},
+    {"id": "es10", "name": "精確分箱",             "cat": "操作", "desc": "根據客戶提供清單分箱",                         "price": 86,   "sel": True},
+    {"id": "es11", "name": "退運",                 "cat": "操作", "desc": "退運服務",                                     "price": 86,   "sel": True},
+    {"id": "es12", "name": "更改地址 — 跨省",       "cat": "操作", "desc": "適用服裝、雜貨管道（不成功不收費）",           "price": 86,   "sel": True},
+    {"id": "es13", "name": "套箱 — 長寬高和 120cm", "cat": "資材", "desc": "厚度 8mm，長寬高和 120cm",                    "price": 72,   "sel": True},
+    {"id": "es14", "name": "清點拍照",             "cat": "拍照", "desc": "取出所有商品排列拍照，每 10 個商品費用",       "price": 57,   "sel": False},
+    {"id": "es15", "name": "隨機分箱",             "cat": "操作", "desc": "根據倉庫經驗隨機分箱",                         "price": 43,   "sel": True},
+    {"id": "es16", "name": "套箱 — 長寬高和 80cm",  "cat": "資材", "desc": "厚度 8mm，長寬高和 80cm",                     "price": 43,   "sel": True},
+    {"id": "es17", "name": "入庫清點",             "cat": "操作", "desc": "入庫清點商品數量（每箱）",                     "price": 37,   "sel": True},
+    {"id": "es18", "name": "套隨機外箱",           "cat": "加固", "desc": "利用倉庫積存的廢舊箱子（規格不定）",           "price": 29,   "sel": True},
+    {"id": "es19", "name": "商品氣柱加固",         "cat": "加固", "desc": "氣柱長度 20cm 單價，不足 20cm 以 20cm 計（變動）", "price": 29, "sel": False},
+    {"id": "es20", "name": "商品氣泡膜加強",       "cat": "加固", "desc": "依尺寸 NT$29～86/圈（變動）",                  "price": 29,   "sel": False},
+    {"id": "es21", "name": "拍照確認",             "cat": "拍照", "desc": "隨機角度，3 張",                               "price": 29,   "sel": True},
+    {"id": "es22", "name": "面單拍照",             "cat": "拍照", "desc": "只拍照面單",                                   "price": 29,   "sel": True},
+    {"id": "es23", "name": "開箱拍照",             "cat": "拍照", "desc": "外箱 1 張、開箱 1 張，共 2 張（不取出商品）",   "price": 29,   "sel": True},
+    {"id": "es24", "name": "套箱 — 長寬高和 60cm",  "cat": "資材", "desc": "厚度 8mm，長寬高和 60cm",                     "price": 20,   "sel": True},
+    {"id": "es25", "name": "去鞋盒",               "cat": "操作", "desc": "1 個鞋盒的操作費用",                           "price": 14,   "sel": True},
+    {"id": "es26", "name": "合箱",                 "cat": "操作", "desc": "3 個以內免費，超過每個 +NT$14（由合箱費處理）", "price": 14,   "sel": False},
+]
+
+
+def get_extra_service_catalog(conn=None):
+    """讀取加值服務目錄（admin_settings.extra_service_catalog）。缺則回預設。"""
+    own = False
+    if conn is None:
+        conn = get_db(); own = True
+    try:
+        row = conn.execute("SELECT value FROM admin_settings WHERE key='extra_service_catalog'").fetchone()
+    finally:
+        if own:
+            conn.close()
+    if not row:
+        return list(DEFAULT_EXTRA_SERVICES)
+    try:
+        data = json.loads(row["value"])
+        return data if isinstance(data, list) else list(DEFAULT_EXTRA_SERVICES)
+    except (ValueError, TypeError):
+        return list(DEFAULT_EXTRA_SERVICES)
+
+
 def init_db():
     conn = get_db()
     # ===== 啟用 WAL 模式（一次性設定，會持久化在 DB 檔案內）=====
@@ -277,6 +329,18 @@ def init_db():
             print(f"[migrate] 已加 agents.{col} 欄位", flush=True)
         except:
             pass
+
+    # ===== 首次 seed 加值服務目錄（之後由後台管理，不覆寫既有值）=====
+    try:
+        has_cat = conn.execute("SELECT 1 FROM admin_settings WHERE key='extra_service_catalog'").fetchone()
+        if not has_cat:
+            conn.execute(
+                "INSERT INTO admin_settings (key, value) VALUES ('extra_service_catalog', ?)",
+                (json.dumps(DEFAULT_EXTRA_SERVICES, ensure_ascii=False),)
+            )
+            print("[migrate] 已 seed 加值服務目錄（26 項）", flush=True)
+    except Exception as e:
+        print(f"[migrate] ⚠️ seed 加值服務目錄失敗: {e}", flush=True)
 
     conn.commit()
     conn.close()
@@ -2699,6 +2763,67 @@ def set_default_address(addr_id):
     return jsonify({"success": True})
 
 
+# ============ 加值服務目錄 API ============
+
+@app.route("/api/extra_services/catalog", methods=["GET"])
+def public_extra_service_catalog():
+    """客戶端出貨申請用：只回傳「可勾選」（固定價）項目。無需登入。"""
+    cat = get_extra_service_catalog()
+    items = [
+        {"id": c.get("id"), "name": c.get("name", ""), "cat": c.get("cat", ""),
+         "desc": c.get("desc", ""), "price": int(c.get("price") or 0)}
+        for c in cat if c.get("sel")
+    ]
+    return jsonify({"success": True, "services": items})
+
+
+@app.route("/api/admin/extra_services/catalog", methods=["GET"])
+def admin_get_extra_service_catalog():
+    """後台管理用：回傳完整目錄（含 sel 旗標與變動價項目）。"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "僅主管理員可管理加值服務目錄"}), 403
+    return jsonify({"success": True, "services": get_extra_service_catalog()})
+
+
+@app.route("/api/admin/extra_services/catalog", methods=["POST"])
+def admin_save_extra_service_catalog():
+    """後台管理用：整批覆寫目錄。"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "僅主管理員可管理加值服務目錄"}), 403
+    data = request.json or {}
+    raw = data.get("services", [])
+    if not isinstance(raw, list):
+        return jsonify({"success": False, "error": "資料格式錯誤"}), 400
+    cleaned = []
+    for i, c in enumerate(raw, 1):
+        if not isinstance(c, dict):
+            continue
+        name = (c.get("name") or "").strip()
+        if not name:
+            continue
+        try:
+            price = int(float(c.get("price") or 0))
+        except (ValueError, TypeError):
+            price = 0
+        cleaned.append({
+            "id": (c.get("id") or f"es{i:02d}").strip(),
+            "name": name,
+            "cat": (c.get("cat") or "").strip(),
+            "desc": (c.get("desc") or "").strip(),
+            "price": max(price, 0),
+            "sel": bool(c.get("sel")),
+        })
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO admin_settings (key, value) VALUES ('extra_service_catalog', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (json.dumps(cleaned, ensure_ascii=False),)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "count": len(cleaned)})
+
+
 # ============ 出貨申請 API ============
 
 @app.route("/api/shipment_request", methods=["POST"])
@@ -2713,6 +2838,8 @@ def create_shipment_request():
     ship_recipient = (data.get("ship_recipient") or "").strip()
     ship_phone = (data.get("ship_phone") or "").strip()
     ship_address = (data.get("ship_address") or "").strip()
+    # 客戶勾選的加值服務（[{id, qty}]）→ 以伺服端目錄價驗證後存入（防前端竄改價格）
+    sel_services = data.get("extra_services", []) or []
 
     if not g_code:
         return jsonify({"success": False, "error": "缺少會員編號"})
@@ -2802,10 +2929,33 @@ def create_shipment_request():
     ids_str = ",".join(str(i) for i in package_ids)
     sr_agent_id = get_agent_id_for_g_code(g_code)
 
+    # 依伺服端目錄驗證客戶勾選：只收 sel=True 的項目、價格一律用目錄價、數量下限 1
+    catalog = {c["id"]: c for c in get_extra_service_catalog() if c.get("sel")}
+    customer_extras = []
+    for s in sel_services:
+        if not isinstance(s, dict):
+            continue
+        c = catalog.get(s.get("id"))
+        if not c:
+            continue
+        try:
+            qty = int(s.get("qty", 1))
+        except (ValueError, TypeError):
+            qty = 1
+        if qty < 1:
+            qty = 1
+        price = int(c.get("price") or 0)
+        customer_extras.append({
+            "id": c["id"], "name": c["name"], "qty": qty,
+            "price": price, "subtotal": price * qty,
+            "src": "customer",  # 客戶申請（管理員請款時可增刪，最終以帳單為準）
+        })
+    extra_services_json = json.dumps(customer_extras, ensure_ascii=False)
+
     conn.execute(
-        """INSERT INTO shipment_requests (g_code, customer_name, package_ids, package_summary, status, note, ship_recipient, ship_phone, ship_address, created_at, agent_id)
-           VALUES (?, ?, ?, ?, '待處理', ?, ?, ?, ?, ?, ?)""",
-        (g_code, customer_name, ids_str, summary, note, ship_recipient, ship_phone, ship_address, now, sr_agent_id)
+        """INSERT INTO shipment_requests (g_code, customer_name, package_ids, package_summary, status, note, ship_recipient, ship_phone, ship_address, extra_services, created_at, agent_id)
+           VALUES (?, ?, ?, ?, '待處理', ?, ?, ?, ?, ?, ?, ?)""",
+        (g_code, customer_name, ids_str, summary, note, ship_recipient, ship_phone, ship_address, extra_services_json, now, sr_agent_id)
     )
     conn.commit()
     conn.close()
