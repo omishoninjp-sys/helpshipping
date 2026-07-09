@@ -16,12 +16,14 @@ import re
 from datetime import datetime
 
 
-# ============ 隨機資料產生器（用戶說「亂填即可」） ============
+# ============ 隨機資料產生器（僅在「客人沒預報商品」時用白名單隨機打散） ============
 
+# 白名單：只有沒有預報品名的客戶，出檔案才從這裡隨機取（有預報→用真實預報品名）
 _PRODUCT_NAME_POOL = [
-    "雑貨", "衣類", "玩具", "鞋子", "包包", "化妝品", "食品",
-    "日用品", "餅乾", "髮夾", "上衣", "褲子", "外套", "手帕",
-    "毛巾", "資料夾", "杯子", "公仔", "面膜", "卡片",
+    "玩具", "糖果", "上衣", "文具用品", "髮夾", "廚房用品", "貴鞋子",
+    "化妝品", "娃娃", "包包", "毛巾", "保健食品", "便宜鞋子", "飾品－A",
+    "吊飾", "水壺", "襪子", "蝦餅", "口罩", "小朋友涼鞋", "飾品－Ｂ",
+    "沐浴球", "卡片",
 ]
 _ORIGIN_POOL = ["japan"] * 6 + ["china"] * 4  # 60% japan, 40% china
 
@@ -33,6 +35,17 @@ def _seed_for(shipment_id: int, package_id: int = 0) -> random.Random:
 
 def random_product_name(shipment_id: int, package_id: int = 0) -> str:
     return _seed_for(shipment_id, package_id).choice(_PRODUCT_NAME_POOL)
+
+
+def product_name_for(ctx) -> str:
+    """品名來源：
+      • 該客戶有預報品名 → 依 pkg_index 循環取真實預報品名（不亂數）
+      • 沒有預報 → 從白名單隨機取（seed 固定，同一筆每次匯出一致）
+    """
+    names = ctx.get("forecast_names") or []
+    if names:
+        return names[ctx.get("pkg_index", 0) % len(names)]
+    return random_product_name(ctx["shipment_id"], ctx["package_id"])
 
 
 def random_quantity(shipment_id: int, package_id: int = 0) -> int:
@@ -66,7 +79,7 @@ NIGEL = {
         ("申報人",         lambda ctx: ctx["ship_recipient"]),         # 預設 = 收件人
         ("申報人詳細地址", lambda ctx: ctx["ship_address"]),
         ("申報人電話號碼", lambda ctx: ctx["ship_phone"]),
-        ("品名",           lambda ctx: random_product_name(ctx["shipment_id"], ctx["package_id"])),
+        ("品名",           lambda ctx: product_name_for(ctx)),
         ("數量",           lambda ctx: random_quantity(ctx["shipment_id"], ctx["package_id"])),
         ("金額",           lambda ctx: random_jpy_amount(ctx["shipment_id"], ctx["package_id"])),
         ("產地",           lambda ctx: random_origin(ctx["shipment_id"], ctx["package_id"])),
@@ -96,7 +109,7 @@ JPD = {
         ("申報人身份證ID",   lambda ctx: ""),
         ("申報人詳細地址",   lambda ctx: ctx["ship_address"]),
         ("申報人电话号码",   lambda ctx: ctx["ship_phone"]),
-        ("品名",            lambda ctx: random_product_name(ctx["shipment_id"], ctx["package_id"])),
+        ("品名",            lambda ctx: product_name_for(ctx)),
         ("数量",            lambda ctx: random_quantity(ctx["shipment_id"], ctx["package_id"])),
         ("金额",            lambda ctx: random_jpy_amount(ctx["shipment_id"], ctx["package_id"])),
         ("材質",            lambda ctx: ""),
@@ -161,12 +174,15 @@ def build_rows(vendor_id: str, shipments: list[dict]) -> tuple[list[str], list[l
             if t.strip()
         )
 
-        for pkg in s["packages"]:
+        for pkg_index, pkg in enumerate(s["packages"]):
             ctx = {
                 "shipment_id":          s["id"],
                 "g_code":               s["g_code"],
                 "packaging_mmdd":       packaging_mmdd,   # 客戶申請出單日（打包日）MMDD
                 "tracking_num":         tracking_num,     # 出貨追蹤號碼（Nigel→清關號碼 / JpD→JpD包裹ID）
+                # 品名來源：有預報→真實品名循環；無→白名單隨機
+                "forecast_names":       s.get("forecast_names") or [],
+                "pkg_index":            pkg_index,
                 # str() 防 DB 把 phone 存成 float（912345678.0）造成下游 .strip() 炸
                 "ship_recipient":       str(s["ship_recipient"]) if s["ship_recipient"] else "",
                 "ship_address":         str(s["ship_address"]) if s["ship_address"] else "",
