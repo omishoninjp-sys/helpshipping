@@ -235,6 +235,13 @@ def init_db():
     except:
         pass
 
+    # ===== 包裹類型欄位：區分「包裹」與「信件」（信件計費一件 +NT$20，見帳單邏輯）=====
+    try:
+        conn.execute("ALTER TABLE packages ADD COLUMN pkg_type TEXT DEFAULT '包裹'")
+        print("[migrate] 已加 packages.pkg_type 欄位", flush=True)
+    except:
+        pass
+
     # ===== 客戶 × 廠商編號對照（出檔案給 Nigel / JpD 等廠商時用） =====
     # 對 Shopify 主帳號客戶 + 代理客戶都通用
     conn.execute("""
@@ -1649,6 +1656,9 @@ def admin_add_package():
     weight      = (data.get("weight") or "").strip()
     note        = (data.get("note") or "").strip()
     status      = data.get("status", "已到貨")
+    pkg_type    = data.get("pkg_type", "包裹")
+    if pkg_type not in ("包裹", "信件"):
+        pkg_type = "包裹"
 
     if not g_code:
         return jsonify({"success": False, "error": "請輸入客戶編號"})
@@ -1674,9 +1684,9 @@ def admin_add_package():
 
     conn = get_db()
     cur = conn.execute(
-        """INSERT INTO packages (g_code, logis_num, product_name, weight, status, note, in_date, created_at, agent_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (g_code, logis_num, product_name, weight, status, note, today, now, pkg_agent_id)
+        """INSERT INTO packages (g_code, logis_num, product_name, weight, status, note, in_date, created_at, agent_id, pkg_type)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (g_code, logis_num, product_name, weight, status, note, today, now, pkg_agent_id, pkg_type)
     )
     new_id = cur.lastrowid
     conn.commit()
@@ -1694,7 +1704,7 @@ def admin_update_package(pkg_id):
     data = request.json
     fields = []
     values = []
-    for key in ["g_code", "logis_num", "product_name", "weight", "status", "note", "in_date"]:
+    for key in ["g_code", "logis_num", "product_name", "weight", "status", "note", "in_date", "pkg_type"]:
         if key in data:
             val = data[key]
             if key == "g_code":

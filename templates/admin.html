@@ -410,6 +410,13 @@
                         </select>
                     </div>
                     <div class="form-group" style="margin:0;">
+                        <label>類型</label>
+                        <select id="pkg-type" class="form-control">
+                            <option value="包裹" selected>📦 包裹</option>
+                            <option value="信件">✉️ 信件（+NT$20/件）</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin:0;">
                         <label>狀態</label>
                         <select id="pkg-status" class="form-control">
                             <option value="已到貨">✅ 已到貨</option>
@@ -1046,6 +1053,12 @@
                     <option value="已入庫">📥 已入庫</option>
                     <option value="待入庫">⏳ 待入庫</option>
                     <option value="已出貨">🚚 已出貨</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin:0;"><label>類型</label>
+                <select id="edit-type" class="form-control">
+                    <option value="包裹">📦 包裹</option>
+                    <option value="信件">✉️ 信件（+NT$20/件）</option>
                 </select>
             </div>
             <div class="form-group" style="margin:0;"><label>備註</label><input type="text" id="edit-note" class="form-control"></div>
@@ -2007,6 +2020,7 @@ function renderPackages(list) {
             +   '<input type="checkbox" class="pkg-chk" value="' + p.id + '" onchange="updateShipBtn()" style="accent-color:#f39c12;cursor:pointer;width:17px;height:17px;flex:0 0 auto;" ' + (shipped ? 'disabled' : '') + '>'
             +   '<span style="flex:0 0 auto;">' + customerHtml + '</span>'
             +   '<span class="status-tag status-' + p.status + '" style="flex:0 0 auto;">' + p.status + '</span>'
+            +   (p.pkg_type === '信件' ? '<span style="flex:0 0 auto;background:rgba(52,152,219,.18);color:#3498db;font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;">✉️ 信件</span>' : '')
             +   '<span class="sr-spacer"></span>'
             +   '<span style="font-size:12px;color:#aaa;flex:0 0 auto;">📅 ' + (p.in_date || '-') + '</span>'
             + '</div>'
@@ -2098,14 +2112,16 @@ async function addPackage() {
     const product_name = document.getElementById('pkg-name').value.trim();
     const status       = document.getElementById('pkg-status').value;
     const note         = document.getElementById('pkg-note').value.trim();
+    const pkg_type     = document.getElementById('pkg-type').value;
     if (!g_code) { showToast('請從下拉選單選擇客戶', 'error'); return; }
-    const res = await fetch('/api/admin/packages', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({g_code, logis_num, weight, product_name, status, note}) });
+    const res = await fetch('/api/admin/packages', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({g_code, logis_num, weight, product_name, status, note, pkg_type}) });
     const result = await res.json();
     if (result.success) {
         showToast('✅ 新增成功：' + g_code, 'success');
         ['pkg-customer-search','pkg-g-code','pkg-logis','pkg-weight','pkg-name','pkg-note'].forEach(id => document.getElementById(id).value = '');
         document.getElementById('pkg-selected-info').textContent = '';
         document.getElementById('pkg-status').value = '已到貨';
+        document.getElementById('pkg-type').value = '包裹';
         document.getElementById('pkg-customer-search').focus();  // 連續打單體驗：聚焦客戶搜尋
         loadPackages();
     } else {
@@ -2142,6 +2158,7 @@ function openEdit(id) {
     editNameSel.value = oldVal;
     document.getElementById('edit-weight').value  = p.weight||'';
     document.getElementById('edit-status').value  = p.status;
+    document.getElementById('edit-type').value    = (p.pkg_type === '信件') ? '信件' : '包裹';
     document.getElementById('edit-note').value    = p.note||'';
     document.getElementById('editModal').classList.add('show');
 }
@@ -2159,6 +2176,7 @@ async function saveEdit() {
         product_name: document.getElementById('edit-name').value.trim(),
         weight:       document.getElementById('edit-weight').value.trim(),
         status:       document.getElementById('edit-status').value,
+        pkg_type:     document.getElementById('edit-type').value,
         note:         document.getElementById('edit-note').value.trim(),
     };
     const res = await fetch(`/api/admin/packages/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
