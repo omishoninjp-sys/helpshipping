@@ -194,6 +194,21 @@
 
         <!-- 📤 出檔案 -->
         <div class="panel" id="panel-exports">
+            <div class="card" style="margin-bottom:14px;border:1px solid rgba(52,152,219,0.35);">
+                <h3 style="color:#3498db;">
+                    🚚 台灣配送貨況同步（回寫 Shopify）
+                    <span style="float:right;display:inline-flex;gap:8px;">
+                        <button class="btn btn-secondary refresh-btn" style="background:rgba(255,255,255,0.1);color:#ccc;" onclick="syncTwTracking(false)">🔕 靜默同步（不發信）</button>
+                        <button class="btn btn-secondary refresh-btn" style="background:#3498db;color:#fff;" onclick="syncTwTracking(true)">🔄 立即同步（發信）</button>
+                    </span>
+                </h3>
+                <p style="color:#888;font-size:13px;margin-bottom:8px;line-height:1.6;">
+                    從貨運行試算表抓黑貓/新竹派件單號，用 <strong>8 碼注文番號</strong>比對 Shopify 訂單，
+                    回寫成台灣配送追蹤（更新現有 fulfillment 或建立），並發出貨通知信給客戶。
+                    每天有人開工具時會自動同步一次；同一單同一單號只會回寫一次、不重複發信。
+                </p>
+                <div id="tw-tracking-status" style="color:#aaa;font-size:13px;">載入中…</div>
+            </div>
             <div class="card">
                 <h3>
                     📤 出檔案給廠商
@@ -338,7 +353,7 @@
                     document.getElementById(`panel-${tab.dataset.tab}`).classList.add('active');
                     if (tab.dataset.tab === 'jpd') loadJpdOrders();
                     if (tab.dataset.tab === 'packages') loadJpdPackages();
-                    if (tab.dataset.tab === 'exports') loadExports();
+                    if (tab.dataset.tab === 'exports') { loadExports(); loadTwTrackingStatus(); }
                 });
             });
             document.getElementById('create-order-form').addEventListener('submit', handleCreateOrder);
@@ -760,6 +775,33 @@
         // =====================================================
         // 📤 出檔案
         // =====================================================
+
+        async function loadTwTrackingStatus() {
+            const el = document.getElementById('tw-tracking-status');
+            if (!el) return;
+            try {
+                const res = await fetch('/api/tracking/status');
+                const d = await res.json();
+                if (!d.success) { el.textContent = '無法載入'; return; }
+                el.innerHTML = '已回寫 <strong style="color:#fff;">' + (d.ok || 0) + '</strong> 筆'
+                    + '（累計處理 ' + (d.total || 0) + ' 筆）｜上次同步：<strong style="color:#fff;">'
+                    + (d.last_sync || '尚未同步') + '</strong>';
+            } catch (e) { el.textContent = '無法載入同步狀態'; }
+        }
+        async function syncTwTracking(notify) {
+            const el = document.getElementById('tw-tracking-status');
+            if (el) el.textContent = '同步中…（回寫 Shopify 可能需要一點時間）';
+            try {
+                const res = await fetch('/api/tracking/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notify: !!notify }) });
+                const d = await res.json();
+                if (d.success) {
+                    showToast('✅ 同步完成（' + (notify ? '有發信' : '靜默') + '）：比對 ' + d.matched + '、回寫 ' + d.pushed + '、略過 ' + d.skipped + '、失敗 ' + d.errors, 'success');
+                } else {
+                    showToast(d.error || '同步失敗', 'error');
+                }
+            } catch (e) { showToast('同步失敗（網路錯誤）', 'error'); }
+            loadTwTrackingStatus();
+        }
 
         async function loadExports() {
             document.getElementById('exports-loading').style.display = 'block';

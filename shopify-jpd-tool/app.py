@@ -9,8 +9,11 @@ import requests
 import json
 import os
 import sqlite3
+import csv
+import re
+import threading
 from datetime import datetime, timedelta
-from io import BytesIO
+from io import BytesIO, StringIO
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -72,6 +75,24 @@ def init_db():
             shopify_order_id TEXT NOT NULL,
             customer_order_id TEXT DEFAULT '',
             exported_at      TEXT NOT NULL
+        )
+    """)
+    # ── 設定 key-value（同步網址、上次同步時間）──
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS kv_settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    """)
+    # ── 台灣配送追蹤回寫記錄（避免重複回寫/重複發信）──
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS tw_tracking (
+            order_key        TEXT PRIMARY KEY,
+            carrier          TEXT DEFAULT '',
+            tracking_num     TEXT DEFAULT '',
+            shopify_order_id TEXT DEFAULT '',
+            result           TEXT DEFAULT '',
+            pushed_at        TEXT DEFAULT ''
         )
     """)
     conn.commit()
@@ -223,6 +244,7 @@ def health():
 
 @app.route("/api/shopify/orders")
 def get_shopify_orders():
+    maybe_auto_sync_tw()  # 距上次同步>24h 就背景回寫台灣配送追蹤
     status = request.args.get("status", "unfulfilled")
     limit  = request.args.get("limit", 250)
     result = shopify_request(f"orders.json?status=any&fulfillment_status={status}&limit={limit}")
@@ -557,6 +579,215 @@ def fulfill_shopify_order():
                 error_msg = fulfill_result.get("errors") or fulfill_result.get("error") or str(fulfill_result)
                 return jsonify({"success": False, "error": f"回寫失敗: {error_msg}"})
     return jsonify({"success": False, "error": "找不到可出貨的訂單項目（可能已出貨）"})
+
+
+# ============================================================
+# 🚚 台灣配送貨況 → 回寫 Shopify（黑貓/新竹）
+# ============================================================
+DEFAULT_TRACKING_SHEET_URL = (
+    "https://docs.google.com/spreadsheets/d/"
+    "1kLCVI56WuOuYwXQRM2dMKYz6B8f5ifTTU5I9bJ7z998/export?format=csv&gid=1114652436"
+)
+_tw_sync_lock = threading.Lock()
+
+
+def _kv_get(key, default=""):
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT value FROM kv_settings WHERE key=?", (key,)).fetchone()
+    finally:
+        conn.close()
+    return row["value"] if row else default
+
+
+def _kv_set(key, value):
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO kv_settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value)
+    )
+    conn.commit()
+    conn.close()
+
+
+def order_key(s):
+    """從客戶編號抽出 8 碼注文番號（GYT20260001→20260001；20262121-0625→20262121）。"""
+    m = re.search(r"\d{8}", str(s or ""))
+    return m.group(0) if m else ""
+
+
+def _carrier_info(carrier, tracking):
+    """依物流商回 (Shopify tracking_company, 查詢網址)。"""
+    c = (carrier or "").strip()
+    t = (tracking or "").strip()
+    if "新竹" in c or "HCT" in c.upper():
+        return "新竹物流", f"https://www.aftership.com/zh-hant/track/hct-logistics/{t}"
+    return "黑貓宅急便", f"https://www.t-cat.com.tw/Inquire/TraceDetail.aspx?BillID={t}"
+
+
+def push_tracking_to_shopify(shopify_order_id, carrier, tracking, notify=True):
+    """把台灣配送追蹤回寫 Shopify：已 fulfill→update_tracking；未 fulfill→建立 fulfillment。notify 決定是否發信。"""
+    company, url = _carrier_info(carrier, tracking)
+    tracking_info = {"number": tracking, "company": company, "url": url}
+
+    # 1) 已有 fulfillment → 更新追蹤
+    ful = shopify_request(f"orders/{shopify_order_id}/fulfillments.json")
+    fulfillments = ful.get("fulfillments") if isinstance(ful, dict) else None
+    if fulfillments:
+        # 取最新一筆（狀態非 cancelled）
+        target = None
+        for f in fulfillments:
+            if f.get("status") != "cancelled":
+                target = f
+        if target:
+            res = shopify_request(
+                f"fulfillments/{target['id']}/update_tracking.json", "POST",
+                {"fulfillment": {"notify_customer": notify, "tracking_info": tracking_info}}
+            )
+            if isinstance(res, dict) and "fulfillment" in res:
+                return True, "updated"
+            return False, f"update_tracking 失敗: {res}"
+
+    # 2) 尚未 fulfill → 建立 fulfillment 並寫追蹤
+    fo_result = shopify_request(f"orders/{shopify_order_id}/fulfillment_orders.json")
+    if not isinstance(fo_result, dict) or "fulfillment_orders" not in fo_result:
+        return False, f"取不到 fulfillment_orders: {fo_result}"
+    for fo in fo_result["fulfillment_orders"]:
+        if fo.get("status") in ("open", "in_progress"):
+            res = shopify_request("fulfillments.json", "POST", {"fulfillment": {
+                "line_items_by_fulfillment_order": [{"fulfillment_order_id": fo["id"]}],
+                "tracking_info": tracking_info,
+                "notify_customer": notify
+            }})
+            if isinstance(res, dict) and "fulfillment" in res:
+                return True, "created"
+            return False, f"建立 fulfillment 失敗: {res}"
+    return False, "無可出貨的 fulfillment_order（可能已取消/已完成）"
+
+
+def sync_shopify_tracking(notify=True):
+    """抓試算表 → 只處理對得到 Shopify 訂單（8碼注文番號）的列 → 回寫台灣追蹤。notify 決定是否發信。回傳統計。"""
+    url = _kv_get("tracking_sheet_url", DEFAULT_TRACKING_SHEET_URL)
+    resp = requests.get(url, timeout=20)
+    resp.raise_for_status()
+    text = resp.content.decode("utf-8-sig", errors="replace")
+    rows = list(csv.reader(StringIO(text)))
+    if not rows:
+        return {"matched": 0, "pushed": 0, "skipped": 0, "errors": 0}
+
+    header = [h.strip() for h in rows[0]]
+    def _col(names, fb):
+        for i, h in enumerate(header):
+            if any(n in h for n in names):
+                return i
+        return fb
+    ci_code = _col(["客戶編號", "客編"], 2)
+    ci_track = _col(["派件轉單號", "轉單號", "追蹤"], 5)
+    ci_carrier = _col(["貨態查詢", "物流"], 6)
+
+    # order_history：8碼 → shopify_order_id（有多筆取最新一筆有 shopify_order_id 的）
+    conn = get_db()
+    key_map = {}
+    for r in conn.execute(
+        "SELECT customer_order_id, shopify_order_id FROM order_history "
+        "WHERE shopify_order_id IS NOT NULL AND shopify_order_id != '' ORDER BY id"
+    ).fetchall():
+        k = order_key(r["customer_order_id"])
+        if k:
+            key_map[k] = r["shopify_order_id"]
+    # 已回寫記錄（避免重複發信）
+    pushed_map = {row["order_key"]: row["tracking_num"]
+                  for row in conn.execute("SELECT order_key, tracking_num FROM tw_tracking").fetchall()}
+
+    matched = pushed = skipped = errors = 0
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    for r in rows[1:]:
+        if len(r) <= max(ci_code, ci_track, ci_carrier):
+            continue
+        k = order_key(r[ci_code])
+        tracking = (r[ci_track] or "").strip()
+        carrier = (r[ci_carrier] or "").strip()
+        if not k or k not in key_map or not tracking:
+            continue
+        matched += 1
+        if pushed_map.get(k) == tracking:
+            skipped += 1
+            continue
+        sid = key_map[k]
+        ok, msg = push_tracking_to_shopify(sid, carrier, tracking, notify=notify)
+        conn.execute(
+            "INSERT INTO tw_tracking (order_key, carrier, tracking_num, shopify_order_id, result, pushed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(order_key) DO UPDATE SET carrier=excluded.carrier, tracking_num=excluded.tracking_num, "
+            "shopify_order_id=excluded.shopify_order_id, result=excluded.result, pushed_at=excluded.pushed_at",
+            (k, carrier, tracking, sid, ("ok:" + msg) if ok else ("err:" + msg)[:300], now)
+        )
+        if ok:
+            pushed += 1
+        else:
+            errors += 1
+            print(f"[tw-tracking] {k} 回寫失敗: {msg}", flush=True)
+    conn.commit()
+    conn.close()
+    _kv_set("tracking_last_sync", now)
+    return {"matched": matched, "pushed": pushed, "skipped": skipped, "errors": errors}
+
+
+def maybe_auto_sync_tw():
+    """有人開工具時，距上次同步 > 24h 就背景同步一次。
+    註：從未手動同步過（無基準）時不自動跑，避免第一次就把所有舊單一次回寫發信——
+    請先在出檔案頁手動同步一次（可選靜默不發信）建立基準。"""
+    try:
+        last = _kv_get("tracking_last_sync", "")
+        if not last:
+            return  # 尚無基準 → 等管理員手動做第一次同步
+        try:
+            if (datetime.now() - datetime.strptime(last[:19], "%Y-%m-%d %H:%M:%S")).total_seconds() < 86400:
+                return
+        except ValueError:
+            pass
+        if not _tw_sync_lock.acquire(blocking=False):
+            return
+        _kv_set("tracking_last_sync", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        def _run():
+            try:
+                stat = sync_shopify_tracking()
+                print(f"[tw-tracking] 自動同步完成: {stat}", flush=True)
+            except Exception as e:
+                print(f"[tw-tracking] 自動同步失敗: {e}", flush=True)
+            finally:
+                _tw_sync_lock.release()
+        threading.Thread(target=_run, daemon=True).start()
+    except Exception as e:
+        print(f"[tw-tracking] maybe_auto_sync 例外: {e}", flush=True)
+
+
+@app.route("/api/tracking/status")
+def tw_tracking_status():
+    conn = get_db()
+    total = conn.execute("SELECT COUNT(*) AS c FROM tw_tracking").fetchone()["c"]
+    ok = conn.execute("SELECT COUNT(*) AS c FROM tw_tracking WHERE result LIKE 'ok:%'").fetchone()["c"]
+    conn.close()
+    return jsonify({
+        "success": True,
+        "last_sync": _kv_get("tracking_last_sync", ""),
+        "sheet_url": _kv_get("tracking_sheet_url", DEFAULT_TRACKING_SHEET_URL),
+        "total": total, "ok": ok,
+    })
+
+
+@app.route("/api/tracking/sync", methods=["POST"])
+def tw_tracking_sync():
+    data = request.json or {}
+    new_url = (data.get("sheet_url") or "").strip()
+    if new_url:
+        _kv_set("tracking_sheet_url", new_url)
+    notify = data.get("notify", True)
+    try:
+        stat = sync_shopify_tracking(notify=notify)
+        return jsonify({"success": True, **stat, "last_sync": _kv_get("tracking_last_sync", "")})
+    except Exception as e:
+        return jsonify({"success": False, "error": f"同步失敗：{e}"}), 500
 
 
 # ============================================================
