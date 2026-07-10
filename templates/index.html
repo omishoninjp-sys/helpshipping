@@ -1655,7 +1655,7 @@
                             if (req.delivery_tracking) {
                                 const carrier = req.delivery_carrier || '台灣物流';
                                 deliveryHtml = `<div style="margin:-6px 0 10px 0;padding:14px;background:linear-gradient(135deg,rgba(52,152,219,0.12),rgba(52,152,219,0.04));border:1px solid rgba(52,152,219,0.3);border-radius:10px;">
-                                    <div style="font-size:14px;font-weight:700;color:#3498db;margin-bottom:8px;">🚚 台灣配送中</div>
+                                    <div style="font-size:14px;font-weight:700;color:#3498db;margin-bottom:8px;">🚚 台灣配送</div>
                                     <div style="font-size:13px;color:#ccc;margin-bottom:10px;">${carrier}　單號：<strong style="color:#fff;">${req.delivery_tracking}</strong></div>
                                     <a href="${req.delivery_url}" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;background:linear-gradient(135deg,#3498db,#2980b9);border-radius:10px;color:#fff;text-decoration:none;font-size:14px;font-weight:700;">📍 查詢台灣配送進度</a>
                                 </div>`;

@@ -3159,25 +3159,47 @@ def get_my_shipment_requests():
     rows = conn.execute(
         "SELECT * FROM shipment_requests WHERE g_code=? ORDER BY id DESC", (g_code,)
     ).fetchall()
-    # 台灣配送貨況：用 export_code 對 delivery_tracking（同步自貨運行試算表）
-    codes = [r["export_code"] for r in rows if r["export_code"]]
+
+    # 台灣配送貨況：每筆出貨單用「存的 export_code ＋ 現算 {g_code}-{MMDD}」多候選比對，
+    # 讓 export_code 上線前的舊單也能對到（MMDD 取 updated_at＝標記已出貨那天，其次 created_at）
+    def _mmdd(v):
+        try:
+            return datetime.strptime(str(v)[:10], "%Y-%m-%d").strftime("%m%d")
+        except (ValueError, TypeError):
+            return None
+
+    req_candidates = {}
+    all_codes = set()
+    for r in rows:
+        cands, seen = [], set()
+        for c in ([r["export_code"]] +
+                  [f"{r['g_code']}-{mm}" for mm in (_mmdd(r["updated_at"]), _mmdd(r["created_at"])) if mm]):
+            if c and c not in seen:
+                seen.add(c); cands.append(c)
+        req_candidates[r["id"]] = cands
+        all_codes.update(cands)
+
     tmap = {}
-    if codes:
-        ph = ",".join(["?"] * len(codes))
+    if all_codes:
+        codes_list = list(all_codes)
+        ph = ",".join(["?"] * len(codes_list))
         for t in conn.execute(
             f"SELECT customer_code, carrier, tracking_num FROM delivery_tracking WHERE customer_code IN ({ph})",
-            codes
+            codes_list
         ).fetchall():
             tmap[t["customer_code"]] = t
     conn.close()
+
     result = []
     for r in rows:
         d = dict(r)
-        t = tmap.get(r["export_code"])
-        if t and t["tracking_num"]:
-            d["delivery_carrier"] = t["carrier"]
-            d["delivery_tracking"] = t["tracking_num"]
-            d["delivery_url"] = delivery_tracking_url(t["carrier"], t["tracking_num"])
+        for c in req_candidates.get(r["id"], []):
+            t = tmap.get(c)
+            if t and t["tracking_num"]:
+                d["delivery_carrier"] = t["carrier"]
+                d["delivery_tracking"] = t["tracking_num"]
+                d["delivery_url"] = delivery_tracking_url(t["carrier"], t["tracking_num"])
+                break
         result.append(d)
     return jsonify({"success": True, "requests": result})
 
