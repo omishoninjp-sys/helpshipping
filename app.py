@@ -2767,12 +2767,17 @@ def set_default_address(addr_id):
 
 @app.route("/api/extra_services/catalog", methods=["GET"])
 def public_extra_service_catalog():
-    """客戶端出貨申請用：只回傳「可勾選」（固定價）項目。無需登入。"""
+    """客戶端用：
+      • 預設（出貨申請可勾清單）→ 只回 sel=True 固定價項目
+      • ?full=1（費用價目表）→ 回全部項目（含 sel 旗標）
+    無需登入。"""
     cat = get_extra_service_catalog()
+    full = request.args.get("full") in ("1", "true", "yes")
+    src = cat if full else [c for c in cat if c.get("sel")]
     items = [
         {"id": c.get("id"), "name": c.get("name", ""), "cat": c.get("cat", ""),
-         "desc": c.get("desc", ""), "price": int(c.get("price") or 0)}
-        for c in cat if c.get("sel")
+         "desc": c.get("desc", ""), "price": int(c.get("price") or 0), "sel": bool(c.get("sel"))}
+        for c in src
     ]
     return jsonify({"success": True, "services": items})
 
@@ -2795,7 +2800,22 @@ def admin_save_extra_service_catalog():
     if not isinstance(raw, list):
         return jsonify({"success": False, "error": "資料格式錯誤"}), 400
     cleaned = []
-    for i, c in enumerate(raw, 1):
+    # 先蒐集所有明確 id（避免自動配號撞到後面才出現的明確 id）
+    explicit_ids = set()
+    for c in raw:
+        if isinstance(c, dict):
+            cid = (c.get("id") or "").strip()
+            if cid:
+                explicit_ids.add(cid)
+    used_ids = set()
+    _counter = [0]
+    def _fresh_id():
+        while True:
+            _counter[0] += 1
+            cand = f"es{_counter[0]:02d}"
+            if cand not in explicit_ids and cand not in used_ids:
+                return cand
+    for c in raw:
         if not isinstance(c, dict):
             continue
         name = (c.get("name") or "").strip()
@@ -2805,8 +2825,12 @@ def admin_save_extra_service_catalog():
             price = int(float(c.get("price") or 0))
         except (ValueError, TypeError):
             price = 0
+        cid = (c.get("id") or "").strip()
+        if not cid or cid in used_ids:   # 空的或重複 → 配一個不衝突的新 id
+            cid = _fresh_id()
+        used_ids.add(cid)
         cleaned.append({
-            "id": (c.get("id") or f"es{i:02d}").strip(),
+            "id": cid,
             "name": name,
             "cat": (c.get("cat") or "").strip(),
             "desc": (c.get("desc") or "").strip(),
