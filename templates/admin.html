@@ -1224,6 +1224,17 @@
                 <label>運費小計</label>
                 <input type="number" id="bill-shipping" class="form-control" readonly style="color:#27ae60;font-weight:700;">
             </div>
+            <div class="form-group" style="margin:0;grid-column:1/-1;">
+                <label>材積尺寸 (cm，選填 → 自動套材積規則)</label>
+                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                    <input type="number" id="bill-dim-l" class="form-control" min="0" placeholder="長" style="width:64px;padding:8px 6px;" oninput="calcBilling()">
+                    <span style="color:#888;">×</span>
+                    <input type="number" id="bill-dim-w" class="form-control" min="0" placeholder="寬" style="width:64px;padding:8px 6px;" oninput="calcBilling()">
+                    <span style="color:#888;">×</span>
+                    <input type="number" id="bill-dim-h" class="form-control" min="0" placeholder="高" style="width:64px;padding:8px 6px;" oninput="calcBilling()">
+                    <span id="bill-vol-hint" style="font-size:12px;color:#888;margin-left:6px;flex:1;min-width:160px;line-height:1.4;"></span>
+                </div>
+            </div>
             <div class="form-group" style="margin:0;">
                 <label>理貨重量 (kg)</label>
                 <input type="number" id="bill-handling-weight" class="form-control" step="0.5" min="0" placeholder="0 = 不收" oninput="calcHandling()">
@@ -3791,6 +3802,10 @@ async function openBillingModal(reqId, gCode, name, summary) {
     document.getElementById('bill-summary').textContent = summary;
     document.getElementById('bill-weight').value = '';
     document.getElementById('bill-billed-weight').value = '';
+    document.getElementById('bill-dim-l').value = '';
+    document.getElementById('bill-dim-w').value = '';
+    document.getElementById('bill-dim-h').value = '';
+    document.getElementById('bill-vol-hint').innerHTML = '';
     document.getElementById('bill-shipping').value = '';
     document.getElementById('bill-handling').value = '';
     document.getElementById('bill-handling-weight').value = '';
@@ -3884,6 +3899,10 @@ function openBillingEditModal(reqId) {
     // 帶入既有數值
     var bw = parseFloat(r.billed_weight) || 0;
     document.getElementById('bill-weight').value = bw || '';
+    document.getElementById('bill-dim-l').value = '';
+    document.getElementById('bill-dim-w').value = '';
+    document.getElementById('bill-dim-h').value = '';
+    document.getElementById('bill-vol-hint').innerHTML = '';
     document.getElementById('bill-billed-weight').value = bw ? bw.toFixed(1) : '';
     document.getElementById('bill-rate').value = parseInt(r.rate_per_kg) || 180;
     document.getElementById('bill-shipping').value = Math.round(r.shipping_fee || 0);
@@ -3951,12 +3970,34 @@ function calcBilling() {
         document.getElementById('bill-handling-weight').value = '';
         document.getElementById('bill-handling').value = '';
         document.getElementById('bill-total').value = '';
+        document.getElementById('bill-vol-hint').innerHTML = '';
         return;
     }
-    var billed = weight;
-    if (billed < 1) billed = 1;
-    else billed = Math.ceil(billed * 2) / 2;
-    
+    // 材積規則：長寬高有填才套用；收材積 = 長寬高和>200 或 材積>實際×3 → 取 max(實際, 材積)
+    var vL = parseFloat(document.getElementById('bill-dim-l').value) || 0;
+    var vW = parseFloat(document.getElementById('bill-dim-w').value) || 0;
+    var vH = parseFloat(document.getElementById('bill-dim-h').value) || 0;
+    var vHint = document.getElementById('bill-vol-hint');
+    var raw = weight;
+    if (vL > 0 && vW > 0 && vH > 0) {
+        var vol = (vL * vW * vH) / 6000;
+        var vsum = vL + vW + vH;
+        var vlong = Math.max(vL, vW, vH);
+        var vOversize = vsum > 200;
+        var vOver3x = vol > weight * 3;
+        var vCharge = vOversize || vOver3x;
+        raw = vCharge ? Math.max(weight, vol) : weight;
+        var vmsg = '材積 ' + vol.toFixed(2) + 'kg｜' + (vCharge
+            ? ('✅ 收材積（' + (vOversize ? '和' + vsum + '>200' : '材積>實際×3') + '）取大者')
+            : '一般（照實際）');
+        if (vlong > 150) vmsg += '｜🔸最長邊' + vlong + '>150，記得加特長件 NT$86';
+        vHint.innerHTML = vmsg;
+        vHint.style.color = vCharge ? '#e67e22' : '#888';
+    } else {
+        vHint.innerHTML = '';
+    }
+    var billed = raw < 1 ? 1 : Math.ceil(raw * 2) / 2;
+
     var shipping = Math.round(billed * rate);
     
     document.getElementById('bill-billed-weight').value = billed.toFixed(1);
