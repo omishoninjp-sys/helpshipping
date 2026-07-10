@@ -965,6 +965,17 @@
 
         <!-- 出檔案給廠商 -->
         <div class="admin-panel" id="panel-exports">
+            <div class="card" style="margin-bottom:14px;border:1px solid rgba(52,152,219,0.25);">
+                <div class="toolbar" style="justify-content:space-between;flex-wrap:wrap;gap:10px;">
+                    <h3 style="color:#3498db;">🚚 台灣配送貨況同步</h3>
+                    <button class="btn btn-primary" style="padding:8px 16px;" onclick="syncTracking()">🔄 立即同步</button>
+                </div>
+                <p style="font-size:12px;color:#888;margin:6px 0 8px;">
+                    從貨運行試算表抓取台灣派件單號（黑貓/新竹），用出檔案的客戶編號比對，客戶即可在出貨單看到台灣配送查詢連結。
+                    系統每天會在有人開後台時自動同步一次；也可按上方「立即同步」。
+                </p>
+                <div id="trackingStatus" style="font-size:12px;color:#aaa;">載入中…</div>
+            </div>
             <div class="card">
                 <div class="toolbar">
                     <h3>📤 出檔案給廠商</h3>
@@ -1396,7 +1407,7 @@ function switchAdminTab(tab) {
     if (tab === 'forecasts') loadForecasts();
     if (tab === 'announcements') loadAnnouncements();
     if (tab === 'stats') loadStats();
-    if (tab === 'exports') loadExports();
+    if (tab === 'exports') { loadExports(); loadTrackingStatus(); }
     if (tab === 'extraservices') loadExtraServiceCatalog();
     if (tab === 'agents') loadAgents();
     if (tab === 'mybranding') loadMyBranding();
@@ -3344,6 +3355,30 @@ async function loadStats() {
 
 var _exportsCache = [];   // 後端回來的 items 快取
 var _exportsVendors = []; // 廠商清單
+
+// ===== 台灣配送貨況同步 =====
+async function loadTrackingStatus() {
+    var el = document.getElementById('trackingStatus');
+    if (!el) return;
+    try {
+        var res = await fetch('/api/admin/tracking/status');
+        var d = await res.json();
+        if (!d.success) { el.textContent = d.error || '無法載入'; return; }
+        el.innerHTML = '目前已同步 <strong style="color:#fff;">' + (d.total || 0) + '</strong> 筆派件資料'
+            + '｜上次同步：<strong style="color:#fff;">' + (d.last_sync || '尚未同步') + '</strong>';
+    } catch(e) { el.textContent = '無法載入同步狀態'; }
+}
+async function syncTracking() {
+    var el = document.getElementById('trackingStatus');
+    if (el) el.textContent = '同步中…';
+    try {
+        var res = await fetch('/api/admin/tracking/sync', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+        var d = await res.json();
+        if (d.success) { showToast('✅ 已同步 ' + d.count + ' 筆派件資料', 'success'); }
+        else { showToast(d.error || '同步失敗', 'error'); }
+    } catch(e) { showToast('同步失敗（網路錯誤）', 'error'); }
+    loadTrackingStatus();
+}
 
 async function loadExports() {
     try {

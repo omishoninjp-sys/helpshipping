@@ -134,6 +134,22 @@ def get_vendor(vendor_id: str) -> dict | None:
     return VENDORS.get(vendor_id)
 
 
+def _packaging_mmdd(s: dict) -> str:
+    """打包日 MMDD：updated_at（標記已出貨那刻）> created_at（客戶申請）> 今天。"""
+    for src in (s.get("updated_at"), s.get("created_at")):
+        if src and len(str(src)) >= 10:
+            try:
+                return datetime.strptime(str(src)[:10], "%Y-%m-%d").strftime("%m%d")
+            except ValueError:
+                pass
+    return datetime.now().strftime("%m%d")
+
+
+def export_code_for(s: dict) -> str:
+    """出檔案給廠商的客戶編號 = {g_code}-{MMDD}（與 Excel 內容一致，供台灣配送貨況比對）。"""
+    return f"{s.get('g_code', '')}-{_packaging_mmdd(s)}"
+
+
 def build_rows(vendor_id: str, shipments: list[dict]) -> tuple[list[str], list[list]]:
     """
     依範本產生 (headers, rows)。
@@ -153,18 +169,7 @@ def build_rows(vendor_id: str, shipments: list[dict]) -> tuple[list[str], list[l
     for s in shipments:
         # packaging_mmdd = 客戶申請出單（admin 打包）的日期 → MMDD
         # 來源優先：updated_at（admin 標記已出貨那刻）> created_at（客戶申請時）> 今天
-        packaging_mmdd = ""
-        for src in (s.get("updated_at"), s.get("created_at")):
-            if src and len(str(src)) >= 10:
-                try:
-                    # 接受 'YYYY-MM-DD HH:MM:SS' 或 'YYYY-MM-DD'
-                    dt = datetime.strptime(str(src)[:10], "%Y-%m-%d")
-                    packaging_mmdd = dt.strftime("%m%d")
-                    break
-                except ValueError:
-                    pass
-        if not packaging_mmdd:
-            packaging_mmdd = datetime.now().strftime("%m%d")
+        packaging_mmdd = _packaging_mmdd(s)
 
         # 出貨追蹤號碼正規化：把換行／半形逗號／全形逗號／頓號都統一成換行分隔，去空行
         # 多箱 → 多行（與後台「多箱請換行」一致）；單箱 → 單一字串

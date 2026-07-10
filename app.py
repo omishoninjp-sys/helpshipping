@@ -117,6 +117,121 @@ def get_extra_service_catalog(conn=None):
         return list(DEFAULT_EXTRA_SERVICES)
 
 
+# ============ 台灣配送貨況（Google Sheet 同步）============
+# 貨運行把台灣端派件資料填在這張試算表；系統定時抓 CSV 匯出、用「客戶編號」比對出貨單。
+DEFAULT_TRACKING_SHEET_URL = (
+    "https://docs.google.com/spreadsheets/d/"
+    "1kLCVI56WuOuYwXQRM2dMKYz6B8f5ifTTU5I9bJ7z998/export?format=csv&gid=1114652436"
+)
+_sync_lock = threading.Lock()
+
+
+def _get_setting(key, default=""):
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT value FROM admin_settings WHERE key=?", (key,)).fetchone()
+    finally:
+        conn.close()
+    return row["value"] if row else default
+
+
+def _set_setting(key, value):
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO admin_settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (key, value)
+    )
+    conn.commit()
+    conn.close()
+
+
+def delivery_tracking_url(carrier, tracking):
+    """依物流商組查詢網址。"""
+    t = (tracking or "").strip()
+    c = (carrier or "").strip()
+    if not t:
+        return ""
+    if "新竹" in c or "HCT" in c.upper():
+        return f"https://www.aftership.com/zh-hant/track/hct-logistics/{t}"
+    # 預設黑貓
+    return f"https://www.t-cat.com.tw/Inquire/TraceDetail.aspx?BillID={t}"
+
+
+def sync_delivery_tracking():
+    """抓取貨運行試算表 CSV，解析後 upsert 進 delivery_tracking。回傳寫入筆數。"""
+    url = _get_setting("tracking_sheet_url", DEFAULT_TRACKING_SHEET_URL)
+    resp = requests.get(url, timeout=20)
+    resp.raise_for_status()
+    text = resp.content.decode("utf-8-sig", errors="replace")
+    reader = csv.reader(io.StringIO(text))
+    rows = list(reader)
+    if not rows:
+        return 0
+
+    # 依標題找欄位（容忍欄位順序變動）；找不到就用固定位置 C=2 / F=5 / G=6
+    header = [h.strip() for h in rows[0]]
+    def _col(names, fallback):
+        for i, h in enumerate(header):
+            if any(n in h for n in names):
+                return i
+        return fallback
+    ci_code = _col(["客戶編號", "客編"], 2)
+    ci_track = _col(["派件轉單號", "轉單號", "追蹤"], 5)
+    ci_carrier = _col(["貨態查詢", "物流", "物流商"], 6)
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_db()
+    count = 0
+    for r in rows[1:]:
+        if len(r) <= max(ci_code, ci_track, ci_carrier):
+            continue
+        code = (r[ci_code] or "").strip()
+        tracking = (r[ci_track] or "").strip()
+        carrier = (r[ci_carrier] or "").strip()
+        if not code or not tracking:
+            continue
+        conn.execute(
+            "INSERT INTO delivery_tracking (customer_code, carrier, tracking_num, synced_at) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(customer_code) DO UPDATE SET "
+            "carrier=excluded.carrier, tracking_num=excluded.tracking_num, synced_at=excluded.synced_at",
+            (code, carrier, tracking, now)
+        )
+        count += 1
+    conn.commit()
+    conn.close()
+    _set_setting("tracking_last_sync", now)
+    return count
+
+
+def maybe_auto_sync():
+    """後台有人活動時，若距上次同步 > 24 小時就背景同步一次（不阻塞請求）。"""
+    try:
+        last = _get_setting("tracking_last_sync", "")
+        if last:
+            try:
+                if (datetime.now() - datetime.strptime(last[:19], "%Y-%m-%d %H:%M:%S")).total_seconds() < 86400:
+                    return
+            except ValueError:
+                pass
+        if not _sync_lock.acquire(blocking=False):
+            return
+        # 先佔位，避免其他 worker/請求重複觸發
+        _set_setting("tracking_last_sync", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        def _run():
+            try:
+                n = sync_delivery_tracking()
+                print(f"[tracking] 自動同步完成，{n} 筆", flush=True)
+            except Exception as e:
+                print(f"[tracking] 自動同步失敗: {e}", flush=True)
+            finally:
+                _sync_lock.release()
+        threading.Thread(target=_run, daemon=True).start()
+    except Exception as e:
+        print(f"[tracking] maybe_auto_sync 例外: {e}", flush=True)
+
+
 def init_db():
     conn = get_db()
     # ===== 啟用 WAL 模式（一次性設定，會持久化在 DB 檔案內）=====
@@ -172,6 +287,14 @@ def init_db():
         CREATE TABLE IF NOT EXISTS admin_settings (
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS delivery_tracking (
+            customer_code TEXT PRIMARY KEY,
+            carrier       TEXT DEFAULT '',
+            tracking_num  TEXT DEFAULT '',
+            synced_at     TEXT DEFAULT ''
         )
     """)
     conn.execute("""
@@ -292,6 +415,13 @@ def init_db():
     try:
         conn.execute("ALTER TABLE packages ADD COLUMN pkg_type TEXT DEFAULT '包裹'")
         print("[migrate] 已加 packages.pkg_type 欄位", flush=True)
+    except:
+        pass
+
+    # ===== 出檔案客戶編號（{g_code}-{MMDD}）：存起來供台灣配送貨況比對 =====
+    try:
+        conn.execute("ALTER TABLE shipment_requests ADD COLUMN export_code TEXT DEFAULT ''")
+        print("[migrate] 已加 shipment_requests.export_code 欄位", flush=True)
     except:
         pass
 
@@ -2848,6 +2978,38 @@ def admin_save_extra_service_catalog():
     return jsonify({"success": True, "count": len(cleaned)})
 
 
+# ============ 台灣配送貨況 API ============
+
+@app.route("/api/admin/tracking/status", methods=["GET"])
+def admin_tracking_status():
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "僅主管理員可操作"}), 403
+    conn = get_db()
+    total = conn.execute("SELECT COUNT(*) AS c FROM delivery_tracking").fetchone()["c"]
+    conn.close()
+    return jsonify({
+        "success": True,
+        "last_sync": _get_setting("tracking_last_sync", ""),
+        "sheet_url": _get_setting("tracking_sheet_url", DEFAULT_TRACKING_SHEET_URL),
+        "total": total,
+    })
+
+
+@app.route("/api/admin/tracking/sync", methods=["POST"])
+def admin_tracking_sync():
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "僅主管理員可操作"}), 403
+    data = request.json or {}
+    new_url = (data.get("sheet_url") or "").strip()
+    if new_url:
+        _set_setting("tracking_sheet_url", new_url)
+    try:
+        count = sync_delivery_tracking()
+        return jsonify({"success": True, "count": count, "last_sync": _get_setting("tracking_last_sync", "")})
+    except Exception as e:
+        return jsonify({"success": False, "error": f"同步失敗：{e}"}), 500
+
+
 # ============ 出貨申請 API ============
 
 @app.route("/api/shipment_request", methods=["POST"])
@@ -2997,8 +3159,27 @@ def get_my_shipment_requests():
     rows = conn.execute(
         "SELECT * FROM shipment_requests WHERE g_code=? ORDER BY id DESC", (g_code,)
     ).fetchall()
+    # 台灣配送貨況：用 export_code 對 delivery_tracking（同步自貨運行試算表）
+    codes = [r["export_code"] for r in rows if r["export_code"]]
+    tmap = {}
+    if codes:
+        ph = ",".join(["?"] * len(codes))
+        for t in conn.execute(
+            f"SELECT customer_code, carrier, tracking_num FROM delivery_tracking WHERE customer_code IN ({ph})",
+            codes
+        ).fetchall():
+            tmap[t["customer_code"]] = t
     conn.close()
-    return jsonify({"success": True, "requests": [dict(r) for r in rows]})
+    result = []
+    for r in rows:
+        d = dict(r)
+        t = tmap.get(r["export_code"])
+        if t and t["tracking_num"]:
+            d["delivery_carrier"] = t["carrier"]
+            d["delivery_tracking"] = t["tracking_num"]
+            d["delivery_url"] = delivery_tracking_url(t["carrier"], t["tracking_num"])
+        result.append(d)
+    return jsonify({"success": True, "requests": result})
 
 
 @app.route("/api/shipment_requests/<int:req_id>/payment", methods=["POST"])
@@ -3550,6 +3731,11 @@ def _admin_exports_generate_impl():
         """,
         [now, vendor_id, batch_id] + shipment_ids_actually_used
     )
+    # 存 export_code（{g_code}-{MMDD}，與 Excel 客戶編號一致）供台灣配送貨況比對
+    conn.executemany(
+        "UPDATE shipment_requests SET export_code=? WHERE id=?",
+        [(vendor_templates.export_code_for(s), s["id"]) for s in shipments]
+    )
     # 順手把 fallback 出來的 ship_* 值寫回（下次匯出不用再算）
     if fallback_updates:
         conn.executemany(
@@ -3604,6 +3790,7 @@ def admin_exports_history():
 @app.route("/api/admin/shipment_requests", methods=["GET"])
 def admin_get_shipment_requests():
     """管理員查看所有出貨申請（含對應客戶的待處理預報資料）"""
+    maybe_auto_sync()  # 後台有人活動時，距上次同步>24h 就背景同步台灣配送貨況
     status = request.args.get("status", "")
     aid = get_current_agent_id()
     # 代理過濾片段

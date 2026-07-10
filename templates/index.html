@@ -1657,6 +1657,46 @@
                             </div>`;
                         }
                         
+                        // 台灣配送貨況（僅已出貨顯示）：有真實單號→顯示查詢；否則依已出貨天數顯示估計時間軸
+                        let deliveryHtml = '';
+                        if (req.status === '已出貨') {
+                            if (req.delivery_tracking) {
+                                const carrier = req.delivery_carrier || '台灣物流';
+                                deliveryHtml = `<div style="margin:-6px 0 10px 0;padding:14px;background:linear-gradient(135deg,rgba(52,152,219,0.12),rgba(52,152,219,0.04));border:1px solid rgba(52,152,219,0.3);border-radius:10px;">
+                                    <div style="font-size:14px;font-weight:700;color:#3498db;margin-bottom:8px;">🚚 台灣配送中</div>
+                                    <div style="font-size:13px;color:#ccc;margin-bottom:10px;">${carrier}　單號：<strong style="color:#fff;">${req.delivery_tracking}</strong></div>
+                                    <a href="${req.delivery_url}" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;background:linear-gradient(135deg,#3498db,#2980b9);border-radius:10px;color:#fff;text-decoration:none;font-size:14px;font-weight:700;">📍 查詢台灣配送進度</a>
+                                </div>`;
+                            } else {
+                                let days = 0;
+                                if (req.updated_at) {
+                                    const sd = new Date(String(req.updated_at).replace(/-/g,'/').slice(0,19));
+                                    if (!isNaN(sd)) {
+                                        const t = new Date(); t.setHours(0,0,0,0); sd.setHours(0,0,0,0);
+                                        days = Math.floor((t - sd) / 86400000);
+                                    }
+                                }
+                                const stages = [
+                                    '📦 已打包，等待送到千葉成田保稅倉',
+                                    '🏭 抵達千葉成田保稅倉，等待出口',
+                                    '✈️ 抵達台北桃園機場，清關中',
+                                    '✈️ 清關中，等待台灣配送派件'
+                                ];
+                                const idx = days <= 0 ? 0 : (days >= 3 ? 3 : days);
+                                const steps = stages.map((s, i) => {
+                                    const done = i < idx, now = i === idx;
+                                    const col = now ? '#3498db' : (done ? '#27ae60' : '#555');
+                                    const wt = now ? '700' : '400';
+                                    return `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;color:${col};font-weight:${wt};font-size:12px;">${done ? '✓' : (now ? '▶' : '○')} ${s}</div>`;
+                                }).join('');
+                                deliveryHtml = `<div style="margin:-6px 0 10px 0;padding:14px;background:rgba(52,152,219,0.05);border:1px solid rgba(52,152,219,0.15);border-radius:10px;">
+                                    <div style="font-size:14px;font-weight:700;color:#3498db;margin-bottom:8px;">🚚 貨況進度</div>
+                                    ${steps}
+                                    <div style="font-size:11px;color:#888;margin-top:8px;">※ 以上為預估進度；台灣配送單號將於派件後自動更新</div>
+                                </div>`;
+                            }
+                        }
+                        
                         return `<div class="package-item" style="grid-template-columns: 1fr 2fr 1fr 1fr;">
                             <div><div class="label">申請時間</div><div class="value" style="font-size:12px;">${req.created_at}</div></div>
                             <div><div class="label">包裹內容</div><div class="value" style="font-size:12px;line-height:1.8;">${(req.package_summary || '-').replace(/\n/g, '<br>')}</div></div>
@@ -1664,6 +1704,7 @@
                             <div><div class="label">管理員回覆</div><div class="value" style="font-size:12px;">${req.admin_note || '-'}</div></div>
                         </div>
                         ${req.ship_recipient ? `<div style="margin:-6px 0 10px 0;padding:10px 14px;background:rgba(52,152,219,0.06);border:1px solid rgba(52,152,219,0.15);border-radius:8px;font-size:12px;color:#aaa;">📦 寄送至：<strong style="color:#fff;">${req.ship_recipient}</strong> ${req.ship_phone || ''}<br>📍 ${req.ship_address || ''}</div>` : ''}
+                        ${deliveryHtml}
                         ${req.note ? `<div style="margin:-6px 0 10px 0;padding:8px 14px;background:rgba(255,255,255,0.03);border-radius:8px;font-size:12px;color:#888;">📝 ${req.note}</div>` : ''}
                         ${billingHtml}`;
                     }).join('');
