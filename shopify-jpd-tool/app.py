@@ -685,16 +685,16 @@ def sync_shopify_tracking(notify=True):
     ci_track = _col(["派件轉單號", "轉單號", "追蹤"], 5)
     ci_carrier = _col(["貨態查詢", "物流"], 6)
 
-    # order_history：8碼 → shopify_order_id（有多筆取最新一筆有 shopify_order_id 的）
-    conn = get_db()
+    # 8碼注文番號 → shopify_order_id：直接對 Shopify 訂單的 name 抽 8 碼建 map
+    # （不再靠 order_history，因為已不建 JPD 運單；status=any 涵蓋未出貨/已出貨）
     key_map = {}
-    for r in conn.execute(
-        "SELECT customer_order_id, shopify_order_id FROM order_history "
-        "WHERE shopify_order_id IS NOT NULL AND shopify_order_id != '' ORDER BY id"
-    ).fetchall():
-        k = order_key(r["customer_order_id"])
-        if k:
-            key_map[k] = r["shopify_order_id"]
+    sf = shopify_request("orders.json?status=any&limit=250")
+    for o in (sf.get("orders", []) if isinstance(sf, dict) else []):
+        k = order_key(o.get("name", ""))
+        if k and k not in key_map:
+            key_map[k] = str(o["id"])
+
+    conn = get_db()
     # 已回寫記錄（避免重複發信）
     pushed_map = {row["order_key"]: row["tracking_num"]
                   for row in conn.execute("SELECT order_key, tracking_num FROM tw_tracking").fetchall()}
@@ -811,6 +811,7 @@ def get_exports_pending():
     2. 交叉比對 order_history 補上 package_ids / logis_num
     3. 排除已在 export_items 中的訂單
     """
+    maybe_auto_sync_tw()  # 開出檔案頁時，距上次同步>24h 就背景回寫台灣配送追蹤
     try:
         conn = get_db()
         # 已出檔案的 shopify_order_id（字串集合）

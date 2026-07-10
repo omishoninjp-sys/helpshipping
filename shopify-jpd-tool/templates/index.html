@@ -81,8 +81,6 @@
         
         <div class="tabs">
             <div class="tab active" data-tab="orders">📦 Shopify 訂單</div>
-            <div class="tab" data-tab="jpd">🚚 JPD 運單</div>
-            <div class="tab" data-tab="packages">📋 倉庫包裹</div>
             <div class="tab" data-tab="exports">📤 出檔案</div>
         </div>
         
@@ -92,7 +90,6 @@
                 <h3>
                     📦 待出貨訂單
                     <button class="btn btn-secondary refresh-btn" onclick="loadShopifyOrders()">🔄 重新整理</button>
-                    <button class="btn btn-primary refresh-btn" id="batchPushBtn" style="display:none;margin-right:8px;" onclick="openBatchModal()">🚀 合併推單 (<span id="batchCount">0</span>)</button>
                 </h3>
                 <div style="margin-bottom:12px;">
                     <input type="text" id="shopify-order-search" placeholder="🔍 搜尋訂單編號、收件人、地址、電話..." oninput="filterShopifyOrders()" style="width:100%;padding:10px 14px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#fff;font-size:14px;">
@@ -102,14 +99,12 @@
                 <table id="shopify-orders-table" style="display:none;">
                     <thead>
                         <tr>
-                            <th style="width:36px;"><input type="checkbox" id="order-chk-all" onchange="toggleAllOrders(this)" style="accent-color:#f39c12;cursor:pointer;width:15px;height:15px;"></th>
                             <th>訂單編號</th>
                             <th>收件人</th>
                             <th>地址</th>
                             <th>電話</th>
                             <th>金額</th>
                             <th>狀態</th>
-                            <th>操作</th>
                         </tr>
                     </thead>
                     <tbody id="shopify-orders-body"></tbody>
@@ -403,17 +398,14 @@
             const tbody = document.getElementById('shopify-orders-body');
             tbody.innerHTML = pageList.map(order => `
                 <tr>
-                    <td><input type="checkbox" class="order-chk" value="${order.id}" onchange="updateBatchBtn()" style="accent-color:#f39c12;cursor:pointer;width:15px;height:15px;"></td>
                     <td><strong>${order.name}</strong></td>
                     <td>${order.customer_name}</td>
                     <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;">${order.address}</td>
                     <td>${order.phone || '-'}</td>
                     <td>${order.currency} ${order.total_price}</td>
                     <td><span class="status status-${order.fulfillment_status}">${order.fulfillment_status}</span></td>
-                    <td><button class="btn btn-primary btn-sm" onclick="openCreateModal('${order.id}')">🚀 推單</button></td>
                 </tr>
             `).join('');
-            updateBatchBtn();
             renderOrderPagination(totalPages);
         }
 
