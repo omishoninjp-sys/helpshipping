@@ -3973,7 +3973,7 @@ function calcBilling() {
         document.getElementById('bill-vol-hint').innerHTML = '';
         return;
     }
-    // 材積規則：長寬高有填才套用；收材積 = 長寬高和>200 或 材積>實際×3 → 取 max(實際, 材積)
+    // 材積規則：僅「材積 > 實際×3」才收材積（取大者）；長寬高和>200 → 超大貨物，提示聯繫客服
     var vL = parseFloat(document.getElementById('bill-dim-l').value) || 0;
     var vW = parseFloat(document.getElementById('bill-dim-w').value) || 0;
     var vH = parseFloat(document.getElementById('bill-dim-h').value) || 0;
@@ -3983,16 +3983,13 @@ function calcBilling() {
         var vol = (vL * vW * vH) / 6000;
         var vsum = vL + vW + vH;
         var vlong = Math.max(vL, vW, vH);
-        var vOversize = vsum > 200;
         var vOver3x = vol > weight * 3;
-        var vCharge = vOversize || vOver3x;
-        raw = vCharge ? Math.max(weight, vol) : weight;
-        var vmsg = '材積 ' + vol.toFixed(2) + 'kg｜' + (vCharge
-            ? ('✅ 收材積（' + (vOversize ? '和' + vsum + '>200' : '材積>實際×3') + '）取大者')
-            : '一般（照實際）');
+        raw = vOver3x ? Math.max(weight, vol) : weight;
+        var vmsg = '材積 ' + vol.toFixed(2) + 'kg｜' + (vOver3x ? '✅ 超材積(>3倍) 取大者' : '3倍內，照實際');
+        if (vsum > 200) vmsg += '｜⚠️超大貨物(和' + vsum + '>200)，請聯繫客服/特殊運費';
         if (vlong > 150) vmsg += '｜🔸最長邊' + vlong + '>150，記得加特長件 NT$86';
         vHint.innerHTML = vmsg;
-        vHint.style.color = vCharge ? '#e67e22' : '#888';
+        vHint.style.color = (vOver3x || vsum > 200) ? '#e67e22' : '#888';
     } else {
         vHint.innerHTML = '';
     }

@@ -390,10 +390,10 @@
                             💡 例：0.8 kg → 計費 <strong>1.0 kg</strong>　／　1.3 kg → 計費 <strong>1.5 kg</strong>　／　2.2 kg → 計費 <strong>2.5 kg</strong>
                         </div>
                         <div class="info-note" style="margin-top: 10px; border-left: 3px solid #e67e22; background: rgba(230,126,34,0.08);">
-                            📦 <strong style="color:#e67e22;">材積規則</strong>：一般貨物照實際重量計費；符合下列任一即改收材積，計費重量取「實際重量 vs 材積重量」<strong>較大者</strong>：<br>
+                            📦 <strong style="color:#e67e22;">材積規則</strong>：一般貨物照實際重量計費；<strong>僅當材積重量超過實際重量的 3 倍</strong>才改收材積，計費重量取「實際 vs 材積」<strong>較大者</strong>：<br>
                             ・材積重量 ＝ 長 × 寬 × 高 (cm) ÷ 6000<br>
-                            ・<strong>超大貨物</strong>：長＋寬＋高 &gt; 200cm<br>
-                            ・<strong>超材積</strong>：材積重量 &gt; 實際重量 × 3<br>
+                            ・<strong>超材積</strong>：材積重量 &gt; 實際重量 × 3 → 收材積（3 倍內不收）<br>
+                            ・<strong>超大貨物</strong>：長＋寬＋高 &gt; 200cm → 請<strong>聯繫客服</strong>確認運費<br>
                             🔸 最長邊 &gt; 150cm 另加收<strong>特長件加值費 NT$86</strong>（與材積獨立計算）
                         </div>
                     </div>
@@ -621,10 +621,10 @@
                             💡 例：0.8 kg → 計費 <strong>1.0 kg</strong>　／　1.3 kg → 計費 <strong>1.5 kg</strong>　／　2.2 kg → 計費 <strong>2.5 kg</strong>
                         </div>
                         <div class="info-note" style="margin-top: 10px; border-left: 3px solid #e67e22; background: rgba(230,126,34,0.08);">
-                            📦 <strong style="color:#e67e22;">材積規則</strong>：一般貨物照實際重量計費；符合下列任一即改收材積，計費重量取「實際重量 vs 材積重量」<strong>較大者</strong>：<br>
+                            📦 <strong style="color:#e67e22;">材積規則</strong>：一般貨物照實際重量計費；<strong>僅當材積重量超過實際重量的 3 倍</strong>才改收材積，計費重量取「實際 vs 材積」<strong>較大者</strong>：<br>
                             ・材積重量 ＝ 長 × 寬 × 高 (cm) ÷ 6000<br>
-                            ・<strong>超大貨物</strong>：長＋寬＋高 &gt; 200cm<br>
-                            ・<strong>超材積</strong>：材積重量 &gt; 實際重量 × 3<br>
+                            ・<strong>超材積</strong>：材積重量 &gt; 實際重量 × 3 → 收材積（3 倍內不收）<br>
+                            ・<strong>超大貨物</strong>：長＋寬＋高 &gt; 200cm → 請<strong>聯繫客服</strong>確認運費<br>
                             🔸 最長邊 &gt; 150cm 另加收<strong>特長件加值費 NT$86</strong>（與材積獨立計算）
                         </div>
                     </div>
@@ -1082,24 +1082,24 @@
             var vol = (L * W * H) / 6000;
             var sum = L + W + H;
             var longest = Math.max(L, W, H);
-            var oversize = sum > 200;
-            var over3x = vol > wt * 3;
-            var charge = oversize || over3x;
-            var raw = charge ? Math.max(wt, vol) : wt;
-            var billed = _volRound(raw);
-            var reason = !charge ? '一般貨物（照實際重量計費）'
-                : (oversize && over3x ? '超大貨物＋超材積3倍 → 收材積'
-                : (oversize ? '超大貨物（長寬高和 ' + sum + 'cm > 200cm）→ 收材積'
-                : '超材積（材積 > 實際 ×3）→ 收材積'));
             var longFee = longest > 150
                 ? '<br>🔸 最長邊 ' + longest + 'cm > 150cm，另加收特長件加值費 <strong style="color:#e67e22;">NT$86</strong>'
                 : '';
+            // 超大貨物：長寬高和 > 200cm → 附加「請聯繫客服」提醒（計費重量仍照 3 倍規則算出供參考）
+            var oversizeNote = sum > 200
+                ? '<br>⚠️ <strong style="color:#e67e22;">超大貨物</strong>（長寬高和 ' + sum + 'cm > 200cm），實際運費請<strong>聯繫客服</strong>確認'
+                : '';
+            // 收材積：僅材積 > 實際×3，取大者；3 倍內照實際
+            var over3x = vol > wt * 3;
+            var billed = _volRound(over3x ? Math.max(wt, vol) : wt);
+            var reason = over3x ? '超材積（材積 > 實際 ×3）→ 收材積' : '一般貨物（3 倍內，照實際重量）';
             out.style.color = '#ddd';
             out.innerHTML =
                 '材積重量：<strong>' + vol.toFixed(2) + ' kg</strong>　（' + L + '×' + W + '×' + H + ' ÷ 6000）<br>'
                 + '判定：' + reason + '<br>'
                 + '👉 計費重量：<strong style="color:#f39c12;font-size:16px;">' + billed + ' kg</strong>'
-                + (charge ? '（取實際 ' + wt + ' 與材積 ' + vol.toFixed(2) + ' 較大者，再進位）' : '（' + wt + ' kg 進位）')
+                + (over3x ? '（取實際 ' + wt + ' 與材積 ' + vol.toFixed(2) + ' 較大者，再進位）' : '（' + wt + ' kg 進位）')
+                + oversizeNote
                 + longFee;
         }
 
