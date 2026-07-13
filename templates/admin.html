@@ -952,6 +952,7 @@
                                 <th>合箱費</th>
                                 <th>加值服務</th>
                                 <th>總收入</th>
+                                <th id="statsCommissionCol" style="display:none;">分潤 / 撥款</th>
                                 <th>下載</th>
                             </tr>
                         </thead>
@@ -1666,6 +1667,71 @@ async function deleteMember(gCode, name) {
 }
 
 // ===== 代理管理 (Phase 1) =====
+// ===== 代理分潤（每週）＋ 撥款 =====
+function renderAgentCommission(a) {
+    var weeks = a.weeks || [];
+    if (!weeks.length) {
+        return '<div style="font-size:12px;color:#888;background:rgba(39,174,96,0.05);border:1px solid rgba(39,174,96,0.15);border-radius:8px;padding:10px 12px;margin-bottom:10px;">💰 分潤：尚無已收款的出貨</div>';
+    }
+    var rows = weeks.map(function(w){
+        var btn = w.paid
+            ? '<span style="color:#27ae60;font-weight:700;">✅ 已撥款</span>'
+              + (w.payment_last5 ? '<span style="color:#888;"> · 後五碼 <strong style="color:#fff;">' + w.payment_last5 + '</strong></span>' : '')
+              + (w.paid_at ? '<span style="color:#666;"> · ' + w.paid_at.substring(0,10) + '</span>' : '')
+              + ' <button class="btn-danger-sm" style="padding:2px 8px;font-size:11px;margin-left:6px;" onclick="cancelPayout(' + a.id + ',\'' + w.period_key + '\')">取消</button>'
+            : '<button class="btn-edit-sm" style="padding:4px 12px;font-size:12px;" onclick="openPayoutModal(' + a.id + ',\'' + w.period_key + '\',\'' + w.period_label + '\',' + w.commission + ')">💸 標記已撥款</button>';
+        return '<tr style="border-top:1px solid rgba(255,255,255,.05);">'
+            + '<td style="padding:6px 8px;color:#fff;">' + w.period_label + '</td>'
+            + '<td style="padding:6px 8px;color:#ccc;text-align:right;">' + w.shipments + ' 單</td>'
+            + '<td style="padding:6px 8px;color:#f39c12;text-align:right;font-weight:700;">' + w.total_kg + ' kg</td>'
+            + '<td style="padding:6px 8px;color:#27ae60;text-align:right;font-weight:700;">NT$ ' + w.commission + '</td>'
+            + '<td style="padding:6px 8px;font-size:12px;">' + btn + '</td>'
+            + '</tr>';
+    }).join('');
+    return '<div style="background:rgba(39,174,96,0.05);border:1px solid rgba(39,174,96,0.2);border-radius:8px;padding:12px;margin-bottom:10px;">'
+        + '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;">'
+        +   '<span style="font-size:13px;font-weight:700;color:#27ae60;">💰 每週分潤</span>'
+        +   '<span style="font-size:12px;color:#ccc;">未撥款合計：<strong style="color:#e67e22;font-size:14px;">NT$ ' + (a.unpaid_total || 0) + '</strong>'
+        +     '　已撥款：<strong style="color:#27ae60;">NT$ ' + (a.paid_total || 0) + '</strong></span>'
+        + '</div>'
+        + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:520px;">'
+        + '<thead><tr style="color:#888;font-size:12px;text-align:left;">'
+        + '<th style="padding:4px 8px;">週次</th><th style="padding:4px 8px;text-align:right;">單數</th>'
+        + '<th style="padding:4px 8px;text-align:right;">總公斤</th><th style="padding:4px 8px;text-align:right;">分潤</th>'
+        + '<th style="padding:4px 8px;">撥款狀態</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+        + '</div>';
+}
+
+function openPayoutModal(agentId, periodKey, periodLabel, amount) {
+    var last5 = prompt('【' + periodLabel + '】應撥分潤 NT$ ' + amount + '\n\n請輸入匯款帳號後五碼：');
+    if (last5 === null) return;
+    last5 = (last5 || '').trim();
+    if (!last5) { showToast('請填匯款後五碼', 'error'); return; }
+    savePayout(agentId, periodKey, last5);
+}
+
+async function savePayout(agentId, periodKey, last5) {
+    try {
+        var res = await fetch('/api/admin/agents/' + agentId + '/payout', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ period_key: periodKey, payment_last5: last5 })
+        });
+        var d = await res.json();
+        if (d.success) { showToast('✅ 已標記撥款 NT$ ' + d.amount, 'success'); loadAgents(); }
+        else { showToast(d.error || '撥款標記失敗', 'error'); }
+    } catch(e) { showToast('網路錯誤', 'error'); }
+}
+
+async function cancelPayout(agentId, periodKey) {
+    if (!confirm('確定要取消這週的撥款標記嗎？')) return;
+    try {
+        var res = await fetch('/api/admin/agents/' + agentId + '/payout?period_key=' + encodeURIComponent(periodKey), { method: 'DELETE' });
+        var d = await res.json();
+        if (d.success) { showToast('已取消撥款標記', 'success'); loadAgents(); }
+        else { showToast(d.error || '取消失敗', 'error'); }
+    } catch(e) { showToast('網路錯誤', 'error'); }
+}
+
 async function loadAgents() {
     var container = document.getElementById('agentsList');
     container.innerHTML = '<div style="text-align:center;color:#666;padding:40px;">載入中...</div>';
@@ -1725,6 +1791,7 @@ async function loadAgents() {
                         + '</div>';
                 })()
                 + (a.note ? '<div style="font-size:12px;color:#888;background:rgba(0,0,0,.2);border-radius:6px;padding:8px 10px;margin-bottom:10px;">📝 ' + a.note + '</div>' : '')
+                + renderAgentCommission(a)
                 + '<div class="sr-actions">'
                 +   '<button class="btn-edit-sm" style="padding:6px 14px;font-size:12px;" onclick=\'openAgentModal(' + JSON.stringify(a) + ')\'>✏️ 編輯</button>'
                 +   '<button class="btn-danger-sm" style="padding:6px 14px;font-size:12px;" onclick="deleteAgent(' + a.id + ',\'' + a.name.replace(/'/g, '') + '\',' + (a.member_count || 0) + ')">🗑️ 刪除</button>'
@@ -3318,10 +3385,22 @@ async function loadStats() {
             + '<div style="font-size:12px;color:#888;margin-top:4px;">累計總收入</div></div>';
 
         // 表格
+        var isAgentView = !!result.is_agent;
+        var commCol = document.getElementById('statsCommissionCol');
+        if (commCol) commCol.style.display = isAgentView ? '' : 'none';
+
         document.getElementById('statsTable').innerHTML = data.map(function(m) {
             var displayLabel = m.period_label || m.month;
             // 週模式下，把 ISO 週序當作小字標註
             var weekTag = isWeek ? '<span style="font-size:10px;color:#666;margin-left:6px;">' + m.month + '</span>' : '';
+            var commCell = '';
+            if (isAgentView) {
+                var st = m.paid
+                    ? '<div style="font-size:11px;color:#27ae60;font-weight:700;">✅ 已撥款' + (m.payment_last5 ? ' · ' + m.payment_last5 : '') + '</div>'
+                      + (m.paid_at ? '<div style="font-size:10px;color:#666;">' + String(m.paid_at).substring(0,10) + '</div>' : '')
+                    : '<div style="font-size:11px;color:#e67e22;font-weight:700;">⏳ 待撥款</div>';
+                commCell = '<td><div style="font-weight:700;color:#27ae60;">NT$ ' + Math.round(m.commission || 0).toLocaleString() + '</div>' + st + '</td>';
+            }
             return '<tr class="stats-month-row" style="cursor:pointer;" onclick="toggleMonthDetail(this,\'' + m.month + '\')">'
                 + '<td style="font-weight:700;">' + displayLabel + weekTag + ' <span style="font-size:10px;color:#888;">▶</span></td>'
                 + '<td>' + m.shipments + '</td>'
@@ -3332,6 +3411,7 @@ async function loadStats() {
                 + '<td>NT$ ' + Math.round(m.consolidation_fee||0).toLocaleString() + '</td>'
                 + '<td>NT$ ' + Math.round(m.extra_fee).toLocaleString() + '</td>'
                 + '<td style="font-weight:700;color:#27ae60;font-size:15px;">NT$ ' + Math.round(m.total_revenue).toLocaleString() + '</td>'
+                + commCell
                 + '<td><a href="/api/admin/stats/monthly/excel?month=' + encodeURIComponent(m.month) + '" onclick="event.stopPropagation();" class="btn-edit-sm" style="background:rgba(52,152,219,.2);border-color:rgba(52,152,219,.3);color:#3498db;text-decoration:none;padding:6px 12px;font-size:11px;">📥 Excel</a></td>'
                 + '</tr>';
         }).join('')
@@ -3346,6 +3426,7 @@ async function loadStats() {
         + '<td style="font-weight:600;">NT$ ' + Math.round(totalConsolidation).toLocaleString() + '</td>'
         + '<td style="font-weight:600;">NT$ ' + Math.round(totalExtra).toLocaleString() + '</td>'
         + '<td style="font-weight:700;color:#27ae60;font-size:16px;">NT$ ' + Math.round(totalRevenue).toLocaleString() + '</td>'
+        + (isAgentView ? '<td style="font-weight:700;color:#27ae60;">NT$ ' + Math.round(data.reduce(function(s,m){return s+(m.commission||0);},0)).toLocaleString() + '</td>' : '')
         + '<td></td>'
         + '</tr>';
     } catch(e) { console.error('loadStats error:', e); }

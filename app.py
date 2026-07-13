@@ -297,6 +297,20 @@ def init_db():
             synced_at     TEXT DEFAULT ''
         )
     """)
+    # ── 代理每週分潤撥款記錄（agent_id + period_key 唯一）──
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS agent_payouts (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id      INTEGER NOT NULL,
+            period_key    TEXT NOT NULL,
+            amount        REAL DEFAULT 0,
+            payment_last5 TEXT DEFAULT '',
+            paid_at       TEXT DEFAULT '',
+            note          TEXT DEFAULT '',
+            created_at    TEXT DEFAULT '',
+            UNIQUE(agent_id, period_key)
+        )
+    """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS addresses (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1017,12 +1031,78 @@ def admin_list_agents():
     for r in conn.execute("SELECT agent_id, COUNT(*) as c FROM members GROUP BY agent_id").fetchall():
         counts[r["agent_id"]] = r["c"]
     conn.close()
+    # 每個代理的分潤摘要（各週明細 + 未撥款總額），讓你不必登入代理帳號就看得到
     result = []
     for r in rows:
         d = dict(r)
         d["member_count"] = counts.get(r["id"], 0)
+        weeks = compute_agent_weekly(r["id"])
+        d["weeks"] = weeks
+        d["unpaid_total"] = round(sum(w["commission"] for w in weeks if not w["paid"]))
+        d["paid_total"] = round(sum(w["commission"] for w in weeks if w["paid"]))
         result.append(d)
     return jsonify({"success": True, "agents": result})
+
+
+# ===== 代理分潤撥款 =====
+
+@app.route("/api/admin/agents/<int:agent_id>/payout", methods=["POST"])
+def admin_agent_payout(agent_id):
+    """標記某代理某週已撥款（填匯款後五碼 + 時間）。"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    data = request.json or {}
+    period_key = (data.get("period_key") or "").strip()
+    last5 = (data.get("payment_last5") or "").strip()
+    note = (data.get("note") or "").strip()
+    if not period_key:
+        return jsonify({"success": False, "error": "缺少週次"}), 400
+    if not last5:
+        return jsonify({"success": False, "error": "請填匯款後五碼"}), 400
+
+    # 金額以系統計算為準（避免前端竄改）
+    weeks = compute_agent_weekly(agent_id)
+    amount = next((w["commission"] for w in weeks if w["period_key"] == period_key), None)
+    if amount is None:
+        return jsonify({"success": False, "error": "該週無分潤資料"}), 400
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    paid_at = (data.get("paid_at") or "").strip() or now
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO agent_payouts (agent_id, period_key, amount, payment_last5, paid_at, note, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(agent_id, period_key) DO UPDATE SET "
+        "amount=excluded.amount, payment_last5=excluded.payment_last5, paid_at=excluded.paid_at, note=excluded.note",
+        (agent_id, period_key, amount, last5, paid_at, note, now)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "amount": amount, "paid_at": paid_at})
+
+
+@app.route("/api/admin/agents/<int:agent_id>/payout", methods=["DELETE"])
+def admin_agent_payout_cancel(agent_id):
+    """取消某週撥款標記。"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    period_key = (request.args.get("period_key") or "").strip()
+    if not period_key:
+        return jsonify({"success": False, "error": "缺少週次"}), 400
+    conn = get_db()
+    conn.execute("DELETE FROM agent_payouts WHERE agent_id=? AND period_key=?", (agent_id, period_key))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route("/api/agent/payouts", methods=["GET"])
+def agent_my_payouts():
+    """代理端：看自己的每週分潤與撥款狀態。"""
+    aid = get_current_agent_id()
+    if aid <= 0:
+        return jsonify({"success": False, "error": "僅代理帳號可查看"}), 403
+    return jsonify({"success": True, "weeks": compute_agent_weekly(aid)})
 
 
 # ===== 代理品牌資訊（公開：referral URL 使用）=====
@@ -2194,6 +2274,58 @@ def get_orders():
 
 # ============ 統計 API ============
 
+def compute_agent_weekly(agent_id, conn=None):
+    """算某代理各週分潤（與統計頁同一套算法，保證數字一致）。
+    只算：已出貨 + 有金額 + 已收款（有匯款後五碼）。
+    分潤 = Σ per_kg × kg，per_kg = max(該單費率 − 180, 20)。
+    回傳 [{period_key, period_label, shipments, total_kg, commission, payout:{...}}, ...] 新→舊
+    """
+    own = False
+    if conn is None:
+        conn = get_db(); own = True
+    rows = conn.execute("""
+        SELECT * FROM shipment_requests
+        WHERE status='已出貨' AND total_fee > 0 AND agent_id=?
+          AND payment_last5 IS NOT NULL AND payment_last5 != ''
+    """, (agent_id,)).fetchall()
+    payouts = {
+        p["period_key"]: dict(p)
+        for p in conn.execute("SELECT * FROM agent_payouts WHERE agent_id=?", (agent_id,)).fetchall()
+    }
+    if own:
+        conn.close()
+
+    buckets = {}
+    for row in rows:
+        r = dict(row)
+        date_str = r.get("updated_at") or r.get("created_at") or ""
+        key, label = _period_key_from_date(date_str, "week")
+        if not key:
+            continue
+        b = buckets.setdefault(key, {
+            "period_key": key, "period_label": label,
+            "shipments": 0, "total_kg": 0.0, "commission": 0.0,
+        })
+        kg = float(r.get("billed_weight") or 0)
+        b["shipments"] += 1
+        b["total_kg"] += kg
+        if kg > 0:
+            rate = float(r.get("rate_per_kg") or 0)
+            b["commission"] += max(rate - 180, 20) * kg
+
+    result = []
+    for key in sorted(buckets.keys(), reverse=True):
+        b = buckets[key]
+        b["total_kg"] = round(b["total_kg"], 1)
+        b["commission"] = round(b["commission"])
+        p = payouts.get(key)
+        b["paid"] = bool(p and p.get("paid_at"))
+        b["payment_last5"] = (p or {}).get("payment_last5", "")
+        b["paid_at"] = (p or {}).get("paid_at", "")
+        b["payout_note"] = (p or {}).get("note", "")
+        result.append(b)
+    return result
+
 @app.route("/api/admin/stats/monthly/detail", methods=["GET"])
 def admin_monthly_detail():
     """取得指定週/月的出貨明細（month 參數值可為 '2026-06' 或 '2026-W23'）"""
@@ -2461,12 +2593,14 @@ def admin_monthly_stats():
             rows = conn.execute("""
                 SELECT * FROM shipment_requests
                 WHERE status='已出貨' AND total_fee > 0 AND agent_id=?
+                  AND payment_last5 IS NOT NULL AND payment_last5 != ''
                 ORDER BY updated_at DESC
             """, (aid,)).fetchall()
         else:
             rows = conn.execute("""
                 SELECT * FROM shipment_requests
                 WHERE status='已出貨' AND total_fee > 0
+                  AND payment_last5 IS NOT NULL AND payment_last5 != ''
                 ORDER BY updated_at DESC
             """).fetchall()
         conn.close()
@@ -2528,6 +2662,20 @@ def admin_monthly_stats():
             m["commission"] = round(m["commission"])
             del m["customers"]
             result.append(m)
+
+        # 代理端：附上每週撥款狀態（讓代理在統計頁看得到「已撥款/後五碼」）
+        if aid > 0 and result:
+            conn2 = get_db()
+            payouts = {
+                p["period_key"]: dict(p)
+                for p in conn2.execute("SELECT * FROM agent_payouts WHERE agent_id=?", (aid,)).fetchall()
+            }
+            conn2.close()
+            for m in result:
+                p = payouts.get(m["month"])
+                m["paid"] = bool(p and p.get("paid_at"))
+                m["payment_last5"] = (p or {}).get("payment_last5", "")
+                m["paid_at"] = (p or {}).get("paid_at", "")
 
         return jsonify({
             "success": True,
