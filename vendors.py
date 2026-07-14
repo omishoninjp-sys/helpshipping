@@ -27,7 +27,20 @@ _PRODUCT_NAME_POOL = [
 ]
 _ORIGIN_POOL = ["japan"] * 6 + ["china"] * 4  # 60% japan, 40% china
 
-MAX_QTY = 10  # 每個品項數量上限
+MAX_QTY = 10          # 每個品項數量上限
+PRICE_CAP = 20000     # 單價上限（JPY）；僅「貴鞋子」不受此限
+PREMIUM_NAME = "貴鞋子"
+
+# 重量(kg) → 數量範圍（含上界）；越重件數越多，避免 0.3kg 出現「糖果 9 包」
+_QTY_BY_WEIGHT = [
+    (0.5, 1, 2),
+    (1.0, 1, 3),
+    (2.0, 2, 4),
+    (3.0, 3, 5),
+    (5.0, 4, 7),
+    (8.0, 5, 8),
+]
+_QTY_HEAVY = (6, 10)   # > 8kg
 
 
 def _seed_for(shipment_id: int, package_id: int = 0) -> random.Random:
@@ -35,21 +48,42 @@ def _seed_for(shipment_id: int, package_id: int = 0) -> random.Random:
     return random.Random(f"{shipment_id}-{package_id}")
 
 
-def _random_price(rng) -> int:
-    """單品 JPY 申報價：200~2000、整百"""
-    return rng.randint(2, 20) * 100
+def _qty_for_weight(rng, kg: float) -> int:
+    """依包裹重量決定件數（區間內隨機）。"""
+    lo, hi = _QTY_HEAVY
+    for limit, a, b in _QTY_BY_WEIGHT:
+        if kg <= limit:
+            lo, hi = a, b
+            break
+    return min(rng.randint(lo, hi), MAX_QTY)
 
 
-def build_item_plan(shipment_id: int, n: int) -> list[dict]:
-    """為一筆出貨單配置 n 個品項（每列一個）。
+def _price_for(rng, name: str, kg: float, qty: int) -> int:
+    """單價（JPY）：與重量掛鉤，讓「單價 × 件數」的申報總額與包裹重量大致成正比。
+
+    基準：每 kg 約 ¥1,500~4,500 的申報總額 → 單價 = 總額 / 件數，整百。
+    上限：一律 ≤ PRICE_CAP(¥20,000)，只有「貴鞋子」可超過（最高 ¥45,000）。
+    下限：¥200。
+    """
+    kg = max(float(kg or 0), 0.1)
+    total = kg * rng.randint(1500, 4500)          # 該包裹的申報總額
+    price = int(round(total / max(qty, 1) / 100)) * 100
+    price = max(price, 200)
+    if name == PREMIUM_NAME:
+        return min(price, 45000)                   # 貴鞋子可高於 2 萬
+    return min(price, PRICE_CAP)
+
+
+def build_item_plan(shipment_id: int, weights: list) -> list[dict]:
+    """為一筆出貨單配置品項（每個包裹一列）。
 
     規則：
       • 品名只從白名單取
-      • 同一筆出貨單內【品名不重複】→ 自然不會有「同品名不同價格」
-      • 每個品名的單價固定（同名必同價）
-      • 數量 1~MAX_QTY(10)
-      • 用固定 seed → 同一筆每次匯出結果一致
-    n 若超過白名單長度（極少見），才循環重複品名，且重複時沿用同一單價。
+      • 同一筆出貨單內【品名不重複】→ 不會有「同品名不同價格」；同名必同價
+      • 數量依【該包裹重量】決定（0.3kg 只會 1~2 件；上限 10）
+      • 單價與重量掛鉤（申報總額合理），除「貴鞋子」外一律 ≤ ¥20,000
+      • 固定 seed → 同一筆每次匯出結果一致
+    weights: 各包裹重量(kg) 的 list；長度即列數。
     """
     rng = _seed_for(shipment_id, 0)
     pool = list(_PRODUCT_NAME_POOL)
@@ -57,14 +91,19 @@ def build_item_plan(shipment_id: int, n: int) -> list[dict]:
 
     plan = []
     price_by_name = {}
-    for i in range(max(n, 0)):
-        name = pool[i % len(pool)]           # 不重複；超過池長才循環
-        if name not in price_by_name:        # 同名必同價
-            price_by_name[name] = _random_price(rng)
+    for i, w in enumerate(weights):
+        try:
+            kg = float(w or 0)
+        except (TypeError, ValueError):
+            kg = 0.0
+        name = pool[i % len(pool)]               # 不重複；超過池長才循環
+        qty = _qty_for_weight(rng, kg)
+        if name not in price_by_name:            # 同名必同價
+            price_by_name[name] = _price_for(rng, name, kg, qty)
         plan.append({
             "name": name,
             "price": price_by_name[name],
-            "qty": rng.randint(1, MAX_QTY),
+            "qty": qty,
             "origin": rng.choice(_ORIGIN_POOL),
         })
     return plan
@@ -187,8 +226,23 @@ def build_rows(vendor_id: str, shipments: list[dict]) -> tuple[list[str], list[l
             if t.strip()
         )
 
-        # 每筆出貨單先配置品項（白名單、同筆內品名不重複、同名同價、數量≤10）
-        item_plan = build_item_plan(s["id"], len(s["packages"]))
+        # 每筆出貨單先配置品項（白名單、同筆內品名不重複、同名同價、數量依重量、單價≤2萬除貴鞋子）
+        # 包裹 weight 缺失（stub 補位／到貨沒填）→ fallback 用計費重量平均分攤，再不行給 1kg
+        pkg_count = len(s["packages"]) or 1
+        try:
+            avg_kg = float(s.get("billed_weight") or 0) / pkg_count
+        except (TypeError, ValueError):
+            avg_kg = 0.0
+        if avg_kg <= 0:
+            avg_kg = 1.0
+        weights = []
+        for pkg in s["packages"]:
+            try:
+                w = float(pkg.get("weight") or 0)
+            except (TypeError, ValueError):
+                w = 0.0
+            weights.append(w if w > 0 else avg_kg)
+        item_plan = build_item_plan(s["id"], weights)
 
         for pkg_index, pkg in enumerate(s["packages"]):
             ctx = {
