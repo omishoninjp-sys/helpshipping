@@ -3765,22 +3765,6 @@ def _admin_exports_generate_impl():
             g_codes_needed
         ).fetchall():
             members_map[m["g_code"]] = {"name": m["name"], "phone": m["phone"], "address": m["address"]}
-    # 撈各客戶的預報品名（出檔案時：有預報→用真實品名；無預報→vendors 端用白名單隨機）
-    forecast_names_map = {}  # g_code → [品名, ...]
-    if g_codes_needed:
-        ph = ",".join(["?"] * len(g_codes_needed))
-        for fc in conn.execute(
-            f"SELECT g_code, items_json FROM forecasts WHERE g_code IN ({ph})",
-            g_codes_needed
-        ).fetchall():
-            try:
-                fc_items = json.loads(fc["items_json"] or "[]")
-            except (ValueError, TypeError):
-                fc_items = []
-            for it in (fc_items if isinstance(fc_items, list) else []):
-                nm = (it.get("name") or "").strip() if isinstance(it, dict) else ""
-                if nm:
-                    forecast_names_map.setdefault(fc["g_code"], []).append(nm)
     # Shopify 客戶 fallback：從「目前已快取」撈，不觸發新抓取（避免冷啟動阻塞）
     shopify_map = {}
     try:
@@ -3839,8 +3823,6 @@ def _admin_exports_generate_impl():
             "total_fee":            rd.get("total_fee") or 0,
             # 出貨追蹤號碼（多箱換行）→ Nigel 填「清關號碼」/ JpD 填「JpD包裹ID」
             "tracking_num":         _safe_str(rd.get("tracking_num")),
-            # 該客戶預報的品名清單（有→用真實品名；空→vendors 端用白名單隨機）
-            "forecast_names":       forecast_names_map.get(rd["g_code"], []),
             # 打包日期來源：admin 標記出貨時的 updated_at（fallback 到客戶申請的 created_at）
             "updated_at":           rd.get("updated_at") or "",
             "created_at":           rd.get("created_at") or "",

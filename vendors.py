@@ -16,9 +16,9 @@ import re
 from datetime import datetime
 
 
-# ============ 隨機資料產生器（僅在「客人沒預報商品」時用白名單隨機打散） ============
+# ============ 隨機資料產生器（出檔案一律用白名單隨機，不使用客戶預報資料） ============
 
-# 白名單：只有沒有預報品名的客戶，出檔案才從這裡隨機取（有預報→用真實預報品名）
+# 唯一允許出現在廠商 Excel 的品名（客戶預報的真實品名不外流）
 _PRODUCT_NAME_POOL = [
     "玩具", "糖果", "上衣", "文具用品", "髮夾", "廚房用品", "貴鞋子",
     "化妝品", "娃娃", "包包", "毛巾", "保健食品", "便宜鞋子", "飾品－A",
@@ -27,39 +27,47 @@ _PRODUCT_NAME_POOL = [
 ]
 _ORIGIN_POOL = ["japan"] * 6 + ["china"] * 4  # 60% japan, 40% china
 
+MAX_QTY = 10  # 每個品項數量上限
+
 
 def _seed_for(shipment_id: int, package_id: int = 0) -> random.Random:
     """每筆出貨用固定 seed → 同一筆每次匯出結果一樣（避免亂跳）"""
     return random.Random(f"{shipment_id}-{package_id}")
 
 
-def random_product_name(shipment_id: int, package_id: int = 0) -> str:
-    return _seed_for(shipment_id, package_id).choice(_PRODUCT_NAME_POOL)
-
-
-def product_name_for(ctx) -> str:
-    """品名來源：
-      • 該客戶有預報品名 → 依 pkg_index 循環取真實預報品名（不亂數）
-      • 沒有預報 → 從白名單隨機取（seed 固定，同一筆每次匯出一致）
-    """
-    names = ctx.get("forecast_names") or []
-    if names:
-        return names[ctx.get("pkg_index", 0) % len(names)]
-    return random_product_name(ctx["shipment_id"], ctx["package_id"])
-
-
-def random_quantity(shipment_id: int, package_id: int = 0) -> int:
-    return _seed_for(shipment_id, package_id + 1).randint(1, 30)
-
-
-def random_jpy_amount(shipment_id: int, package_id: int = 0) -> int:
-    """單品 JPY 申報價：200~2000、四捨五入到百"""
-    rng = _seed_for(shipment_id, package_id + 2)
+def _random_price(rng) -> int:
+    """單品 JPY 申報價：200~2000、整百"""
     return rng.randint(2, 20) * 100
 
 
-def random_origin(shipment_id: int, package_id: int = 0) -> str:
-    return _seed_for(shipment_id, package_id + 3).choice(_ORIGIN_POOL)
+def build_item_plan(shipment_id: int, n: int) -> list[dict]:
+    """為一筆出貨單配置 n 個品項（每列一個）。
+
+    規則：
+      • 品名只從白名單取
+      • 同一筆出貨單內【品名不重複】→ 自然不會有「同品名不同價格」
+      • 每個品名的單價固定（同名必同價）
+      • 數量 1~MAX_QTY(10)
+      • 用固定 seed → 同一筆每次匯出結果一致
+    n 若超過白名單長度（極少見），才循環重複品名，且重複時沿用同一單價。
+    """
+    rng = _seed_for(shipment_id, 0)
+    pool = list(_PRODUCT_NAME_POOL)
+    rng.shuffle(pool)
+
+    plan = []
+    price_by_name = {}
+    for i in range(max(n, 0)):
+        name = pool[i % len(pool)]           # 不重複；超過池長才循環
+        if name not in price_by_name:        # 同名必同價
+            price_by_name[name] = _random_price(rng)
+        plan.append({
+            "name": name,
+            "price": price_by_name[name],
+            "qty": rng.randint(1, MAX_QTY),
+            "origin": rng.choice(_ORIGIN_POOL),
+        })
+    return plan
 
 
 # ============ 廠商範本 ============
@@ -79,10 +87,10 @@ NIGEL = {
         ("申報人",         lambda ctx: ctx["ship_recipient"]),         # 預設 = 收件人
         ("申報人詳細地址", lambda ctx: ctx["ship_address"]),
         ("申報人電話號碼", lambda ctx: ctx["ship_phone"]),
-        ("品名",           lambda ctx: product_name_for(ctx)),
-        ("數量",           lambda ctx: random_quantity(ctx["shipment_id"], ctx["package_id"])),
-        ("金額",           lambda ctx: random_jpy_amount(ctx["shipment_id"], ctx["package_id"])),
-        ("產地",           lambda ctx: random_origin(ctx["shipment_id"], ctx["package_id"])),
+        ("品名",           lambda ctx: ctx["item"]["name"]),
+        ("數量",           lambda ctx: ctx["item"]["qty"]),
+        ("金額",           lambda ctx: ctx["item"]["price"]),
+        ("產地",           lambda ctx: ctx["item"]["origin"]),
         ("URL/JanCode",    lambda ctx: ""),
     ],
 }
@@ -109,11 +117,11 @@ JPD = {
         ("申報人身份證ID",   lambda ctx: ""),
         ("申報人詳細地址",   lambda ctx: ctx["ship_address"]),
         ("申報人电话号码",   lambda ctx: ctx["ship_phone"]),
-        ("品名",            lambda ctx: product_name_for(ctx)),
-        ("数量",            lambda ctx: random_quantity(ctx["shipment_id"], ctx["package_id"])),
-        ("金额",            lambda ctx: random_jpy_amount(ctx["shipment_id"], ctx["package_id"])),
+        ("品名",            lambda ctx: ctx["item"]["name"]),
+        ("数量",            lambda ctx: ctx["item"]["qty"]),
+        ("金额",            lambda ctx: ctx["item"]["price"]),
         ("材質",            lambda ctx: ""),
-        ("產地",            lambda ctx: random_origin(ctx["shipment_id"], ctx["package_id"])),
+        ("產地",            lambda ctx: ctx["item"]["origin"]),
         ("URL/JanCode",     lambda ctx: ""),
     ],
 }
@@ -179,14 +187,17 @@ def build_rows(vendor_id: str, shipments: list[dict]) -> tuple[list[str], list[l
             if t.strip()
         )
 
+        # 每筆出貨單先配置品項（白名單、同筆內品名不重複、同名同價、數量≤10）
+        item_plan = build_item_plan(s["id"], len(s["packages"]))
+
         for pkg_index, pkg in enumerate(s["packages"]):
             ctx = {
                 "shipment_id":          s["id"],
                 "g_code":               s["g_code"],
                 "packaging_mmdd":       packaging_mmdd,   # 客戶申請出單日（打包日）MMDD
                 "tracking_num":         tracking_num,     # 出貨追蹤號碼（Nigel→清關號碼 / JpD→JpD包裹ID）
-                # 品名來源：有預報→真實品名循環；無→白名單隨機
-                "forecast_names":       s.get("forecast_names") or [],
+                # 品名/數量/金額/產地一律來自白名單配置（不使用客戶預報資料）
+                "item":                 item_plan[pkg_index],
                 "pkg_index":            pkg_index,
                 # str() 防 DB 把 phone 存成 float（912345678.0）造成下游 .strip() 炸
                 "ship_recipient":       str(s["ship_recipient"]) if s["ship_recipient"] else "",
