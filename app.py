@@ -10,6 +10,7 @@ import json
 import os
 import sqlite3
 import csv
+import tw_zip
 import io
 import time
 import re
@@ -698,7 +699,7 @@ def _fetch_customers_from_shopify():
     while has_next and page < 10:  # 最多 10 頁 = 1000 會員
         page += 1
         after_arg = f', after: "{cursor}"' if cursor else ''
-        graphql_query = '{metafieldDefinitions(first:1,ownerType:CUSTOMER,namespace:"custom",key:"goyoutati_id"){edges{node{id metafields(first:100' + after_arg + '){edges{node{value owner{...on Customer{id firstName lastName email phone defaultAddress{phone province city address1 address2} createdAt shippingRate:metafield(namespace:"custom",key:"shipping_rate"){value}}}} cursor} pageInfo{hasNextPage}}}}}}'
+        graphql_query = '{metafieldDefinitions(first:1,ownerType:CUSTOMER,namespace:"custom",key:"goyoutati_id"){edges{node{id metafields(first:100' + after_arg + '){edges{node{value owner{...on Customer{id firstName lastName email phone defaultAddress{phone province city zip address1 address2} createdAt shippingRate:metafield(namespace:"custom",key:"shipping_rate"){value}}}} cursor} pageInfo{hasNextPage}}}}}}'
 
         page_t0 = time.time()
         result = shopify_graphql(graphql_query)
@@ -735,12 +736,14 @@ def _fetch_customers_from_shopify():
             default_address = owner.get("defaultAddress") or {}
             phone_raw = default_address.get("phone") or owner.get("phone") or ""
             phone = normalize_phone(phone_raw)
-            address = " ".join(filter(None, [
+            # 用郵遞區號反查補齊缺的縣市/區（Shopify 拆欄常漏縣市區 → 黑貓無法投遞）
+            address, _addr_fixed = tw_zip.compose_full_address(
                 default_address.get("province", ""),
                 default_address.get("city", ""),
                 default_address.get("address1", ""),
-                default_address.get("address2", "")
-            ])).strip()
+                default_address.get("address2", ""),
+                default_address.get("zip", ""),
+            )
             rate_mf = owner.get("shippingRate")
             # shipping_rate 現在儲存台幣值
             shipping_rate_twd = rate_mf["value"] if rate_mf and rate_mf.get("value") else ""
@@ -3172,6 +3175,13 @@ def create_shipment_request():
     ship_recipient = (data.get("ship_recipient") or "").strip()
     ship_phone = (data.get("ship_phone") or "").strip()
     ship_address = (data.get("ship_address") or "").strip()
+    # 地址完整性守門：缺縣市/區的地址黑貓無法投遞。不完整且客戶未確認 → 擋下請補
+    if ship_address and not tw_zip.is_address_complete(ship_address) and not data.get("address_confirmed"):
+        return jsonify({
+            "success": False,
+            "need_address_confirm": True,
+            "error": "收件地址似乎缺少縣市或區（例：嘉義市西區），台灣宅配可能無法投遞。請確認或補齊地址。"
+        }), 400
     # 客戶勾選的加值服務（[{id, qty}]）→ 以伺服端目錄價驗證後存入（防前端竄改價格）
     sel_services = data.get("extra_services", []) or []
 

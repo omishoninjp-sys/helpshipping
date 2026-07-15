@@ -1530,7 +1530,7 @@
             return out;
         }
 
-        async function confirmShipRequest() {
+        async function confirmShipRequest(addressConfirmed) {
             const selected = document.querySelector('input[name="ship-addr"]:checked');
             if (!selected) { showToast('請選擇寄送地址', 'error'); return; }
             const note = document.getElementById('shipNote').value.trim();
@@ -1546,7 +1546,8 @@
                         ship_recipient: selected.dataset.recipient,
                         ship_phone: selected.dataset.phone,
                         ship_address: selected.dataset.address,
-                        extra_services: getShipSelectedServices()
+                        extra_services: getShipSelectedServices(),
+                        address_confirmed: !!addressConfirmed
                     })
                 });
                 const result = await res.json();
@@ -1555,6 +1556,11 @@
                     closeShipAddressModal();
                     loadPackages();
                     updateCustomerBadges();
+                } else if (result.need_address_confirm) {
+                    // 地址不完整 → 強力提示，讓客戶去修正或確認仍要送出
+                    if (confirm('⚠️ ' + result.error + '\n\n地址：' + selected.dataset.address + '\n\n建議先到「📒 地址簿」補齊縣市與區（例：嘉義市西區）。\n\n按「確定」＝我確認地址正確、仍要送出；按「取消」＝先去修改。')) {
+                        confirmShipRequest(true);
+                    }
                 } else {
                     showToast('❌ ' + (result.error || '申請失敗'), 'error');
                 }
