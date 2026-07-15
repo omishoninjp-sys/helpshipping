@@ -3279,6 +3279,10 @@ def create_shipment_request():
         if qty < 1:
             qty = 1
         price = int(c.get("price") or 0)
+        # 「合箱」是意願選項：實際合箱費由系統依箱數計算（consolidation_fee），
+        # 客戶勾選一律 0 元，避免與系統合箱費重複收費
+        if c["name"] == "合箱":
+            price = 0
         customer_extras.append({
             "id": c["id"], "name": c["name"], "qty": qty,
             "price": price, "subtotal": price * qty,
