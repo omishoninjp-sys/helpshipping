@@ -1652,6 +1652,29 @@ async function submitMember() {
     finally { btn.disabled = false; }
 }
 
+async function disableMember(gCode, name) {
+    if (!confirm('確定要停用會員 ' + gCode + (name ? '（' + name + '）' : '') + ' 嗎？\n\n停用後此客戶將無法登入集運系統（登入頁只會顯示「帳號已停用，請聯繫客服」）。\nShopify 帳號不受影響。')) return;
+    var reason = prompt('停用原因（選填，僅內部記錄）：') || '';
+    try {
+        var res = await fetch('/api/admin/members/' + encodeURIComponent(gCode) + '/disable', {
+            method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ reason: reason })
+        });
+        var d = await res.json();
+        if (d.success) { showToast('已停用 ' + gCode, 'success'); loadMembers(); }
+        else { showToast(d.error || '停用失敗', 'error'); }
+    } catch(e) { showToast('網路錯誤', 'error'); }
+}
+
+async function enableMember(gCode) {
+    if (!confirm('確定要重新啟用會員 ' + gCode + ' 嗎？')) return;
+    try {
+        var res = await fetch('/api/admin/members/' + encodeURIComponent(gCode) + '/disable', { method: 'DELETE' });
+        var d = await res.json();
+        if (d.success) { showToast('已啟用 ' + gCode, 'success'); loadMembers(); }
+        else { showToast(d.error || '啟用失敗', 'error'); }
+    } catch(e) { showToast('網路錯誤', 'error'); }
+}
+
 async function deleteMember(gCode, name) {
     if (!confirm('確定刪除會員「' + gCode + ' ' + name + '」？\n（若已有包裹/預報/出貨紀錄會被擋下，建議改為停用）')) return;
     try {
@@ -2031,8 +2054,12 @@ function renderMembersPage() {
         }
         // 代理底下的會員：運費鎖定（避免從這裡誤改、應該回代理那邊改）
         var isAgentRow = m.source === 'agent';
-        return `<tr>
-            <td style="white-space:nowrap;"><div style="line-height:1.4;"><span class="g-code" style="font-size:13px;">${m.g_code}</span><div style="font-size:13px;color:#fff;margin-top:2px;">${m.name||'-'}</div>${sourceBadge}</div></td>
+        var disabledBadge = m.disabled ? '<span style="display:inline-block;margin-top:3px;font-size:10px;padding:2px 7px;border-radius:8px;background:rgba(231,76,60,0.18);color:#e74c3c;font-weight:700;">🚫 已停用</span>' : '';
+        var toggleBtn = m.disabled
+            ? `<button class="copy-btn" style="background:#27ae60;" onclick="enableMember('${m.g_code}')">✅ 啟用</button>`
+            : `<button class="copy-btn" style="background:#e74c3c;" onclick="disableMember('${m.g_code}','${(m.name||'').replace(/'/g,'')}')">⛔ 停用</button>`;
+        return `<tr${m.disabled ? ' style="opacity:.6;"' : ''}>
+            <td style="white-space:nowrap;"><div style="line-height:1.4;"><span class="g-code" style="font-size:13px;">${m.g_code}</span><div style="font-size:13px;color:#fff;margin-top:2px;">${m.name||'-'}</div>${sourceBadge}${disabledBadge}</div></td>
             <td style="font-size:12px;">${m.address||'-'}</td>
             <td>${m.phone||'-'}</td>
             <td>
@@ -2058,6 +2085,7 @@ function renderMembersPage() {
             </td>
             <td>
                 <button class="copy-btn" onclick="copyInfo('${m.g_code}','${m.phone}')">📋 複製</button>
+                ${toggleBtn}
                 ${window.isAgentMembers ? `
                     <button class="copy-btn" style="background:#3498db;" onclick='openMemberModal(${JSON.stringify(m)})'>✏️ 編輯</button>
                     <button class="copy-btn" style="background:#e74c3c;" onclick="deleteMember('${m.g_code}','${(m.name||'').replace(/'/g,'')}')">🗑️</button>

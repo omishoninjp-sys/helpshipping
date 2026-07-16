@@ -1156,6 +1156,14 @@
                     setInterval(updateCustomerBadges, 30000);
                     checkAnnouncements();
                     showToast('登入成功！', 'success');
+                } else if (result.disabled) {
+                    // 帳號已停用 → 整頁只顯示停用訊息
+                    document.body.innerHTML =
+                        '<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;background:#0f1419;color:#fff;font-family:inherit;">'
+                        + '<div style="font-size:64px;margin-bottom:20px;">🚫</div>'
+                        + '<div style="font-size:22px;font-weight:700;margin-bottom:12px;">您的帳號已停用</div>'
+                        + '<div style="font-size:16px;color:#f39c12;">請聯繫客服</div>'
+                        + '</div>';
                 } else {
                     showToast(result.error || '登入失敗', 'error');
                     btn.disabled = false;

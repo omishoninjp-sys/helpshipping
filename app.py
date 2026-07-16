@@ -298,6 +298,14 @@ def init_db():
             synced_at     TEXT DEFAULT ''
         )
     """)
+    # ── 停用會員名單（集運系統層級，不動 Shopify；g_code 為鍵）──
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS disabled_members (
+            g_code       TEXT PRIMARY KEY,
+            reason       TEXT DEFAULT '',
+            disabled_at  TEXT DEFAULT ''
+        )
+    """)
     # ── 代理每週分潤撥款記錄（agent_id + period_key 唯一）──
     conn.execute("""
         CREATE TABLE IF NOT EXISTS agent_payouts (
@@ -1479,6 +1487,22 @@ def admin_delete_user(user_id):
     return jsonify({"success": True})
 
 
+def _mark_disabled(members):
+    """為 members list 標記停用狀態（依 disabled_members 表）。"""
+    try:
+        conn = get_db()
+        dis = {r["g_code"]: r for r in conn.execute("SELECT g_code, reason, disabled_at FROM disabled_members").fetchall()}
+        conn.close()
+    except Exception:
+        dis = {}
+    for m in members:
+        d = dis.get(m.get("g_code"))
+        m["disabled"] = bool(d)
+        m["disabled_reason"] = d["reason"] if d else ""
+        m["disabled_at"] = d["disabled_at"] if d else ""
+    return members
+
+
 @app.route("/api/admin/members", methods=["GET"])
 def get_all_members():
     try:
@@ -1526,7 +1550,7 @@ def get_all_members():
             next_g_code = f"{prefix}{next_number:04d}"
             return jsonify({
                 "success": True,
-                "members": members,
+                "members": _mark_disabled(members),
                 "total": len(members),
                 "max_number": max_number,
                 "next_g_code": next_g_code,
@@ -1596,7 +1620,7 @@ def get_all_members():
         next_g_code = f"G{next_number:04d}"
         return jsonify({
             "success": True,
-            "members": members,
+            "members": _mark_disabled(members),
             "total": len(members),
             "max_number": max_number,
             "next_g_code": next_g_code,
@@ -1690,6 +1714,40 @@ def admin_search_members():
             print(f"[search_members] Shopify 搜尋失敗：{e}", flush=True)
 
     return jsonify({"success": True, "results": results[:limit]})
+
+
+# ===== 停用 / 啟用會員（集運系統層級，不動 Shopify）=====
+
+@app.route("/api/admin/members/<g_code>/disable", methods=["POST"])
+def admin_disable_member(g_code):
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    g_code = (g_code or "").strip().upper()
+    if not g_code:
+        return jsonify({"success": False, "error": "缺少會員編號"}), 400
+    reason = ((request.json or {}).get("reason") or "").strip()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO disabled_members (g_code, reason, disabled_at) VALUES (?, ?, ?) "
+        "ON CONFLICT(g_code) DO UPDATE SET reason=excluded.reason, disabled_at=excluded.disabled_at",
+        (g_code, reason, now)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route("/api/admin/members/<g_code>/disable", methods=["DELETE"])
+def admin_enable_member(g_code):
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    g_code = (g_code or "").strip().upper()
+    conn = get_db()
+    conn.execute("DELETE FROM disabled_members WHERE g_code=?", (g_code,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
 
 
 @app.route("/api/admin/members", methods=["POST"])
@@ -2061,6 +2119,16 @@ def verify_customer():
     if not g_code[:1].isalpha():
         g_code = "G" + g_code
     password_clean = normalize_phone(password)
+
+    # ===== 0) 停用名單檢查（集運系統層級）：被停用者一律擋下，整頁顯示停用訊息 =====
+    try:
+        _dconn = get_db()
+        _drow = _dconn.execute("SELECT 1 FROM disabled_members WHERE g_code=?", (g_code,)).fetchone()
+        _dconn.close()
+        if _drow:
+            return jsonify({"success": False, "disabled": True, "error": "您的帳號已停用，請聯繫客服"})
+    except Exception:
+        pass
 
     # ===== 1) 先查本地 members 表（代理建的會員）=====
     try:
