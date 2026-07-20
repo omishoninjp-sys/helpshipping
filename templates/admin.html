@@ -297,13 +297,13 @@
         <div class="card">
             <h3 style="margin-bottom:20px;text-align:center;">🔐 管理員登入</h3>
             <div class="form-group">
-                <label>帳號</label>
-                <input type="text" id="adminUsername" class="form-control" placeholder="帳號" autocomplete="off">
-            </div>
-            <div class="form-group">
                 <label>密碼</label>
-                <input type="password" id="adminPassword" class="form-control" placeholder="密碼" autocomplete="new-password">
+                <input type="password" id="adminPassword" class="form-control" placeholder="請輸入你的密碼" autocomplete="new-password">
             </div>
+            <details style="margin:-6px 0 12px;">
+                <summary style="font-size:12px;color:#888;cursor:pointer;">代理登入（需帳號）</summary>
+                <input type="text" id="adminUsername" class="form-control" placeholder="代理帳號（員工/管理員免填）" autocomplete="off" style="margin-top:8px;">
+            </details>
             <button class="btn btn-red btn-block" id="adminLoginBtn" disabled style="opacity:.6;cursor:wait;">登入中… 請稍候</button>
             <div id="loginError" style="display:none;margin-top:12px;padding:12px;background:rgba(231,76,60,.15);border:1px solid rgba(231,76,60,.3);border-radius:8px;color:#e74c3c;font-size:14px;font-weight:600;text-align:center;"></div>
         </div>
@@ -322,13 +322,14 @@
                 <div class="sidebar-divider"></div>
                 <div class="sidebar-item" onclick="switchAdminTab('forecasts')">📝 預報管理 <span id="forecast-badge" class="sidebar-badge" style="display:none;">0</span></div>
                 <div class="sidebar-item" id="sidebar-announcements" onclick="switchAdminTab('announcements')">📢 公告管理</div>
-                <div class="sidebar-item" onclick="switchAdminTab('stats')">📊 統計</div>
+                <div class="sidebar-item" id="sidebar-stats" onclick="switchAdminTab('stats')">📊 統計</div>
+                <div class="sidebar-item" id="sidebar-oplogs" onclick="switchAdminTab('oplogs')" style="display:none;">📋 操作紀錄</div>
                 <div class="sidebar-divider"></div>
                 <div class="sidebar-item" id="sidebar-exports" onclick="switchAdminTab('exports')" style="display:none;">📤 出檔案 <span id="exports-badge" class="sidebar-badge" style="display:none;background:#3498db;">0</span></div>
                 <div class="sidebar-item" id="sidebar-extraservices" onclick="switchAdminTab('extraservices')" style="display:none;">⭐ 加值服務</div>
                 <div class="sidebar-item" id="sidebar-agents" onclick="switchAdminTab('agents')" style="display:none;">🤝 代理管理</div>
                 <div class="sidebar-item" id="sidebar-my-branding" onclick="switchAdminTab('mybranding')" style="display:none;">🎨 我的品牌設定</div>
-                <div class="sidebar-item" onclick="openChangePwd()" style="color:#666;">🔑 變更密碼</div>
+                <div class="sidebar-item" id="sidebar-changepwd" onclick="openChangePwd()" style="color:#666;">🔑 變更密碼</div>
             </div>
             <div class="admin-main">
 
@@ -597,14 +598,16 @@
                 <div id="announcementList" style="display:flex;flex-direction:column;gap:12px;"></div>
 
                 <!-- 管理員帳號 -->
-                <div style="margin-top:30px;padding-top:20px;border-top:1px solid rgba(255,255,255,.08);">
+                <div id="adminUsersSection" style="margin-top:30px;padding-top:20px;border-top:1px solid rgba(255,255,255,.08);">
                     <h3 style="margin-bottom:16px;">👤 管理員帳號</h3>
+                    <p style="font-size:12px;color:#888;margin:-8px 0 14px;">員工只能做日常作業（到貨/出貨/帳單/無主件/預報/公告）；老闆(super)才看得到統計、代理管理、操作紀錄。登入只需密碼，所以<strong>每人密碼必須不同</strong>。</p>
                     <div id="adminUserList" style="margin-bottom:16px;"></div>
                     <div id="adminUserAdd" style="padding:16px;background:rgba(255,255,255,.02);border:1px dashed rgba(255,255,255,.1);border-radius:10px;">
                         <div style="font-size:13px;font-weight:600;color:#f39c12;margin-bottom:12px;">➕ 新增管理員</div>
-                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
-                            <div><label style="font-size:11px;color:#888;">帳號</label><input type="text" id="new-admin-user" class="form-control" placeholder="帳號" style="padding:8px 10px;font-size:13px;"></div>
-                            <div><label style="font-size:11px;color:#888;">密碼</label><input type="text" id="new-admin-pwd" class="form-control" placeholder="密碼（至少4字）" style="padding:8px 10px;font-size:13px;"></div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;">
+                            <div><label style="font-size:11px;color:#888;">顯示名稱</label><input type="text" id="new-admin-user" class="form-control" placeholder="Flower" style="padding:8px 10px;font-size:13px;"></div>
+                            <div><label style="font-size:11px;color:#888;">密碼（登入用，須唯一）</label><input type="text" id="new-admin-pwd" class="form-control" placeholder="至少4字" style="padding:8px 10px;font-size:13px;"></div>
+                            <div><label style="font-size:11px;color:#888;">身分</label><select id="new-admin-role" class="form-control" style="padding:8px 10px;font-size:13px;"><option value="staff" selected>員工</option><option value="super">老闆(全權限)</option></select></div>
                             <div style="display:flex;align-items:flex-end;"><button class="btn btn-primary" onclick="addAdminUser()" style="padding:8px 16px;width:100%;">新增</button></div>
                         </div>
                     </div>
@@ -1026,6 +1029,27 @@
             </div>
         </div>
 
+        <!-- 操作紀錄（老闆） -->
+        <div class="admin-panel" id="panel-oplogs">
+            <div class="card">
+                <div class="toolbar">
+                    <h3>📋 操作紀錄</h3>
+                    <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadOpLogs()">🔄 重新整理</button>
+                </div>
+                <p style="font-size:12px;color:#888;margin:-6px 0 14px;">記錄每位管理員/員工的操作：登記到貨、出貨處理、帳單確認付款、無主件認領。</p>
+                <div class="filter-bar">
+                    <input type="text" id="oplog-search" placeholder="🔍 搜尋操作者、動作、客編、內容..." oninput="renderOpLogs()">
+                    <span class="pkg-count" id="oplog-count"></span>
+                </div>
+                <div style="overflow-x:auto;">
+                    <table class="data-table">
+                        <thead><tr><th>時間</th><th>操作者</th><th>動作</th><th>對象</th><th>內容</th></tr></thead>
+                        <tbody id="oplogTable"><tr><td colspan="5" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <!-- 出檔案給廠商 -->
         <div class="admin-panel" id="panel-exports">
             <div class="card" style="margin-bottom:14px;border:1px solid rgba(52,152,219,0.25);">
@@ -1441,6 +1465,12 @@ async function adminLogin() {
             // 代理專屬：我的品牌設定
             var sbMB = document.getElementById('sidebar-my-branding');
             if (sbMB) sbMB.style.display = currentAdmin.user_type === 'agent' ? '' : 'none';
+            // 老闆(super) vs 員工(staff)：員工看不到 統計/代理/操作紀錄/變更密碼/管理員帳號
+            var isBoss = currentAdmin.user_type === 'admin' && currentAdmin.role === 'super';
+            var bossOnly = { 'sidebar-stats': isBoss, 'sidebar-agents': isBoss, 'sidebar-oplogs': isBoss, 'sidebar-changepwd': isBoss };
+            Object.keys(bossOnly).forEach(function(id){ var el = document.getElementById(id); if (el) el.style.display = bossOnly[id] ? '' : 'none'; });
+            var adminMgmt = document.getElementById('adminUsersSection');
+            if (adminMgmt) adminMgmt.style.display = isBoss ? '' : 'none';
             document.getElementById('loginSection').classList.add('hidden');
             document.getElementById('mainContent').classList.add('active');
             fetch('/api/config').then(r => r.json()).then(cfg => {
@@ -1574,6 +1604,7 @@ function switchAdminTab(tab) {
     if (panel) panel.classList.add('active');
     if (tab === 'arrivals') loadPackages();
     if (tab === 'unclaimed') loadUnclaimed();
+    if (tab === 'oplogs') loadOpLogs();
     if (tab === 'shipreqs') loadShipReqs();
     if (tab === 'billing') loadBilling();
     if (tab === 'forecasts') loadForecasts();
@@ -4092,6 +4123,39 @@ async function toggleMonthDetail(row, month) {
     }
 }
 
+// ── 操作紀錄（老闆）──
+var _opLogsData = [];
+async function loadOpLogs() {
+    try {
+        var res = await fetch('/api/admin/operation_logs');
+        var d = await res.json();
+        _opLogsData = (d.success && d.logs) ? d.logs : [];
+        renderOpLogs();
+    } catch(e) { console.error('loadOpLogs:', e); }
+}
+function renderOpLogs() {
+    var tbody = document.getElementById('oplogTable');
+    var countEl = document.getElementById('oplog-count');
+    var q = ((document.getElementById('oplog-search') || {}).value || '').trim().toUpperCase();
+    var list = _opLogsData.slice();
+    if (q) list = list.filter(function(l){
+        return [l.operator, l.action, l.target, l.detail].some(function(v){ return v && String(v).toUpperCase().includes(q); });
+    });
+    if (countEl) countEl.textContent = '共 ' + list.length + ' 筆';
+    if (!list.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#666;padding:30px;">尚無操作紀錄</td></tr>'; return; }
+    var actionColor = { '登記到貨':'#3498db', '出貨處理':'#e67e22', '帳單確認付款':'#27ae60', '認領無主件':'#9b59b6' };
+    tbody.innerHTML = list.map(function(l){
+        var c = actionColor[l.action] || '#aaa';
+        return '<tr>'
+            + '<td style="font-size:12px;color:#aaa;white-space:nowrap;">' + (l.created_at||'') + '</td>'
+            + '<td style="font-weight:700;color:#fff;">' + (l.operator||'-') + '</td>'
+            + '<td><span style="font-size:12px;padding:2px 8px;border-radius:8px;background:' + c + '22;color:' + c + ';font-weight:700;">' + (l.action||'-') + '</span></td>'
+            + '<td style="font-size:13px;color:#ddd;">' + (l.target||'-') + '</td>'
+            + '<td style="font-size:12px;color:#888;">' + (l.detail||'') + '</td>'
+            + '</tr>';
+    }).join('');
+}
+
 // ── 管理員帳號 ──
 async function loadAdminUsers() {
     try {
@@ -4103,24 +4167,39 @@ async function loadAdminUsers() {
             return;
         }
         container.innerHTML = result.users.map(function(u) {
-            var roleLabel = u.role === 'super' ? '<span style="font-size:10px;padding:2px 8px;background:rgba(243,156,18,.2);color:#f39c12;border-radius:8px;">超級管理員</span>' : '<span style="font-size:10px;padding:2px 8px;background:rgba(52,152,219,.2);color:#3498db;border-radius:8px;">管理員</span>';
+            var roleLabel = u.role === 'super' ? '<span style="font-size:10px;padding:2px 8px;background:rgba(243,156,18,.2);color:#f39c12;border-radius:8px;">老闆</span>' : '<span style="font-size:10px;padding:2px 8px;background:rgba(52,152,219,.2);color:#3498db;border-radius:8px;">員工</span>';
+            var pwdBtn = '<button onclick="resetAdminPwd(' + u.id + ',\'' + (u.username||'').replace(/'/g,'') + '\')" style="background:rgba(52,152,219,.15);border:none;color:#3498db;padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer;margin-right:6px;">🔑 改密碼</button>';
             var deleteBtn = u.role !== 'super' ? '<button onclick="deleteAdminUser('+u.id+')" style="background:rgba(231,76,60,.15);border:none;color:#e74c3c;padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer;">🗑 刪除</button>' : '';
             return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:rgba(0,0,0,.15);border-radius:8px;margin-bottom:6px;">'
                 + '<div>' + roleLabel + ' <strong style="color:#fff;margin-left:6px;">' + u.username + '</strong> <span style="font-size:11px;color:#666;margin-left:8px;">' + u.created_at + '</span></div>'
-                + '<div>' + deleteBtn + '</div>'
+                + '<div style="display:flex;">' + pwdBtn + deleteBtn + '</div>'
                 + '</div>';
         }).join('');
     } catch(e) {}
 }
 
+async function resetAdminPwd(id, name) {
+    var pwd = prompt('變更「' + name + '」的登入密碼（至少4字，且不可與他人重複）：');
+    if (pwd === null) return;
+    pwd = (pwd || '').trim();
+    if (pwd.length < 4) { showToast('密碼至少4字', 'error'); return; }
+    try {
+        const res = await fetch('/api/admin/users/' + id + '/password', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: pwd }) });
+        const d = await res.json();
+        if (d.success) { showToast('密碼已更新', 'success'); }
+        else { showToast(d.error || '更新失敗', 'error'); }
+    } catch(e) { showToast('網路錯誤', 'error'); }
+}
+
 async function addAdminUser() {
     var username = document.getElementById('new-admin-user').value.trim();
     var password = document.getElementById('new-admin-pwd').value.trim();
-    if (!username || !password) { showToast('帳號和密碼為必填', 'error'); return; }
+    var role = (document.getElementById('new-admin-role') || {}).value || 'staff';
+    if (!username || !password) { showToast('名稱和密碼為必填', 'error'); return; }
     try {
         const res = await fetch('/api/admin/users', {
             method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({username, password, role: 'admin'})
+            body: JSON.stringify({username, password, role})
         });
         const result = await res.json();
         if (result.success) {

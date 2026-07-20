@@ -298,6 +298,18 @@ def init_db():
             synced_at     TEXT DEFAULT ''
         )
     """)
+    # ── 操作紀錄（誰做了什麼：到貨建立/出貨/帳單確認/認領）──
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS operation_logs (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            operator   TEXT DEFAULT '',
+            role       TEXT DEFAULT '',
+            action     TEXT DEFAULT '',
+            target     TEXT DEFAULT '',
+            detail     TEXT DEFAULT '',
+            created_at TEXT NOT NULL
+        )
+    """)
     # ── 無主包裹認領牆（沒客編/羅馬拼音的包裹，先登記保留到倉日，認領後轉入 packages）──
     conn.execute("""
         CREATE TABLE IF NOT EXISTS unclaimed_packages (
@@ -926,8 +938,34 @@ def current_user():
     }
 
 def is_super_admin():
-    """是否為主管理員（admin_users 表的人，看全部）"""
+    """是否為管理員（admin_users 表的人＝老闆或員工，日常作業都可）"""
     return session.get("user_type") == "admin"
+
+def is_boss():
+    """是否為老闆（super）：可看營收統計、代理管理、管理員管理、變更密碼等敏感功能"""
+    return session.get("user_type") == "admin" and session.get("role") == "super"
+
+def is_staff():
+    """是否為員工（admin_users 但非 super）：只能日常作業"""
+    return session.get("user_type") == "admin" and session.get("role") != "super"
+
+def current_operator():
+    """當前操作者顯示名稱（給操作紀錄用）"""
+    return session.get("username") or "?"
+
+def log_op(action, target="", detail=""):
+    """記一筆操作紀錄（誰、做了什麼、對象）。失敗不影響主流程。"""
+    try:
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO operation_logs (operator, role, action, target, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (current_operator(), session.get("role", ""), action, str(target), str(detail),
+             datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[log_op] 失敗: {e}", flush=True)
 
 def get_current_agent_id():
     """當前代理 id（>0 才是代理，0 = 主管理員看全部）"""
@@ -1040,7 +1078,7 @@ def admin_list_users():
 
 @app.route("/api/admin/agents", methods=["GET"])
 def admin_list_agents():
-    if not is_super_admin():
+    if not is_boss():
         return jsonify({"success": False, "error": "權限不足"}), 403
     conn = get_db()
     rows = conn.execute(
@@ -1073,7 +1111,7 @@ def admin_list_agents():
 @app.route("/api/admin/agents/<int:agent_id>/payout", methods=["POST"])
 def admin_agent_payout(agent_id):
     """標記某代理某週已撥款（填匯款後五碼 + 時間）。"""
-    if not is_super_admin():
+    if not is_boss():
         return jsonify({"success": False, "error": "權限不足"}), 403
     data = request.json or {}
     period_key = (data.get("period_key") or "").strip()
@@ -1108,7 +1146,7 @@ def admin_agent_payout(agent_id):
 @app.route("/api/admin/agents/<int:agent_id>/payout", methods=["DELETE"])
 def admin_agent_payout_cancel(agent_id):
     """取消某週撥款標記。"""
-    if not is_super_admin():
+    if not is_boss():
         return jsonify({"success": False, "error": "權限不足"}), 403
     period_key = (request.args.get("period_key") or "").strip()
     if not period_key:
@@ -1251,7 +1289,7 @@ def agent_my_branding():
 
 @app.route("/api/admin/agents", methods=["POST"])
 def admin_create_agent():
-    if not is_super_admin():
+    if not is_boss():
         return jsonify({"success": False, "error": "權限不足"}), 403
     data = request.json or {}
     username = (data.get("username") or "").strip()
@@ -1300,7 +1338,7 @@ def admin_create_agent():
 
 @app.route("/api/admin/agents/<int:agent_id>", methods=["PUT"])
 def admin_update_agent(agent_id):
-    if not is_super_admin():
+    if not is_boss():
         return jsonify({"success": False, "error": "權限不足"}), 403
     data = request.json or {}
     conn = get_db()
@@ -1351,7 +1389,7 @@ def admin_update_agent(agent_id):
 
 @app.route("/api/admin/agents/<int:agent_id>", methods=["DELETE"])
 def admin_delete_agent(agent_id):
-    if not is_super_admin():
+    if not is_boss():
         return jsonify({"success": False, "error": "權限不足"}), 403
     transfer = request.args.get("transfer") == "1"
     conn = get_db()
@@ -1460,18 +1498,25 @@ def get_member_unified(g_code):
 
 @app.route("/api/admin/users", methods=["POST"])
 def admin_create_user():
-    if not is_super_admin():
+    if not is_boss():
         return jsonify({"success": False, "error": "權限不足"}), 403
     data = request.json
     username = (data.get("username") or "").strip()
     password = (data.get("password") or "").strip()
-    role = data.get("role", "admin")
+    role = data.get("role", "staff")
+    if role not in ("super", "staff"):
+        role = "staff"
     if not username or not password:
         return jsonify({"success": False, "error": "帳號和密碼為必填"})
     if len(password) < 4:
         return jsonify({"success": False, "error": "密碼至少 4 個字元"})
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = get_db()
+    # 純密碼登入 → 密碼必須全站唯一（否則分不出是誰）
+    dup = conn.execute("SELECT username FROM admin_users WHERE password=?", (password,)).fetchone()
+    if dup:
+        conn.close()
+        return jsonify({"success": False, "error": f"此密碼已被「{dup['username']}」使用，請換一組（密碼須唯一）"})
     try:
         conn.execute("INSERT INTO admin_users (username, password, role, created_at) VALUES (?, ?, ?, ?)",
                      (username, password, role, now))
@@ -1484,7 +1529,7 @@ def admin_create_user():
 
 @app.route("/api/admin/users/<int:user_id>", methods=["DELETE"])
 def admin_delete_user(user_id):
-    if not is_super_admin():
+    if not is_boss():
         return jsonify({"success": False, "error": "權限不足"}), 403
     conn = get_db()
     user = conn.execute("SELECT role FROM admin_users WHERE id=?", (user_id,)).fetchone()
@@ -1498,6 +1543,52 @@ def admin_delete_user(user_id):
     conn.commit()
     conn.close()
     return jsonify({"success": True})
+
+
+@app.route("/api/admin/users/<int:user_id>/password", methods=["POST"])
+def admin_reset_user_password(user_id):
+    """老闆變更任一管理員的密碼（純密碼登入 → 唯一檢查）。"""
+    if not is_boss():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    new_pwd = ((request.json or {}).get("password") or "").strip()
+    if len(new_pwd) < 4:
+        return jsonify({"success": False, "error": "密碼至少 4 個字元"})
+    conn = get_db()
+    dup = conn.execute("SELECT username FROM admin_users WHERE password=? AND id!=?", (new_pwd, user_id)).fetchone()
+    if dup:
+        conn.close()
+        return jsonify({"success": False, "error": f"此密碼已被「{dup['username']}」使用，請換一組"})
+    u = conn.execute("SELECT username FROM admin_users WHERE id=?", (user_id,)).fetchone()
+    if not u:
+        conn.close()
+        return jsonify({"success": False, "error": "找不到此管理員"})
+    conn.execute("UPDATE admin_users SET password=? WHERE id=?", (new_pwd, user_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route("/api/admin/operation_logs", methods=["GET"])
+def admin_operation_logs():
+    """操作紀錄（老闆專用）：誰做了什麼。可用 ?q= 關鍵字、?limit= 筆數。"""
+    if not is_boss():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    q = (request.args.get("q") or "").strip()
+    try:
+        limit = min(int(request.args.get("limit", 300)), 1000)
+    except (ValueError, TypeError):
+        limit = 300
+    conn = get_db()
+    if q:
+        like = f"%{q}%"
+        rows = conn.execute(
+            "SELECT * FROM operation_logs WHERE operator LIKE ? OR action LIKE ? OR target LIKE ? OR detail LIKE ? "
+            "ORDER BY id DESC LIMIT ?", (like, like, like, like, limit)
+        ).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM operation_logs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    conn.close()
+    return jsonify({"success": True, "logs": [dict(r) for r in rows]})
 
 
 def _mark_disabled(members):
@@ -2071,6 +2162,7 @@ def admin_claim_unclaimed(uid):
     conn.execute("DELETE FROM unclaimed_packages WHERE id=?", (uid,))
     conn.commit()
     conn.close()
+    log_op("認領無主件", g_code, f"{u.get('recipient_name','')} → 到倉日 {in_date}")
     return jsonify({"success": True, "g_code": g_code, "in_date": in_date})
 
 
@@ -2118,6 +2210,7 @@ def admin_add_package():
     new_id = cur.lastrowid
     conn.commit()
     conn.close()
+    log_op("登記到貨", g_code, f"{product_name or logis_num} {weight}kg")
     return jsonify({"success": True, "id": new_id})
 
 
@@ -2491,6 +2584,8 @@ def compute_agent_weekly(agent_id, conn=None):
 @app.route("/api/admin/stats/monthly/detail", methods=["GET"])
 def admin_monthly_detail():
     """取得指定週/月的出貨明細（month 參數值可為 '2026-06' 或 '2026-W23'）"""
+    if is_staff():
+        return jsonify({"success": False, "error": "權限不足"}), 403
     month = request.args.get("month", "")
     if not month:
         return jsonify({"success": False, "error": "缺少期間"})
@@ -2565,6 +2660,8 @@ def admin_monthly_detail():
 @app.route("/api/admin/stats/monthly/excel", methods=["GET"])
 def admin_monthly_excel():
     """下載指定月份的出貨明細 Excel"""
+    if is_staff():
+        return jsonify({"success": False, "error": "權限不足"}), 403
     month = request.args.get("month", "")  # e.g. "2026-04"
     if not month:
         return jsonify({"success": False, "error": "缺少月份參數"})
@@ -2747,6 +2844,8 @@ def _matches_period(date_str, period_key):
 @app.route("/api/admin/stats/monthly", methods=["GET"])
 def admin_monthly_stats():
     """月/週統計：代理→按週、主帳號→可選月/週（?period=month|week，預設 month）"""
+    if is_staff():
+        return jsonify({"success": False, "error": "權限不足"}), 403
     aid = get_current_agent_id()
     if aid > 0:
         period_type = "week"
@@ -3658,6 +3757,7 @@ def admin_confirm_payment(req_id):
     )
     conn.commit()
     conn.close()
+    log_op("帳單確認付款", f"出貨單#{req_id}", f"後五碼 {note}")
     return jsonify({"success": True, "message": "已確認匯款"})
 
 
@@ -4269,6 +4369,8 @@ def admin_update_shipment_request(req_id):
 
     conn.commit()
     conn.close()
+    if status == "已出貨":
+        log_op("出貨處理", g_code_val, f"出貨單#{req_id}")
     return jsonify({"success": True, "g_code": g_code_val, "customer_name": customer_name_val})
 
 
