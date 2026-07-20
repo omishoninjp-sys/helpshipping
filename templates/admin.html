@@ -1060,7 +1060,7 @@
                 <div class="toolbar">
                     <h3>💰 帳單管理</h3>
                     <div class="toolbar-actions">
-                        <select id="billing-filter" class="form-control" style="width:auto;padding:6px 12px;font-size:13px;" onchange="loadBilling()">
+                        <select id="billing-filter" class="form-control" style="width:auto;padding:6px 12px;font-size:13px;" onchange="filterBilling()">
                             <option value="unpaid" selected>💰 待付款</option>
                             <option value="paid">✅ 已付款</option>
                             <option value="all">全部帳單</option>
@@ -1070,6 +1070,25 @@
                     </div>
                 </div>
                 <div id="billing-print-summary" class="print-summary"></div>
+                <div class="filter-bar">
+                    <input type="text" id="billing-search" placeholder="🔍 搜尋客戶編號、姓名、地址、追蹤號、末五碼或備註..." oninput="filterBilling()">
+                    <span class="pkg-count" id="billing-count"></span>
+                </div>
+                <div class="filter-bar" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 4px 10px;">
+                    <span style="font-size:12px;color:#888;">📅 日期區間：</span>
+                    <select id="billing-date-field" class="form-control" style="width:auto;padding:6px 10px;font-size:12px;" onchange="filterBilling()">
+                        <option value="updated_at" selected>出貨日</option>
+                        <option value="payment_at">付款日</option>
+                    </select>
+                    <input type="date" id="billing-date-from" class="form-control" style="width:auto;padding:6px 10px;font-size:12px;" onchange="filterBilling()">
+                    <span style="font-size:12px;color:#666;">～</span>
+                    <input type="date" id="billing-date-to" class="form-control" style="width:auto;padding:6px 10px;font-size:12px;" onchange="filterBilling()">
+                    <button class="btn" style="background:rgba(52,152,219,.2);color:#3498db;padding:4px 10px;font-size:11px;" onclick="setBillingDateRange('today')">今天</button>
+                    <button class="btn" style="background:rgba(52,152,219,.2);color:#3498db;padding:4px 10px;font-size:11px;" onclick="setBillingDateRange('thisMonth')">本月</button>
+                    <button class="btn" style="background:rgba(52,152,219,.2);color:#3498db;padding:4px 10px;font-size:11px;" onclick="setBillingDateRange('lastMonth')">上月</button>
+                    <button class="btn" style="background:rgba(52,152,219,.2);color:#3498db;padding:4px 10px;font-size:11px;" onclick="setBillingDateRange('last30')">近 30 天</button>
+                    <button class="btn" style="background:rgba(231,76,60,.18);color:#e74c3c;padding:4px 10px;font-size:11px;" onclick="setBillingDateRange('clear')">清除</button>
+                </div>
                 <div style="overflow-x:auto;">
                     <table class="data-table">
                         <thead>
@@ -3214,30 +3233,55 @@ async function updateForecast(id, status) {
 var allBillingData = [];
 
 async function loadBilling() {
-    var filter = document.getElementById('billing-filter').value;
     try {
         var res = await fetch('/api/admin/shipment_requests?status=已出貨');
         var result = await res.json();
-        var tbody = document.getElementById('billingTable');
-        var summary = document.getElementById('billing-print-summary');
-        if (!result.success || !result.requests || !result.requests.length) {
-            allBillingData = [];
-            tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#666;padding:30px;">無帳單</td></tr>';
-            if (summary) summary.innerHTML = '';
-            return;
-        }
-        allBillingData = result.requests;
-        var list = result.requests;
-        if (filter === 'unpaid') list = list.filter(function(r){ return r.total_fee > 0 && !r.payment_last5; });
-        else if (filter === 'paid') list = list.filter(function(r){ return !!r.payment_last5; });
+        allBillingData = (result.success && result.requests) ? result.requests : [];
+        filterBilling();
+    } catch(e) { console.error('loadBilling:', e); }
+}
 
-        if (!list.length) {
-            tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#666;padding:30px;">無符合帳單</td></tr>';
-            if (summary) summary.innerHTML = '';
-            return;
-        }
-        var sumTotal = 0, sumWeight = 0;
-        tbody.innerHTML = list.map(function(r) {
+function filterBilling() {
+    var filter = (document.getElementById('billing-filter') || {}).value || 'unpaid';
+    var q = ((document.getElementById('billing-search') || {}).value || '').trim().toUpperCase();
+    var dFrom = (document.getElementById('billing-date-from') || {}).value || '';
+    var dTo = (document.getElementById('billing-date-to') || {}).value || '';
+    var dField = (document.getElementById('billing-date-field') || {}).value || 'updated_at';
+    var tbody = document.getElementById('billingTable');
+    var summary = document.getElementById('billing-print-summary');
+    var countEl = document.getElementById('billing-count');
+
+    var list = (allBillingData || []).slice();
+    // 付款狀態
+    if (filter === 'unpaid') list = list.filter(function(r){ return r.total_fee > 0 && !r.payment_last5; });
+    else if (filter === 'paid') list = list.filter(function(r){ return !!r.payment_last5; });
+    // 關鍵字
+    if (q) {
+        list = list.filter(function(r){
+            var fields = [r.g_code, r.customer_name, r.ship_recipient, r.ship_phone, r.ship_address, r.note, r.tracking_num, r.package_summary, r.payment_last5];
+            for (var i=0;i<fields.length;i++){ var v=fields[i]; if (v!==null&&v!==undefined&&String(v).toUpperCase().includes(q)) return true; }
+            return false;
+        });
+    }
+    // 日期
+    if (dFrom || dTo) {
+        list = list.filter(function(r){
+            var dateStr = String(r[dField] || '').substring(0,10);
+            if (!dateStr) return false;
+            if (dFrom && dateStr < dFrom) return false;
+            if (dTo && dateStr > dTo) return false;
+            return true;
+        });
+    }
+
+    if (countEl) countEl.textContent = '共 ' + list.length + ' 筆';
+    if (!list.length) {
+        tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#666;padding:30px;">無符合帳單</td></tr>';
+        if (summary) summary.innerHTML = '';
+        return;
+    }
+    var sumTotal = 0, sumWeight = 0;
+    tbody.innerHTML = list.map(function(r) {
             var payHtml = r.payment_last5
                 ? '<span style="color:#27ae60;font-weight:700;font-size:12px;">✅ ' + r.payment_last5 + '</span><div style="font-size:10px;color:#888;">' + (r.payment_at||'').slice(5,16) + '</div>'
                 : '<span style="color:#e74c3c;font-size:12px;">未付款</span>';
@@ -3278,7 +3322,20 @@ async function loadBilling() {
                 + '　|　總公斤：<strong>' + sumWeight.toFixed(1) + ' kg</strong>'
                 + '　|　總金額：<strong>$' + sumTotal.toLocaleString() + '</strong>';
         }
-    } catch(e) { console.error('loadBilling:', e); }
+}
+
+function setBillingDateRange(preset) {
+    var pad = function(n){ return n < 10 ? '0' + n : '' + n; };
+    var fmt = function(d){ return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()); };
+    var now = new Date();
+    var from = '', to = '';
+    if (preset === 'today') { from = to = fmt(now); }
+    else if (preset === 'thisMonth') { from = fmt(new Date(now.getFullYear(), now.getMonth(), 1)); to = fmt(new Date(now.getFullYear(), now.getMonth()+1, 0)); }
+    else if (preset === 'lastMonth') { from = fmt(new Date(now.getFullYear(), now.getMonth()-1, 1)); to = fmt(new Date(now.getFullYear(), now.getMonth(), 0)); }
+    else if (preset === 'last30') { var d30 = new Date(now); d30.setDate(d30.getDate()-29); from = fmt(d30); to = fmt(now); }
+    document.getElementById('billing-date-from').value = from;
+    document.getElementById('billing-date-to').value = to;
+    filterBilling();
 }
 
 async function printBilling() {
