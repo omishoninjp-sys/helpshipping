@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Admin - 集運管理後台</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 
     <!-- ===== PWA 後台 ===== -->
     <link rel="manifest" href="/admin-manifest.webmanifest">
@@ -275,6 +276,13 @@
     .customer-search-item .csi-phone { color:#888; font-size:12px; margin-left:auto; }
     .customer-search-item .csi-agent { font-size:10px; padding:2px 6px; border-radius:8px; background:rgba(52,152,219,.2); color:#3498db; }
     .customer-search-empty { padding:14px; text-align:center; color:#888; font-size:12px; }
+        .stats-range-btn { background:rgba(52,152,219,.15); color:#3498db; border:1px solid rgba(52,152,219,.25); border-radius:8px; padding:5px 12px; font-size:12px; cursor:pointer; }
+        .stats-range-btn.active { background:#3498db; color:#fff; font-weight:700; }
+        .stats-period-btn { background:rgba(255,255,255,.06); color:#aaa; border:1px solid rgba(255,255,255,.1); border-radius:8px; padding:5px 14px; font-size:12px; cursor:pointer; }
+        .stats-period-btn.active { background:#9b59b6; color:#fff; font-weight:700; border-color:#9b59b6; }
+        .stats-metric-chip { display:inline-flex; align-items:center; gap:6px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.1); border-radius:10px; padding:8px 14px; font-size:13px; cursor:pointer; user-select:none; transition:all .15s; }
+        .stats-metric-chip.on { background:rgba(255,255,255,.08); }
+        .stats-metric-dot { width:10px; height:10px; border-radius:3px; flex:0 0 auto; }
     </style>
 </head>
 <body>
@@ -938,6 +946,21 @@
                 </div>
                 <!-- 總覽卡片 -->
                 <div id="statsOverview" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:24px;"></div>
+                <!-- 互動圖表 -->
+                <div id="statsChartSection" style="margin-bottom:24px;">
+                    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">
+                        <div id="statsPeriodToggle" style="display:inline-flex;gap:4px;"></div>
+                        <span id="statsToggleSep" style="color:#555;">|</span>
+                        <button class="stats-range-btn" data-range="3m" onclick="setStatsRange('3m')">近 3 個月</button>
+                        <button class="stats-range-btn" data-range="6m" onclick="setStatsRange('6m')">近 6 個月</button>
+                        <button class="stats-range-btn" data-range="ytd" onclick="setStatsRange('ytd')">今年</button>
+                        <button class="stats-range-btn" data-range="all" onclick="setStatsRange('all')">全部</button>
+                    </div>
+                    <div id="statsMetricPicker" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;"></div>
+                    <div style="position:relative;height:340px;background:rgba(0,0,0,.15);border-radius:12px;padding:12px;">
+                        <canvas id="statsChart"></canvas>
+                    </div>
+                </div>
                 <!-- 月報表格 -->
                 <div style="overflow-x:auto;">
                     <table class="data-table">
@@ -3410,11 +3433,110 @@ function openForecastSheet(fcId) {
     openInSheets('/api/admin/forecasts/' + fcId + '/excel');
 }
 
+// ── 統計互動圖表 ──
+var STATS_METRICS = [
+    { key:'total_revenue',     label:'總收入',   color:'#27ae60', axis:'money', money:true },
+    { key:'total_kg',          label:'總公斤數', color:'#f39c12', axis:'count' },
+    { key:'shipping_fee',      label:'運費',     color:'#3498db', axis:'money', money:true },
+    { key:'handling_fee',      label:'理貨費',   color:'#1abc9c', axis:'money', money:true },
+    { key:'extra_fee',         label:'加值服務', color:'#9b59b6', axis:'money', money:true },
+    { key:'consolidation_fee', label:'合箱費',   color:'#e67e22', axis:'money', money:true },
+    { key:'shipments',         label:'出貨單數', color:'#e74c3c', axis:'count' },
+    { key:'customer_count',    label:'客戶數',   color:'#95a5a6', axis:'count' },
+];
+var statsState = { period:'month', range:'6m', metrics:{ total_revenue:true, total_kg:true }, data:[], isWeek:false, isAgent:false };
+var _statsChart = null;
+
+function periodKeyToDate(key) {
+    if (/^\d{4}-\d{2}$/.test(key)) { var p = key.split('-'); return new Date(+p[0], +p[1]-1, 1); }
+    var m = String(key).match(/^(\d{4})-W(\d{2})$/);
+    if (m) { var d = new Date(Date.UTC(+m[1], 0, 1 + (+m[2]-1)*7)); var dow = d.getUTCDay() || 7; d.setUTCDate(d.getUTCDate() - dow + 1); return d; }
+    return new Date();
+}
+function statsRangeCutoff(range) {
+    var now = new Date();
+    if (range === '3m')  return new Date(now.getFullYear(), now.getMonth()-3, 1);
+    if (range === '6m')  return new Date(now.getFullYear(), now.getMonth()-6, 1);
+    if (range === 'ytd') return new Date(now.getFullYear(), 0, 1);
+    return null; // all
+}
+function setStatsRange(r) { statsState.range = r; renderStatsChart(); syncStatsButtons(); }
+function setStatsPeriod(p) { if (statsState.period === p) return; statsState.period = p; loadStats(); }
+function toggleStatsMetric(key) { statsState.metrics[key] = !statsState.metrics[key]; renderStatsMetricPicker(); renderStatsChart(); }
+
+function syncStatsButtons() {
+    document.querySelectorAll('.stats-range-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.range === statsState.range); });
+    document.querySelectorAll('.stats-period-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.period === statsState.period); });
+}
+function renderStatsPeriodToggle() {
+    var box = document.getElementById('statsPeriodToggle');
+    var sep = document.getElementById('statsToggleSep');
+    if (!box) return;
+    if (statsState.isAgent) { box.innerHTML = ''; if (sep) sep.style.display = 'none'; return; }  // 代理固定週
+    if (sep) sep.style.display = '';
+    box.innerHTML =
+        '<button class="stats-period-btn" data-period="month" onclick="setStatsPeriod(\'month\')">月</button>'
+      + '<button class="stats-period-btn" data-period="week" onclick="setStatsPeriod(\'week\')">週</button>';
+    syncStatsButtons();
+}
+function renderStatsMetricPicker() {
+    var box = document.getElementById('statsMetricPicker');
+    if (!box) return;
+    box.innerHTML = STATS_METRICS.map(function(mt){
+        var on = !!statsState.metrics[mt.key];
+        return '<span class="stats-metric-chip ' + (on ? 'on' : '') + '" onclick="toggleStatsMetric(\'' + mt.key + '\')">'
+            + '<span class="stats-metric-dot" style="background:' + (on ? mt.color : '#555') + ';"></span>'
+            + '<span style="color:' + (on ? '#fff' : '#888') + ';">' + mt.label + '</span></span>';
+    }).join('');
+}
+function renderStatsChart() {
+    var canvas = document.getElementById('statsChart');
+    if (!canvas || !window.Chart) return;
+    var cutoff = statsRangeCutoff(statsState.range);
+    var rows = (statsState.data || []).filter(function(m){ return !cutoff || periodKeyToDate(m.month) >= cutoff; });
+    rows = rows.slice().sort(function(a,b){ return periodKeyToDate(a.month) - periodKeyToDate(b.month); });  // 舊→新
+    var labels = rows.map(function(m){ return m.period_label || m.month; });
+    var datasets = STATS_METRICS.filter(function(mt){ return statsState.metrics[mt.key]; }).map(function(mt){
+        return {
+            label: mt.label,
+            data: rows.map(function(m){ return Math.round((m[mt.key]||0)*10)/10; }),
+            borderColor: mt.color, backgroundColor: mt.color + '33',
+            yAxisID: mt.axis === 'money' ? 'yMoney' : 'yCount',
+            tension: 0.3, borderWidth: 2, pointRadius: 2, pointHoverRadius: 5, fill: false
+        };
+    });
+    if (_statsChart) _statsChart.destroy();
+    _statsChart = new Chart(canvas, {
+        type: 'line',
+        data: { labels: labels, datasets: datasets },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { labels: { color: '#ccc', usePointStyle: true, boxWidth: 8 } },
+                tooltip: { callbacks: { label: function(ctx){
+                    var mt = STATS_METRICS.filter(function(x){ return x.label === ctx.dataset.label; })[0];
+                    var v = ctx.parsed.y;
+                    return ctx.dataset.label + '：' + (mt && mt.money ? 'NT$ ' : '') + v.toLocaleString() + (mt && mt.key === 'total_kg' ? ' kg' : '');
+                }}}
+            },
+            scales: {
+                x: { ticks: { color: '#888', maxRotation: 0, autoSkip: true }, grid: { color: 'rgba(255,255,255,.05)' } },
+                yMoney: { position: 'left',  beginAtZero: true, ticks: { color: '#27ae60', callback: function(v){ return 'NT$' + v.toLocaleString(); } }, grid: { color: 'rgba(255,255,255,.05)' } },
+                yCount: { position: 'right', beginAtZero: true, ticks: { color: '#f39c12' }, grid: { drawOnChartArea: false } }
+            }
+        }
+    });
+}
+
 async function loadStats() {
     try {
-        const res = await fetch('/api/admin/stats/monthly');
+        const res = await fetch('/api/admin/stats/monthly?period=' + statsState.period);
         const result = await res.json();
         const isWeek = result.period_type === 'week';
+        statsState.isWeek = isWeek;
+        statsState.isAgent = !!result.is_agent;
+        statsState.period = result.period_type;  // 與後端實際粒度同步（代理固定 week）
         // 標題與欄位依代理/主帳號切換
         var titleEl = document.getElementById('statsTitle');
         var colEl = document.getElementById('statsPeriodCol');
@@ -3422,11 +3544,21 @@ async function loadStats() {
         if (colEl)   colEl.textContent   = isWeek ? '週次' : '月份';
 
         if (!result.success || !result.monthly || !result.monthly.length) {
+            statsState.data = [];
+            renderStatsPeriodToggle();
+            renderStatsMetricPicker();
+            renderStatsChart();
+            syncStatsButtons();
             document.getElementById('statsOverview').innerHTML = '';
             document.getElementById('statsTable').innerHTML = '<tr><td colspan="10" style="text-align:center;color:#666;padding:30px;">尚無出貨數據</td></tr>';
             return;
         }
         var data = result.monthly;
+        statsState.data = data;
+        renderStatsPeriodToggle();
+        renderStatsMetricPicker();
+        renderStatsChart();
+        syncStatsButtons();
         // 總覽：全部累計
         var totalKg = 0, totalRevenue = 0, totalShipments = 0, totalShipping = 0, totalHandling = 0, totalConsolidation = 0, totalExtra = 0;
         data.forEach(function(m) {

@@ -2655,9 +2655,14 @@ def _matches_period(date_str, period_key):
 
 @app.route("/api/admin/stats/monthly", methods=["GET"])
 def admin_monthly_stats():
-    """月/週統計：代理→按週、主帳號→按月"""
+    """月/週統計：代理→按週、主帳號→可選月/週（?period=month|week，預設 month）"""
     aid = get_current_agent_id()
-    period_type = "week" if aid > 0 else "month"
+    if aid > 0:
+        period_type = "week"
+    else:
+        period_type = request.args.get("period", "month")
+        if period_type not in ("month", "week"):
+            period_type = "month"
     try:
         conn = get_db()
         if aid > 0:
