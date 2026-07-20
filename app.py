@@ -298,6 +298,19 @@ def init_db():
             synced_at     TEXT DEFAULT ''
         )
     """)
+    # ── 無主包裹認領牆（沒客編/羅馬拼音的包裹，先登記保留到倉日，認領後轉入 packages）──
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS unclaimed_packages (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            recipient_name  TEXT DEFAULT '',
+            logis_num       TEXT DEFAULT '',
+            product_name    TEXT DEFAULT '',
+            weight          TEXT DEFAULT '',
+            note            TEXT DEFAULT '',
+            registered_date TEXT,
+            created_at      TEXT NOT NULL
+        )
+    """)
     # ── 停用會員名單（集運系統層級，不動 Shopify；g_code 為鍵）──
     conn.execute("""
         CREATE TABLE IF NOT EXISTS disabled_members (
@@ -1981,6 +1994,84 @@ def admin_list_packages():
             rows = conn.execute("SELECT * FROM packages ORDER BY id DESC").fetchall()
     conn.close()
     return jsonify({"success": True, "packages": [dict(r) for r in rows]})
+
+
+# ===== 無主包裹認領牆 =====
+
+@app.route("/api/admin/unclaimed", methods=["GET"])
+def admin_list_unclaimed():
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM unclaimed_packages ORDER BY id DESC").fetchall()
+    conn.close()
+    return jsonify({"success": True, "items": [dict(r) for r in rows]})
+
+
+@app.route("/api/admin/unclaimed", methods=["POST"])
+def admin_add_unclaimed():
+    """倉庫登記一件無主包裹（記到倉日期）。"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    data = request.json or {}
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    today = datetime.now().strftime("%Y-%m-%d")
+    reg_date = (data.get("registered_date") or "").strip() or today
+    conn = get_db()
+    cur = conn.execute(
+        """INSERT INTO unclaimed_packages (recipient_name, logis_num, product_name, weight, note, registered_date, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        ((data.get("recipient_name") or "").strip(), (data.get("logis_num") or "").strip(),
+         (data.get("product_name") or "").strip(), (data.get("weight") or "").strip(),
+         (data.get("note") or "").strip(), reg_date, now)
+    )
+    new_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "id": new_id})
+
+
+@app.route("/api/admin/unclaimed/<int:uid>", methods=["DELETE"])
+def admin_delete_unclaimed(uid):
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    conn = get_db()
+    conn.execute("DELETE FROM unclaimed_packages WHERE id=?", (uid,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route("/api/admin/unclaimed/<int:uid>/claim", methods=["POST"])
+def admin_claim_unclaimed(uid):
+    """認領：填客編 → 轉入 packages（保留原始到倉日 in_date）→ 從認領牆移除。"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    g_code = ((request.json or {}).get("g_code") or "").strip().upper()
+    if not g_code:
+        return jsonify({"success": False, "error": "請輸入客戶編號"}), 400
+    if not g_code[:1].isalpha():
+        g_code = "G" + g_code
+
+    conn = get_db()
+    u = conn.execute("SELECT * FROM unclaimed_packages WHERE id=?", (uid,)).fetchone()
+    if not u:
+        conn.close()
+        return jsonify({"success": False, "error": "找不到此無主包裹"}), 404
+    u = dict(u)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    in_date = u.get("registered_date") or datetime.now().strftime("%Y-%m-%d")  # 保留原始到倉日
+    pkg_agent_id = get_agent_id_for_g_code(g_code)
+    conn.execute(
+        """INSERT INTO packages (g_code, logis_num, product_name, weight, status, note, in_date, created_at, agent_id, pkg_type)
+           VALUES (?, ?, ?, ?, '已到貨', ?, ?, ?, ?, '包裹')""",
+        (g_code, u.get("logis_num", ""), u.get("product_name", ""), u.get("weight", ""),
+         u.get("note", ""), in_date, now, pkg_agent_id)
+    )
+    conn.execute("DELETE FROM unclaimed_packages WHERE id=?", (uid,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "g_code": g_code, "in_date": in_date})
 
 
 @app.route("/api/admin/packages", methods=["POST"])

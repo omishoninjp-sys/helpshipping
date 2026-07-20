@@ -315,6 +315,7 @@
             <div class="admin-sidebar">
                 <div class="sidebar-item active" onclick="switchAdminTab('members')">👥 會員管理</div>
                 <div class="sidebar-item" onclick="switchAdminTab('arrivals')">📦 到貨管理</div>
+                <div class="sidebar-item" onclick="switchAdminTab('unclaimed')">🔍 無主包裹 <span id="unclaimed-badge" class="sidebar-badge" style="display:none;background:#e67e22;">0</span></div>
                 <div class="sidebar-divider"></div>
                 <div class="sidebar-item" onclick="switchAdminTab('shipreqs')">🚚 出貨申請 <span id="shipreq-badge" class="sidebar-badge" style="display:none;">0</span></div>
                 <div class="sidebar-item" onclick="switchAdminTab('billing')">💰 帳單管理 <span id="billing-badge" class="sidebar-badge" style="display:none;background:#27ae60;">0</span></div>
@@ -470,6 +471,44 @@
                 </div>
                 <div id="packagesList" class="sr-list">
                     <div style="text-align:center;color:#666;padding:40px;">切換至「到貨管理」頁籤以載入</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 無主包裹認領牆 -->
+        <div class="admin-panel" id="panel-unclaimed">
+            <div class="card">
+                <div class="toolbar" style="margin-bottom:16px;">
+                    <h3>🔍 無主包裹認領牆</h3>
+                    <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadUnclaimed()">🔄 重新整理</button>
+                </div>
+                <p style="font-size:12px;color:#888;margin:-6px 0 14px;line-height:1.6;">
+                    沒填客編／只有羅馬拼音、無法辨識的包裹，先登記在這裡（系統記下<strong>到倉日期</strong>）。
+                    客戶認領後填入客編，包裹會轉入「到貨管理」並<strong>保留原始到倉日</strong>，客戶不會被白算等待天數。
+                </p>
+                <!-- 登記表單 -->
+                <div style="background:rgba(230,126,34,0.06);border:1px solid rgba(230,126,34,0.2);border-radius:10px;padding:14px;margin-bottom:16px;">
+                    <div style="font-size:13px;font-weight:700;color:#e67e22;margin-bottom:10px;">➕ 登記無主包裹</div>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end;">
+                        <div><label style="font-size:11px;color:#888;display:block;margin-bottom:3px;">收件名（包裹上的）</label><input type="text" id="uc-recipient" class="form-control" placeholder="Shan Kangchia" style="padding:8px;font-size:13px;"></div>
+                        <div><label style="font-size:11px;color:#888;display:block;margin-bottom:3px;">日本物流單號（選填）</label><input type="text" id="uc-logis" class="form-control" placeholder="配送單號" style="padding:8px;font-size:13px;"></div>
+                        <div><label style="font-size:11px;color:#888;display:block;margin-bottom:3px;">重量kg（選填）</label><input type="text" id="uc-weight" class="form-control" placeholder="1.5" style="padding:8px;font-size:13px;"></div>
+                        <div><label style="font-size:11px;color:#888;display:block;margin-bottom:3px;">品名/備註（選填）</label><input type="text" id="uc-note" class="form-control" placeholder="外觀、店家…" style="padding:8px;font-size:13px;"></div>
+                        <div><label style="font-size:11px;color:#888;display:block;margin-bottom:3px;">到倉日期</label><input type="date" id="uc-date" class="form-control" style="padding:8px;font-size:13px;"></div>
+                        <button class="btn" style="background:#e67e22;color:#fff;padding:9px 16px;font-size:13px;font-weight:700;" onclick="addUnclaimed()">登記</button>
+                    </div>
+                </div>
+                <div class="filter-bar">
+                    <input type="text" id="unclaimed-search" placeholder="🔍 搜尋收件名、單號、備註..." oninput="renderUnclaimed()">
+                    <span class="pkg-count" id="unclaimed-count"></span>
+                </div>
+                <div style="overflow-x:auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>收件名</th><th>日本單號</th><th>重量</th><th>品名/備註</th><th>到倉日</th><th>已放置</th><th>操作</th></tr>
+                        </thead>
+                        <tbody id="unclaimedTable"><tr><td colspan="7" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr></tbody>
+                    </table>
                 </div>
             </div>
         </div>
@@ -1437,6 +1476,95 @@ if (loginBtn) {
     loginBtn.addEventListener('click', adminLogin);
 }
 
+// ── 無主包裹認領牆 ──
+var _unclaimedData = [];
+async function loadUnclaimed() {
+    try {
+        var res = await fetch('/api/admin/unclaimed');
+        var d = await res.json();
+        _unclaimedData = (d.success && d.items) ? d.items : [];
+        var badge = document.getElementById('unclaimed-badge');
+        if (badge) { badge.textContent = _unclaimedData.length; badge.style.display = _unclaimedData.length ? '' : 'none'; }
+        renderUnclaimed();
+    } catch(e) { console.error('loadUnclaimed:', e); }
+}
+function renderUnclaimed() {
+    var tbody = document.getElementById('unclaimedTable');
+    var countEl = document.getElementById('unclaimed-count');
+    var q = ((document.getElementById('unclaimed-search') || {}).value || '').trim().toUpperCase();
+    var list = _unclaimedData.slice();
+    if (q) list = list.filter(function(u){
+        return [u.recipient_name, u.logis_num, u.product_name, u.note].some(function(v){ return v && String(v).toUpperCase().includes(q); });
+    });
+    if (countEl) countEl.textContent = '共 ' + list.length + ' 件';
+    if (!list.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#666;padding:30px;">目前沒有無主包裹</td></tr>'; return; }
+    var today = new Date();
+    tbody.innerHTML = list.map(function(u){
+        var days = '';
+        if (u.registered_date) {
+            var d = new Date(u.registered_date.replace(/-/g,'/'));
+            if (!isNaN(d)) { var n = Math.floor((today - d) / 86400000); days = n + ' 天'; }
+        }
+        var daysColor = (parseInt(days) >= 7) ? '#e74c3c' : '#aaa';
+        return '<tr>'
+            + '<td style="font-weight:600;color:#fff;">' + (u.recipient_name || '-') + '</td>'
+            + '<td style="font-size:12px;color:#aaa;">' + (u.logis_num || '-') + '</td>'
+            + '<td style="color:#f39c12;">' + (u.weight || '-') + '</td>'
+            + '<td style="font-size:12px;color:#aaa;max-width:180px;">' + (u.product_name || u.note || '-') + '</td>'
+            + '<td style="font-size:12px;color:#aaa;white-space:nowrap;">' + (u.registered_date || '-') + '</td>'
+            + '<td style="font-weight:700;color:' + daysColor + ';white-space:nowrap;">' + days + '</td>'
+            + '<td><div style="display:flex;gap:4px;">'
+            +   '<button class="btn" style="background:#27ae60;color:#fff;padding:5px 10px;font-size:12px;font-weight:700;white-space:nowrap;" onclick="claimUnclaimed(' + u.id + ',\'' + (u.recipient_name||'').replace(/'/g,'') + '\')">✅ 認領</button>'
+            +   '<button class="btn" style="background:rgba(231,76,60,.15);color:#e74c3c;padding:5px 8px;font-size:12px;border:1px solid rgba(231,76,60,.3);" onclick="deleteUnclaimed(' + u.id + ')">🗑️</button>'
+            + '</div></td>'
+            + '</tr>';
+    }).join('');
+}
+async function addUnclaimed() {
+    var recipient = document.getElementById('uc-recipient').value.trim();
+    var logis = document.getElementById('uc-logis').value.trim();
+    if (!recipient && !logis) { showToast('至少填收件名或日本單號', 'error'); return; }
+    var body = {
+        recipient_name: recipient,
+        logis_num: logis,
+        weight: document.getElementById('uc-weight').value.trim(),
+        note: document.getElementById('uc-note').value.trim(),
+        registered_date: document.getElementById('uc-date').value || ''
+    };
+    try {
+        var res = await fetch('/api/admin/unclaimed', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        var d = await res.json();
+        if (d.success) {
+            showToast('已登記無主包裹', 'success');
+            ['uc-recipient','uc-logis','uc-weight','uc-note','uc-date'].forEach(function(id){ document.getElementById(id).value=''; });
+            loadUnclaimed();
+        } else { showToast(d.error || '登記失敗', 'error'); }
+    } catch(e) { showToast('網路錯誤', 'error'); }
+}
+async function claimUnclaimed(id, name) {
+    var g_code = prompt('認領包裹' + (name ? '（' + name + '）' : '') + '\n\n請輸入客戶編號（如 G0123）：\n認領後會轉入到貨管理，並保留原始到倉日。');
+    if (g_code === null) return;
+    g_code = (g_code || '').trim();
+    if (!g_code) { showToast('請輸入客戶編號', 'error'); return; }
+    try {
+        var res = await fetch('/api/admin/unclaimed/' + id + '/claim', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ g_code: g_code }) });
+        var d = await res.json();
+        if (d.success) {
+            showToast('✅ 已認領 → ' + d.g_code + '（到倉日 ' + d.in_date + ' 已保留）', 'success');
+            loadUnclaimed();
+        } else { showToast(d.error || '認領失敗', 'error'); }
+    } catch(e) { showToast('網路錯誤', 'error'); }
+}
+async function deleteUnclaimed(id) {
+    if (!confirm('確定刪除這筆無主包裹登記嗎？')) return;
+    try {
+        var res = await fetch('/api/admin/unclaimed/' + id, { method:'DELETE' });
+        var d = await res.json();
+        if (d.success) { showToast('已刪除', 'success'); loadUnclaimed(); }
+        else { showToast(d.error || '刪除失敗', 'error'); }
+    } catch(e) { showToast('網路錯誤', 'error'); }
+}
+
 function switchAdminTab(tab) {
     document.querySelectorAll('.sidebar-item').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.admin-panel').forEach(p => p.classList.remove('active'));
@@ -1445,6 +1573,7 @@ function switchAdminTab(tab) {
     var panel = document.getElementById(`panel-${tab}`);
     if (panel) panel.classList.add('active');
     if (tab === 'arrivals') loadPackages();
+    if (tab === 'unclaimed') loadUnclaimed();
     if (tab === 'shipreqs') loadShipReqs();
     if (tab === 'billing') loadBilling();
     if (tab === 'forecasts') loadForecasts();
