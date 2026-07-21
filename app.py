@@ -723,6 +723,29 @@ def get_all_goyoutati_customers(force_refresh=False):
 _load_cache_from_disk()
 
 
+def _prewarm_cache():
+    """開機預熱：容器一啟動就在背景先抓一次 Shopify 會員，
+    讓「登入後第一屏（會員管理）」不用等冷啟動的同步撈取。
+    只有在完全沒快取、或快取已過期時才預熱；有新鮮快取就跳過。"""
+    global _refresh_thread
+    try:
+        has = _customers_cache.get("data") is not None
+        age = time.time() - _customers_cache.get("time", 0)
+        if (not has) or age >= CACHE_TTL:
+            with _cache_lock:
+                if _refresh_thread is None or not _refresh_thread.is_alive():
+                    _refresh_thread = threading.Thread(
+                        target=_refresh_shopify_async, daemon=True, name="ShopifyPrewarm"
+                    )
+                    _refresh_thread.start()
+                    print("[Shopify] 🔥 開機預熱：背景抓取會員中…", flush=True)
+    except Exception as e:
+        print(f"[Shopify] 預熱啟動失敗: {e}", flush=True)
+
+
+_prewarm_cache()
+
+
 def _fetch_customers_from_shopify():
     customers = []
     cursor = None
