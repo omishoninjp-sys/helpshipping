@@ -868,8 +868,18 @@ def _ensure_super_admin():
         else:
             env_pw = os.environ.get("ADMIN_PASSWORD", "")
             if env_pw:
-                conn.execute("UPDATE admin_users SET password=? WHERE role='super'", (env_pw,))
+                # ⚠️ 只重設 bootstrap 帳號「admin」的密碼。
+                # 舊寫法是 WHERE role='super'，會把「所有老闆」的密碼一起蓋成同一組，
+                # 導致其他老闆（例如 Flower）每次容器重啟後密碼被改掉而登不進來。
+                conn.execute("UPDATE admin_users SET password=? WHERE username='admin'", (env_pw,))
                 conn.commit()
+            # 純密碼登入：密碼重複會讓系統認錯人，啟動時檢查並警告（不印出密碼本身）
+            dups = conn.execute(
+                "SELECT COUNT(*) AS c, GROUP_CONCAT(username) AS us FROM admin_users "
+                "GROUP BY password HAVING c > 1"
+            ).fetchall()
+            for d in dups:
+                print(f"[Admin] ⚠️ 密碼重複：{d['us']} 使用同一組密碼，請到後台改成不同密碼", flush=True)
             print(f"[Admin] ✅ 已有 {count} 個管理員帳號", flush=True)
         conn.close()
     except Exception as e:
@@ -1589,6 +1599,33 @@ def admin_reset_user_password(user_id):
     conn.commit()
     conn.close()
     return jsonify({"success": True})
+
+
+@app.route("/api/admin/users/<int:user_id>/role", methods=["POST"])
+def admin_change_user_role(user_id):
+    """變更管理員身分（老闆 super ⇄ 員工 staff）。"""
+    if not is_boss():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    new_role = ((request.json or {}).get("role") or "").strip()
+    if new_role not in ("super", "staff"):
+        return jsonify({"success": False, "error": "身分只能是 super 或 staff"}), 400
+    if session.get("user_id") == user_id:
+        return jsonify({"success": False, "error": "不能變更自己的身分"}), 400
+    conn = get_db()
+    u = conn.execute("SELECT username, role FROM admin_users WHERE id=?", (user_id,)).fetchone()
+    if not u:
+        conn.close()
+        return jsonify({"success": False, "error": "找不到此管理員"}), 404
+    # 保護：不可把最後一個老闆降為員工
+    if u["role"] == "super" and new_role == "staff":
+        supers = conn.execute("SELECT COUNT(*) AS c FROM admin_users WHERE role='super'").fetchone()["c"]
+        if supers <= 1:
+            conn.close()
+            return jsonify({"success": False, "error": "至少要保留一位老闆"}), 400
+    conn.execute("UPDATE admin_users SET role=? WHERE id=?", (new_role, user_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "username": u["username"], "role": new_role})
 
 
 @app.route("/api/admin/operation_logs", methods=["GET"])

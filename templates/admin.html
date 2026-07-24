@@ -4169,13 +4169,27 @@ async function loadAdminUsers() {
         container.innerHTML = result.users.map(function(u) {
             var roleLabel = u.role === 'super' ? '<span style="font-size:10px;padding:2px 8px;background:rgba(243,156,18,.2);color:#f39c12;border-radius:8px;">老闆</span>' : '<span style="font-size:10px;padding:2px 8px;background:rgba(52,152,219,.2);color:#3498db;border-radius:8px;">員工</span>';
             var pwdBtn = '<button onclick="resetAdminPwd(' + u.id + ',\'' + (u.username||'').replace(/'/g,'') + '\')" style="background:rgba(52,152,219,.15);border:none;color:#3498db;padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer;margin-right:6px;">🔑 改密碼</button>';
+            var roleBtn = '<button onclick="changeAdminRole(' + u.id + ',\'' + (u.username||'').replace(/'/g,'') + '\',\'' + (u.role === 'super' ? 'staff' : 'super') + '\')" style="background:rgba(155,89,182,.15);border:none;color:#9b59b6;padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer;margin-right:6px;">' + (u.role === 'super' ? '⬇ 改為員工' : '⬆ 改為老闆') + '</button>';
             var deleteBtn = u.role !== 'super' ? '<button onclick="deleteAdminUser('+u.id+')" style="background:rgba(231,76,60,.15);border:none;color:#e74c3c;padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer;">🗑 刪除</button>' : '';
             return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:rgba(0,0,0,.15);border-radius:8px;margin-bottom:6px;">'
                 + '<div>' + roleLabel + ' <strong style="color:#fff;margin-left:6px;">' + u.username + '</strong> <span style="font-size:11px;color:#666;margin-left:8px;">' + u.created_at + '</span></div>'
-                + '<div style="display:flex;">' + pwdBtn + deleteBtn + '</div>'
+                + '<div style="display:flex;">' + pwdBtn + roleBtn + deleteBtn + '</div>'
                 + '</div>';
         }).join('');
     } catch(e) {}
+}
+
+async function changeAdminRole(id, name, newRole) {
+    var label = newRole === 'super' ? '老闆（可看統計/代理/操作紀錄）' : '員工（只能日常作業）';
+    if (!confirm('要把「' + name + '」變更為 ' + label + ' 嗎？')) return;
+    try {
+        const res = await fetch('/api/admin/users/' + id + '/role', {
+            method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ role: newRole })
+        });
+        const d = await res.json();
+        if (d.success) { showToast('已將 ' + name + ' 設為' + (newRole === 'super' ? '老闆' : '員工'), 'success'); loadAdminUsers(); }
+        else { showToast(d.error || '變更失敗', 'error'); }
+    } catch(e) { showToast('網路錯誤', 'error'); }
 }
 
 async function resetAdminPwd(id, name) {
