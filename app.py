@@ -2523,34 +2523,10 @@ def get_packages():
 
 @app.route("/api/orders", methods=["GET"])
 def get_orders():
-    g_code = request.args.get("g_code") or request.args.get("customer_id")
-    if not g_code:
-        return jsonify({"success": False, "error": "缺少會員編號"})
-    result = jpd_request("TSearchOrders", {
-        "client_cid": g_code,
-        "warehouse_id": JPD_WAREHOUSE_ID
-    })
-    if "OperationResult" in result:
-        op_result = result["OperationResult"]
-        if op_result["Request"]["IsValid"] == "True":
-            orders = op_result.get("Result", {}).get("Data", [])
-            formatted = []
-            for order in orders:
-                formatted.append({
-                    "order_id": order.get("order_id"),
-                    "customer_order_id": order.get("customer_order_id"),
-                    "logis_num": order.get("logis_num"),
-                    "status": order.get("status_name"),
-                    "recipient": order.get("recipient"),
-                    "create_date": order.get("create_date"),
-                    "weight": order.get("weight"),
-                    "deliv_fee": order.get("deliv_fee")
-                })
-            return jsonify({"success": True, "orders": formatted})
-    return jsonify({"success": False, "error": "查詢失敗"})
+    """（已停用）原 JPD 運單查詢。已不與 JPD 合作，不再對其發送 API 請求。
+    客戶端的運單查詢分頁改為只顯示「我的出貨申請」（含台灣配送貨況）。"""
+    return jsonify({"success": True, "orders": []})
 
-
-# ============ 統計 API ============
 
 def compute_agent_weekly(agent_id, conn=None):
     """算某代理各週分潤（與統計頁同一套算法，保證數字一致）。
