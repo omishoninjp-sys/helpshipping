@@ -1490,16 +1490,25 @@
                 }
                 box.innerHTML = _shipServicesCache.map(function(s){
                     var isConsolidate = (s.name === '合箱');
-                    var effPrice = isConsolidate ? 0 : s.price;          // 合箱一律 0（費用由系統依箱數算）
-                    var priceLabel = isConsolidate ? '免費' : ('NT$' + s.price);
-                    var descHtml = isConsolidate
-                        ? '<span style="display:block;font-size:11px;color:#888;">合箱費由系統依箱數自動計算，勾選不另外收費</span>'
-                        : (s.desc ? '<span style="display:block;font-size:11px;color:#888;">' + s.desc + '</span>' : '');
+                    var isPerItem = (s.name.indexOf('每件') >= 0);   // 現場依件數計算
+                    var onSite = isConsolidate || isPerItem;          // 意願型：勾選不計費
+                    var effPrice = onSite ? 0 : s.price;
+                    var priceLabel = isConsolidate ? '免費' : (isPerItem ? '依件數' : ('NT$' + s.price));
+                    var descHtml;
+                    if (isConsolidate) {
+                        descHtml = '<span style="display:block;font-size:11px;color:#888;">合箱費由系統依箱數自動計算，勾選不另外收費</span>';
+                    } else if (isPerItem) {
+                        descHtml = '<span style="display:block;font-size:11px;color:#e6a23c;">費用依實際包裝件數，出貨時由現場人員計算</span>'
+                                 + (s.desc ? '<span style="display:block;font-size:11px;color:#888;">' + s.desc + '</span>' : '');
+                    } else {
+                        descHtml = (s.desc ? '<span style="display:block;font-size:11px;color:#888;">' + s.desc + '</span>' : '');
+                    }
+                    var qtyBox = onSite ? '' : '<input type="number" class="ship-svc-qty" min="1" value="1" disabled onchange="updateShipServicesTotal()" oninput="updateShipServicesTotal()" style="width:52px;padding:4px 6px;font-size:12px;flex:0 0 auto;border-radius:6px;border:1px solid rgba(255,255,255,.1);background:rgba(0,0,0,.3);color:#fff;">';
                     return '<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.06);border-radius:8px;cursor:pointer;">'
                         + '<input type="checkbox" class="ship-svc-chk" data-id="' + s.id + '" data-price="' + effPrice + '" onchange="onShipSvcToggle(this);updateShipServicesTotal();" style="accent-color:#9b59b6;width:16px;height:16px;flex:0 0 auto;">'
                         + '<span style="flex:1;font-size:13px;color:#fff;">' + s.name + descHtml + '</span>'
                         + '<span style="font-size:12px;color:#9b59b6;font-weight:600;flex:0 0 auto;">' + priceLabel + '</span>'
-                        + '<input type="number" class="ship-svc-qty" min="1" value="1" disabled onchange="updateShipServicesTotal()" oninput="updateShipServicesTotal()" style="width:52px;padding:4px 6px;font-size:12px;flex:0 0 auto;border-radius:6px;border:1px solid rgba(255,255,255,.1);background:rgba(0,0,0,.3);color:#fff;">'
+                        + qtyBox
                         + '</label>';
                 }).join('');
             } catch(e) {
@@ -1513,7 +1522,8 @@
         function updateShipServicesTotal() {
             var total = 0;
             document.querySelectorAll('.ship-svc-chk:checked').forEach(function(chk){
-                var qty = parseInt(chk.closest('label').querySelector('.ship-svc-qty').value) || 1;
+                var qtyEl = chk.closest('label').querySelector('.ship-svc-qty');
+                var qty = qtyEl ? (parseInt(qtyEl.value) || 1) : 1;
                 total += (parseInt(chk.dataset.price) || 0) * qty;
             });
             var el = document.getElementById('shipServicesTotal');
@@ -1523,7 +1533,8 @@
         function getShipSelectedServices() {
             var out = [];
             document.querySelectorAll('.ship-svc-chk:checked').forEach(function(chk){
-                var qty = parseInt(chk.closest('label').querySelector('.ship-svc-qty').value) || 1;
+                var qtyEl = chk.closest('label').querySelector('.ship-svc-qty');
+                var qty = qtyEl ? (parseInt(qtyEl.value) || 1) : 1;
                 if (qty < 1) qty = 1;
                 out.push({ id: chk.dataset.id, qty: qty });
             });
