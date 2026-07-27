@@ -379,6 +379,25 @@ def init_db():
             created_at  TEXT    NOT NULL
         )
     """)
+    # ── 內部公告（只給後台老闆/員工看，客戶端讀不到）──
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS internal_announcements (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            title       TEXT    NOT NULL,
+            content     TEXT    NOT NULL,
+            is_active   INTEGER DEFAULT 1,
+            created_at  TEXT    NOT NULL
+        )
+    """)
+    # ── 內部公告已讀記錄（誰按過「我知道了」）──
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS internal_ann_reads (
+            username    TEXT NOT NULL,
+            ann_id      INTEGER NOT NULL,
+            read_at     TEXT NOT NULL,
+            UNIQUE(username, ann_id)
+        )
+    """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS admin_users (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3313,6 +3332,110 @@ def admin_delete_announcement(ann_id):
         return jsonify({"success": False, "error": "權限不足"}), 403
     conn = get_db()
     conn.execute("DELETE FROM announcements WHERE id=?", (ann_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+# ============ 內部公告 API（後台老闆/員工專用，客戶端無此路由）============
+
+@app.route("/api/admin/internal_announcements", methods=["GET"])
+def admin_get_internal_announcements():
+    """後台列出所有內部公告（老闆＋員工皆可看）。"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "請先登入"}), 403
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM internal_announcements ORDER BY id DESC").fetchall()
+    conn.close()
+    return jsonify({"success": True, "announcements": [dict(r) for r in rows]})
+
+
+@app.route("/api/admin/internal_announcements/latest", methods=["GET"])
+def admin_latest_internal_announcement():
+    """登入橫幅用：回最新一則啟用中的內部公告，並標記當前使用者是否已讀。"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "請先登入"}), 403
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM internal_announcements WHERE is_active=1 ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"success": True, "announcement": None})
+    me = current_operator()
+    read = conn.execute(
+        "SELECT 1 FROM internal_ann_reads WHERE username=? AND ann_id=?", (me, row["id"])
+    ).fetchone()
+    conn.close()
+    d = dict(row)
+    d["read"] = bool(read)
+    return jsonify({"success": True, "announcement": d})
+
+
+@app.route("/api/admin/internal_announcements/<int:ann_id>/read", methods=["POST"])
+def admin_read_internal_announcement(ann_id):
+    """當前使用者按「我知道了」→ 記已讀（該則對他不再跳）。"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "請先登入"}), 403
+    conn = get_db()
+    conn.execute(
+        "INSERT OR IGNORE INTO internal_ann_reads (username, ann_id, read_at) VALUES (?, ?, ?)",
+        (current_operator(), ann_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route("/api/admin/internal_announcements", methods=["POST"])
+def admin_create_internal_announcement():
+    """發布內部公告（僅老闆）。"""
+    if not is_boss():
+        return jsonify({"success": False, "error": "只有老闆能發布內部公告"}), 403
+    data = request.json or {}
+    title = (data.get("title") or "").strip()
+    content = (data.get("content") or "").strip()
+    if not title or not content:
+        return jsonify({"success": False, "error": "標題和內容為必填"})
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_db()
+    cur = conn.execute(
+        "INSERT INTO internal_announcements (title, content, is_active, created_at) VALUES (?, ?, 1, ?)",
+        (title, content, now)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "id": cur.lastrowid})
+
+
+@app.route("/api/admin/internal_announcements/<int:ann_id>", methods=["PUT"])
+def admin_update_internal_announcement(ann_id):
+    """停用/啟用/修改內部公告（僅老闆）。"""
+    if not is_boss():
+        return jsonify({"success": False, "error": "只有老闆能管理內部公告"}), 403
+    data = request.json or {}
+    conn = get_db()
+    fields = {}
+    for key in ["title", "content"]:
+        if key in data:
+            fields[key] = (data[key] or "").strip()
+    if "is_active" in data:
+        fields["is_active"] = 1 if data["is_active"] else 0
+    if fields:
+        sets = ", ".join(f"{k}=?" for k in fields)
+        conn.execute(f"UPDATE internal_announcements SET {sets} WHERE id=?", list(fields.values()) + [ann_id])
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route("/api/admin/internal_announcements/<int:ann_id>", methods=["DELETE"])
+def admin_delete_internal_announcement(ann_id):
+    if not is_boss():
+        return jsonify({"success": False, "error": "只有老闆能刪除內部公告"}), 403
+    conn = get_db()
+    conn.execute("DELETE FROM internal_announcements WHERE id=?", (ann_id,))
+    conn.execute("DELETE FROM internal_ann_reads WHERE ann_id=?", (ann_id,))
     conn.commit()
     conn.close()
     return jsonify({"success": True})
