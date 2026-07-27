@@ -298,6 +298,18 @@ def init_db():
             synced_at     TEXT DEFAULT ''
         )
     """)
+    # ── 員工班表（老闆排班，員工登入可看全部人本月+下月）──
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS staff_schedules (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            staff_id   INTEGER NOT NULL,
+            staff_name TEXT DEFAULT '',
+            work_date  TEXT NOT NULL,
+            start_time TEXT DEFAULT '',
+            end_time   TEXT DEFAULT '',
+            created_at TEXT NOT NULL
+        )
+    """)
     # ── 操作紀錄（誰做了什麼：到貨建立/出貨/帳單確認/認領）──
     conn.execute("""
         CREATE TABLE IF NOT EXISTS operation_logs (
@@ -1626,6 +1638,75 @@ def admin_change_user_role(user_id):
     conn.commit()
     conn.close()
     return jsonify({"success": True, "username": u["username"], "role": new_role})
+
+
+@app.route("/api/admin/schedules", methods=["GET"])
+def admin_list_schedules():
+    """班表（任何管理員/員工可看）。?months=YYYY-MM,YYYY-MM 取多月；預設本月+下月。"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "請先登入"}), 403
+    months_param = (request.args.get("months") or "").strip()
+    if months_param:
+        months = [m.strip() for m in months_param.split(",") if m.strip()]
+    else:
+        now = datetime.now()
+        this_m = now.strftime("%Y-%m")
+        nxt = (now.replace(day=28) + timedelta(days=7)).strftime("%Y-%m")
+        months = [this_m, nxt]
+    conn = get_db()
+    rows = []
+    for m in months:
+        rows += [dict(r) for r in conn.execute(
+            "SELECT * FROM staff_schedules WHERE work_date LIKE ? ORDER BY work_date, start_time",
+            (m + "%",)
+        ).fetchall()]
+    conn.close()
+    return jsonify({"success": True, "schedules": rows, "months": months})
+
+
+@app.route("/api/admin/schedules", methods=["POST"])
+def admin_add_schedule():
+    """排班（老闆）：{staff_id, work_date, start_time, end_time}。"""
+    if not is_boss():
+        return jsonify({"success": False, "error": "只有老闆能排班"}), 403
+    data = request.json or {}
+    try:
+        staff_id = int(data.get("staff_id"))
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "error": "請選擇員工"}), 400
+    work_date = (data.get("work_date") or "").strip()
+    start_time = (data.get("start_time") or "").strip()
+    end_time = (data.get("end_time") or "").strip()
+    if not work_date or not start_time or not end_time:
+        return jsonify({"success": False, "error": "日期與起訖時間為必填"}), 400
+    if start_time >= end_time:
+        return jsonify({"success": False, "error": "結束時間要晚於開始時間"}), 400
+    conn = get_db()
+    u = conn.execute("SELECT username FROM admin_users WHERE id=?", (staff_id,)).fetchone()
+    if not u:
+        conn.close()
+        return jsonify({"success": False, "error": "找不到此員工"}), 404
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cur = conn.execute(
+        "INSERT INTO staff_schedules (staff_id, staff_name, work_date, start_time, end_time, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (staff_id, u["username"], work_date, start_time, end_time, now)
+    )
+    new_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "id": new_id})
+
+
+@app.route("/api/admin/schedules/<int:sched_id>", methods=["DELETE"])
+def admin_delete_schedule(sched_id):
+    if not is_boss():
+        return jsonify({"success": False, "error": "只有老闆能刪除班表"}), 403
+    conn = get_db()
+    conn.execute("DELETE FROM staff_schedules WHERE id=?", (sched_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
 
 
 @app.route("/api/admin/operation_logs", methods=["GET"])
