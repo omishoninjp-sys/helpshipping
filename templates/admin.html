@@ -4191,29 +4191,56 @@ function renderSchedule() {
     var m = _scheduleActiveMonth;
     if (!m) { box.innerHTML = ''; return; }
     var rows = _scheduleData.schedules.filter(function(s){ return String(s.work_date).indexOf(m) === 0; });
-    // 依日期分組
     var byDate = {};
     rows.forEach(function(s){ (byDate[s.work_date] = byDate[s.work_date] || []).push(s); });
-    var dates = Object.keys(byDate).sort();
-    if (!dates.length) {
-        box.innerHTML = '<div style="text-align:center;color:#666;padding:30px;">' + m.split('-')[1] + ' 月尚無排班' + (_scheduleIsBoss ? '（用上方表單排入）' : '') + '</div>';
-        return;
-    }
+
+    var parts = m.split('-'), year = +parts[0], month = +parts[1];
+    var firstDow = new Date(year, month-1, 1).getDay();      // 該月1號是星期幾（0=日）
+    var daysInMonth = new Date(year, month, 0).getDate();    // 該月天數
+    var todayStr = new Date().toISOString().slice(0,10);
     var weekdays = ['日','一','二','三','四','五','六'];
-    box.innerHTML = dates.map(function(date){
-        var d = new Date(date.replace(/-/g,'/'));
-        var wd = isNaN(d) ? '' : '（' + weekdays[d.getDay()] + '）';
-        var isToday = date === new Date().toISOString().slice(0,10);
-        var shifts = byDate[date].sort(function(a,b){ return (a.start_time||'').localeCompare(b.start_time||''); }).map(function(s){
-            var del = _scheduleIsBoss ? '<button onclick="deleteSchedule(' + s.id + ')" style="background:none;border:none;color:#e74c3c;cursor:pointer;font-size:12px;margin-left:4px;">✕</button>' : '';
-            return '<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(155,89,182,.15);border:1px solid rgba(155,89,182,.3);border-radius:8px;padding:4px 10px;margin:3px 4px 3px 0;font-size:13px;">'
-                + '<strong style="color:#fff;">' + s.staff_name + '</strong>'
-                + '<span style="color:#bbb;">' + s.start_time + '–' + s.end_time + '</span>' + del + '</span>';
-        }).join('');
-        return '<div style="display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.05);">'
-            + '<div style="min-width:90px;font-weight:700;color:' + (isToday ? '#f39c12' : '#ddd') + ';">' + date.slice(5) + ' ' + wd + (isToday ? ' •今天' : '') + '</div>'
-            + '<div style="flex:1;">' + shifts + '</div></div>';
+
+    // 表頭
+    var html = '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;">';
+    html += weekdays.map(function(w,i){
+        var color = (i===0||i===6) ? '#e67e22' : '#888';
+        return '<div style="text-align:center;font-size:12px;font-weight:700;color:' + color + ';padding:4px 0;">' + w + '</div>';
     }).join('');
+
+    // 月初空格
+    for (var b=0; b<firstDow; b++) html += '<div></div>';
+
+    // 每一天一格
+    for (var day=1; day<=daysInMonth; day++) {
+        var dateStr = year + '-' + String(month).padStart(2,'0') + '-' + String(day).padStart(2,'0');
+        var dow = new Date(year, month-1, day).getDay();
+        var isToday = dateStr === todayStr;
+        var shifts = (byDate[dateStr] || []).sort(function(a,b){ return (a.start_time||'').localeCompare(b.start_time||''); }).map(function(s){
+            var del = _scheduleIsBoss ? '<span onclick="event.stopPropagation();deleteSchedule(' + s.id + ')" style="color:#e74c3c;cursor:pointer;margin-left:3px;">✕</span>' : '';
+            return '<div style="background:rgba(155,89,182,.18);border:1px solid rgba(155,89,182,.35);border-radius:6px;padding:3px 5px;margin-bottom:3px;font-size:11px;line-height:1.3;">'
+                + '<strong style="color:#fff;">' + s.staff_name + '</strong>' + del
+                + '<div style="color:#c9a9e0;">' + s.start_time + '–' + s.end_time + '</div></div>';
+        }).join('');
+        var dayColor = (dow===0||dow===6) ? '#e67e22' : '#bbb';
+        var clickable = _scheduleIsBoss ? ' onclick="quickSchedule(\'' + dateStr + '\')" title="點此為這天排班"' : '';
+        html += '<div' + clickable + ' style="min-height:78px;background:' + (isToday ? 'rgba(243,156,18,.08)' : 'rgba(255,255,255,.02)')
+            + ';border:1px solid ' + (isToday ? 'rgba(243,156,18,.5)' : 'rgba(255,255,255,.06)') + ';border-radius:8px;padding:5px;'
+            + (_scheduleIsBoss ? 'cursor:pointer;' : '') + '">'
+            + '<div style="font-size:12px;font-weight:700;color:' + (isToday ? '#f39c12' : dayColor) + ';margin-bottom:3px;">' + day + (isToday ? ' •' : '') + '</div>'
+            + shifts + '</div>';
+    }
+    html += '</div>';
+    if (!rows.length) {
+        html += '<div style="text-align:center;color:#666;padding:16px;">' + month + ' 月尚無排班' + (_scheduleIsBoss ? '（點日期格子或用上方表單排入）' : '') + '</div>';
+    }
+    box.innerHTML = html;
+}
+function quickSchedule(dateStr) {
+    // 老闆點月曆格子 → 帶入日期到排班表單
+    var d = document.getElementById('sch-date');
+    if (d) { d.value = dateStr; d.scrollIntoView({behavior:'smooth', block:'center'}); }
+    var sel = document.getElementById('sch-staff');
+    if (sel) sel.focus();
 }
 async function addSchedule() {
     var staff_id = document.getElementById('sch-staff').value;
