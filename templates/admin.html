@@ -529,6 +529,7 @@
                         <div><label style="font-size:11px;color:#888;display:block;margin-bottom:3px;">日期</label><input type="date" id="sch-date" class="form-control" style="padding:8px;font-size:13px;"></div>
                         <div><label style="font-size:11px;color:#888;display:block;margin-bottom:3px;">上班</label><input type="time" id="sch-start" class="form-control" value="10:00" style="padding:8px;font-size:13px;"></div>
                         <div><label style="font-size:11px;color:#888;display:block;margin-bottom:3px;">下班</label><input type="time" id="sch-end" class="form-control" value="18:00" style="padding:8px;font-size:13px;"></div>
+                        <div><label style="font-size:11px;color:#888;display:block;margin-bottom:3px;">快捷</label><button class="btn" style="background:rgba(155,89,182,.2);color:#c9a9e0;border:1px solid rgba(155,89,182,.4);padding:8px 12px;font-size:13px;white-space:nowrap;" onclick="setAllDay()">🕘 全天 09-17</button></div>
                         <button class="btn" style="background:#9b59b6;color:#fff;padding:9px 16px;font-size:13px;font-weight:700;" onclick="addSchedule()">排入</button>
                     </div>
                 </div>
@@ -4260,6 +4261,10 @@ function quickSchedule(dateStr) {
     if (d) { d.value = dateStr; d.scrollIntoView({behavior:'smooth', block:'center'}); }
     var sel = document.getElementById('sch-staff');
     if (sel) sel.focus();
+}
+function setAllDay() {
+    document.getElementById('sch-start').value = '09:00';
+    document.getElementById('sch-end').value = '17:00';
 }
 async function addSchedule() {
     var staff_id = document.getElementById('sch-staff').value;
