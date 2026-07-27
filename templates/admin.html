@@ -4161,6 +4161,7 @@ async function toggleMonthDetail(row, month) {
 var _scheduleData = { schedules: [], months: [] };
 var _scheduleActiveMonth = null;
 var _scheduleIsBoss = false;
+var _lastSchedStaffId = null;   // 記住上一次排班選的員工，免得每次重選
 
 async function loadSchedule() {
     _scheduleIsBoss = (currentAdmin && currentAdmin.user_type === 'admin' && currentAdmin.role === 'super');
@@ -4181,9 +4182,16 @@ async function loadScheduleStaffOptions() {
         var res = await fetch('/api/admin/users');
         var d = await res.json();
         if (d.success) {
-            document.getElementById('sch-staff').innerHTML = d.users.map(function(u){
+            var sel = document.getElementById('sch-staff');
+            sel.innerHTML = d.users.map(function(u){
                 return '<option value="' + u.id + '">' + u.username + (u.role==='super'?'（老闆）':'') + '</option>';
             }).join('');
+            // 記住上一次排的員工：若還在清單中就自動選回
+            if (_lastSchedStaffId && sel.querySelector('option[value="' + _lastSchedStaffId + '"]')) {
+                sel.value = _lastSchedStaffId;
+            }
+            // 之後手動改選也記起來
+            sel.onchange = function(){ _lastSchedStaffId = sel.value; };
         }
     } catch(e) {}
 }
@@ -4264,7 +4272,7 @@ async function addSchedule() {
         var res = await fetch('/api/admin/schedules', { method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({ staff_id: parseInt(staff_id), work_date: work_date, start_time: start_time, end_time: end_time }) });
         var d = await res.json();
-        if (d.success) { showToast('已排入', 'success'); _scheduleActiveMonth = work_date.slice(0,7); loadSchedule(); }
+        if (d.success) { _lastSchedStaffId = String(staff_id); showToast('已排入', 'success'); _scheduleActiveMonth = work_date.slice(0,7); loadSchedule(); }
         else { showToast(d.error || '排班失敗', 'error'); }
     } catch(e) { showToast('網路錯誤', 'error'); }
 }
