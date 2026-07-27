@@ -1349,32 +1349,25 @@
         </div>
         <div class="pkg-form-grid" style="grid-template-columns:1fr 1fr;">
             <div class="form-group" style="margin:0;">
-                <label>實際重量 (kg)</label>
-                <input type="number" id="bill-weight" class="form-control" step="0.1" min="0" placeholder="5.5" oninput="calcBilling()">
-            </div>
-            <div class="form-group" style="margin:0;">
-                <label>計費重量 (kg)</label>
-                <input type="number" id="bill-billed-weight" class="form-control" step="0.5" min="1" readonly style="color:#f39c12;font-weight:700;">
-            </div>
-            <div class="form-group" style="margin:0;">
                 <label>運費單價 (台幣/kg)</label>
-                <input type="number" id="bill-rate" class="form-control" value="180" min="0" oninput="calcBilling()">
+                <input type="number" id="bill-rate" class="form-control" value="180" min="0" oninput="calcBoxes()">
             </div>
             <div class="form-group" style="margin:0;">
-                <label>運費小計</label>
-                <input type="number" id="bill-shipping" class="form-control" readonly style="color:#27ae60;font-weight:700;">
+                <label>總計費重量 (kg，各箱加總)</label>
+                <input type="number" id="bill-billed-weight" class="form-control" readonly style="color:#f39c12;font-weight:700;">
             </div>
             <div class="form-group" style="margin:0;grid-column:1/-1;">
-                <label>材積尺寸 (cm，選填 → 自動套材積規則)</label>
-                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                    <input type="number" id="bill-dim-l" class="form-control" min="0" placeholder="長" style="width:64px;padding:8px 6px;" oninput="calcBilling()">
-                    <span style="color:#888;">×</span>
-                    <input type="number" id="bill-dim-w" class="form-control" min="0" placeholder="寬" style="width:64px;padding:8px 6px;" oninput="calcBilling()">
-                    <span style="color:#888;">×</span>
-                    <input type="number" id="bill-dim-h" class="form-control" min="0" placeholder="高" style="width:64px;padding:8px 6px;" oninput="calcBilling()">
-                    <span id="bill-vol-hint" style="font-size:12px;color:#888;margin-left:6px;flex:1;min-width:160px;line-height:1.4;"></span>
-                </div>
+                <label style="display:flex;justify-content:space-between;align-items:center;">
+                    <span>📦 箱子明細（每箱各自計費）</span>
+                    <button type="button" class="btn" style="background:#9b59b6;color:#fff;padding:4px 12px;font-size:12px;" onclick="addBox()">➕ 新增箱子</button>
+                </label>
+                <div id="bill-boxes"></div>
             </div>
+            <div class="form-group" style="margin:0;">
+                <label>運費小計 (各箱加總)</label>
+                <input type="number" id="bill-shipping" class="form-control" readonly style="color:#27ae60;font-weight:700;">
+            </div>
+            <div class="form-group" style="margin:0;"></div>
             <div class="form-group" style="margin:0;">
                 <label>理貨重量 (kg)</label>
                 <input type="number" id="bill-handling-weight" class="form-control" step="0.5" min="0" placeholder="0 = 不收" oninput="calcHandling()">
@@ -4523,12 +4516,7 @@ async function openBillingModal(reqId, gCode, name, summary) {
     document.getElementById('bill-gcode').textContent = gCode;
     document.getElementById('bill-name').textContent = name;
     document.getElementById('bill-summary').textContent = summary;
-    document.getElementById('bill-weight').value = '';
     document.getElementById('bill-billed-weight').value = '';
-    document.getElementById('bill-dim-l').value = '';
-    document.getElementById('bill-dim-w').value = '';
-    document.getElementById('bill-dim-h').value = '';
-    document.getElementById('bill-vol-hint').innerHTML = '';
     document.getElementById('bill-shipping').value = '';
     document.getElementById('bill-handling').value = '';
     document.getElementById('bill-handling-weight').value = '';
@@ -4538,6 +4526,9 @@ async function openBillingModal(reqId, gCode, name, summary) {
     document.getElementById('bill-admin-note').value = '';
     document.getElementById('bill-tracking').value = '';
     document.getElementById('extraServicesContainer').innerHTML = '';
+    // 預設一箱空白，管理員逐箱填
+    _billBoxes = [{ actual_weight:'', length:'', width:'', height:'', tracking_num:'' }];
+    renderBoxes();
     // 查找會員運費
     var member = membersData.find(function(m) { return m.g_code === gCode; });
     var rate = (member && member.shipping_rate) ? parseInt(member.shipping_rate) : 180;
@@ -4572,7 +4563,7 @@ async function openBillingModal(reqId, gCode, name, summary) {
         custEx.forEach(function(e){ addExtraService(e); });
     } catch(e) {}
     document.getElementById('billingModal').classList.add('show');
-    document.getElementById('bill-weight').focus();
+    calcBoxes();
 }
 
 // 取消出貨（從帳單管理：將出貨還原為待處理、清空帳單）
@@ -4621,24 +4612,39 @@ function openBillingEditModal(reqId) {
 
     // 帶入既有數值
     var bw = parseFloat(r.billed_weight) || 0;
-    document.getElementById('bill-weight').value = bw || '';
-    document.getElementById('bill-dim-l').value = '';
-    document.getElementById('bill-dim-w').value = '';
-    document.getElementById('bill-dim-h').value = '';
-    document.getElementById('bill-vol-hint').innerHTML = '';
     document.getElementById('bill-billed-weight').value = bw ? bw.toFixed(1) : '';
     document.getElementById('bill-rate').value = parseInt(r.rate_per_kg) || 180;
     document.getElementById('bill-shipping').value = Math.round(r.shipping_fee || 0);
     document.getElementById('bill-handling').value = Math.round(r.handling_fee || 0);
-    document.getElementById('bill-handling-weight').value = '';  // 未儲存，留空（如需重算可自行填）
+    document.getElementById('bill-handling-weight').value = '';
     document.getElementById('bill-consolidation').value = Math.round(r.consolidation_fee || 0);
     var lf = Math.round(r.letter_fee || 0);
     document.getElementById('bill-letter').value = lf;
     document.getElementById('bill-letter-count').value = Math.round(lf / 20);
-    document.getElementById('bill-pkg-count').value = '';
     document.getElementById('bill-total').value = Math.round(r.total_fee || 0);
     document.getElementById('bill-tracking').value = r.tracking_num || '';
     document.getElementById('bill-admin-note').value = r.admin_note || '';
+
+    // 多箱還原：新制讀 boxes_json；舊制（沒有）合成一箱（追蹤號帶入、重量/材積留空給你補）
+    _billBoxes = [];
+    try {
+        var bx = JSON.parse(r.boxes_json || '[]');
+        if (Array.isArray(bx) && bx.length) {
+            _billBoxes = bx.map(function(b){ return {
+                actual_weight: b.actual_weight != null ? b.actual_weight : '',
+                length: b.length || '', width: b.width || '', height: b.height || '',
+                tracking_num: b.tracking_num || ''
+            }; });
+        }
+    } catch(e) {}
+    if (!_billBoxes.length) {
+        // 舊單/未排箱：用整串追蹤號拆成多箱骨架（重量/材積留空，計費重量顯示沿用舊值）
+        var tks = (r.tracking_num || '').split(/[\n,，、]+/).map(function(t){return t.trim();}).filter(Boolean);
+        if (!tks.length) tks = [''];
+        _billBoxes = tks.map(function(t){ return { actual_weight:'', length:'', width:'', height:'', tracking_num:t }; });
+    }
+    renderBoxes();
+    calcBoxes();
 
     // 加值服務還原
     document.getElementById('extraServicesContainer').innerHTML = '';
@@ -4684,48 +4690,94 @@ function getExtraServices() {
     return extras;
 }
 
-function calcBilling() {
-    var weight = parseFloat(document.getElementById('bill-weight').value) || 0;
-    var rate = parseInt(document.getElementById('bill-rate').value) || 0;
-    if (weight <= 0) {
-        document.getElementById('bill-billed-weight').value = '';
-        document.getElementById('bill-shipping').value = '';
-        document.getElementById('bill-handling-weight').value = '';
-        document.getElementById('bill-handling').value = '';
-        document.getElementById('bill-total').value = '';
-        document.getElementById('bill-vol-hint').innerHTML = '';
-        return;
-    }
-    // 材積規則：僅「材積 > 實際×3」才收材積（取大者）；長寬高和>200 → 超大貨物，提示聯繫客服
-    var vL = parseFloat(document.getElementById('bill-dim-l').value) || 0;
-    var vW = parseFloat(document.getElementById('bill-dim-w').value) || 0;
-    var vH = parseFloat(document.getElementById('bill-dim-h').value) || 0;
-    var vHint = document.getElementById('bill-vol-hint');
-    var raw = weight;
-    if (vL > 0 && vW > 0 && vH > 0) {
-        var vol = (vL * vW * vH) / 6000;
-        var vsum = vL + vW + vH;
-        var vlong = Math.max(vL, vW, vH);
-        var vOver3x = vol > weight * 3;
-        raw = vOver3x ? Math.max(weight, vol) : weight;
-        var vmsg = '材積 ' + vol.toFixed(2) + 'kg｜' + (vOver3x ? '✅ 超材積(>3倍) 取大者' : '3倍內，照實際');
-        if (vsum > 200) vmsg += '｜⚠️超大貨物(和' + vsum + '>200)，請聯繫客服/特殊運費';
-        if (vlong > 150) vmsg += '｜🔸最長邊' + vlong + '>150，記得加特長件 NT$86';
-        vHint.innerHTML = vmsg;
-        vHint.style.color = (vOver3x || vsum > 200) ? '#e67e22' : '#888';
-    } else {
-        vHint.innerHTML = '';
-    }
-    var billed = raw < 1 ? 1 : Math.ceil(raw * 2) / 2;
+// ── 多箱計費 ──
+var _billBoxes = [];   // [{actual_weight, length, width, height, tracking_num}]
 
-    var shipping = Math.round(billed * rate);
-    
-    document.getElementById('bill-billed-weight').value = billed.toFixed(1);
-    document.getElementById('bill-shipping').value = shipping;
-    // 預設理貨重量 = 計費重量
-    document.getElementById('bill-handling-weight').value = billed.toFixed(1);
+function addBox(box) {
+    _billBoxes.push(box || { actual_weight:'', length:'', width:'', height:'', tracking_num:'' });
+    renderBoxes();
+    calcBoxes();
+}
+function removeBox(i) {
+    if (_billBoxes.length <= 1) { showToast('至少要有一箱', 'error'); return; }
+    _billBoxes.splice(i, 1);
+    renderBoxes();
+    calcBoxes();
+}
+function readBoxInputs() {
+    _billBoxes = [];
+    document.querySelectorAll('#bill-boxes .bill-box-row').forEach(function(row){
+        _billBoxes.push({
+            actual_weight: row.querySelector('.bx-w').value,
+            length: row.querySelector('.bx-l').value,
+            width:  row.querySelector('.bx-wd').value,
+            height: row.querySelector('.bx-h').value,
+            tracking_num: row.querySelector('.bx-t').value.trim(),
+        });
+    });
+}
+function renderBoxes() {
+    var box = document.getElementById('bill-boxes');
+    box.innerHTML = _billBoxes.map(function(b, i){
+        return '<div class="bill-box-row" style="background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:10px;margin-bottom:8px;">'
+            + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
+            +   '<span style="font-size:12px;font-weight:700;color:#c9a9e0;">第 ' + (i+1) + ' 箱</span>'
+            +   '<span style="font-size:12px;"><span class="bx-billed" style="color:#f39c12;font-weight:700;"></span> <span class="bx-sub" style="color:#27ae60;"></span> '
+            +     (_billBoxes.length>1 ? '<button type="button" onclick="removeBox('+i+')" style="background:none;border:none;color:#e74c3c;cursor:pointer;margin-left:6px;">✕</button>' : '') + '</span>'
+            + '</div>'
+            + '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'
+            +   '<input type="number" class="form-control bx-w" step="0.1" min="0" placeholder="實際重量kg" value="'+(b.actual_weight||'')+'" oninput="calcBoxes()" style="width:110px;padding:6px;">'
+            +   '<span style="color:#666;">材積</span>'
+            +   '<input type="number" class="form-control bx-l" min="0" placeholder="長" value="'+(b.length||'')+'" oninput="calcBoxes()" style="width:58px;padding:6px;">×'
+            +   '<input type="number" class="form-control bx-wd" min="0" placeholder="寬" value="'+(b.width||'')+'" oninput="calcBoxes()" style="width:58px;padding:6px;">×'
+            +   '<input type="number" class="form-control bx-h" min="0" placeholder="高" value="'+(b.height||'')+'" oninput="calcBoxes()" style="width:58px;padding:6px;">'
+            +   '<input type="text" class="form-control bx-t" placeholder="追蹤號碼" value="'+(b.tracking_num||'')+'" oninput="calcBoxes()" style="flex:1;min-width:140px;padding:6px;">'
+            + '</div>'
+            + '<div class="bx-hint" style="font-size:11px;color:#888;margin-top:4px;"></div>'
+            + '</div>';
+    }).join('');
+}
+function calcBoxes() {
+    readBoxInputs();
+    var rate = parseInt(document.getElementById('bill-rate').value) || 0;
+    var rows = document.querySelectorAll('#bill-boxes .bill-box-row');
+    var totalBilled = 0, totalShipping = 0, trackings = [];
+    _billBoxes.forEach(function(b, i){
+        var weight = parseFloat(b.actual_weight) || 0;
+        var vL = parseFloat(b.length)||0, vW = parseFloat(b.width)||0, vH = parseFloat(b.height)||0;
+        var raw = weight, hint = '', hintColor = '#888';
+        if (vL>0 && vW>0 && vH>0) {
+            var vol = (vL*vW*vH)/6000, vsum = vL+vW+vH, vlong = Math.max(vL,vW,vH);
+            var over3 = vol > weight*3;
+            raw = over3 ? Math.max(weight, vol) : weight;
+            hint = '材積 '+vol.toFixed(2)+'kg｜'+(over3?'✅超材積(>3倍)取大者':'3倍內照實際');
+            if (vsum>200){ hint+='｜⚠️超大貨物(和'+vsum+'>200)請聯繫客服'; hintColor='#e67e22'; }
+            if (vlong>150){ hint+='｜🔸最長邊'+vlong+'>150 加特長件NT$86'; hintColor='#e67e22'; }
+        }
+        var billed = weight<=0 ? 0 : (raw<1 ? 1 : Math.ceil(raw*2)/2);
+        var longFee = (vlong_over(vL,vW,vH)) ? 86 : 0;
+        var sub = Math.round(billed*rate) + longFee;
+        totalBilled += billed; totalShipping += sub;
+        if (b.tracking_num) trackings.push(b.tracking_num);
+        var row = rows[i];
+        if (row) {
+            row.querySelector('.bx-billed').textContent = billed>0 ? ('計費 '+billed.toFixed(1)+'kg') : '';
+            row.querySelector('.bx-sub').textContent = billed>0 ? ('運費 NT$'+sub) : '';
+            row.querySelector('.bx-hint').innerHTML = hint;
+            row.querySelector('.bx-hint').style.color = hintColor;
+        }
+    });
+    document.getElementById('bill-billed-weight').value = totalBilled>0 ? totalBilled.toFixed(1) : '';
+    document.getElementById('bill-shipping').value = totalShipping || '';
+    // 箱數 → 合箱費依箱數；追蹤號自動同步（供出檔案/台灣貨況）
+    var pc = document.getElementById('bill-pkg-count'); if (pc) pc.value = _billBoxes.length;
+    var tk = document.getElementById('bill-tracking'); if (tk) tk.value = trackings.join('\n');
+    // 理貨重量預設 = 總計費重量
+    var hw = document.getElementById('bill-handling-weight');
+    if (hw) hw.value = totalBilled>0 ? totalBilled.toFixed(1) : '';
     calcHandling();
 }
+function vlong_over(l,w,h){ return Math.max(parseFloat(l)||0, parseFloat(w)||0, parseFloat(h)||0) > 150; }
 
 function calcHandling() {
     var hw = parseFloat(document.getElementById('bill-handling-weight').value) || 0;
@@ -4772,6 +4824,8 @@ async function submitBilling() {
     var adminNote = document.getElementById('bill-admin-note').value;
     var trackingNum = document.getElementById('bill-tracking').value.trim();
     var extras = getExtraServices();
+    readBoxInputs();
+    var boxes = _billBoxes.filter(function(b){ return b.actual_weight || b.tracking_num || b.length || b.width || b.height; });
 
     if (!billedWeight || billedWeight <= 0) { showToast('請輸入重量', 'error'); return; }
 
@@ -4790,7 +4844,8 @@ async function submitBilling() {
                 letter_fee: letterFee,
                 total_fee: total,
                 tracking_num: trackingNum,
-                extra_services: extras
+                extra_services: extras,
+                boxes: boxes
             })
         });
         var result = await res.json();

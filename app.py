@@ -439,6 +439,7 @@ def init_db():
         ("ship_address", "TEXT", "''"),
         ("consolidation_fee", "REAL", "0"),
         ("letter_fee", "REAL", "0"),
+        ("boxes_json", "TEXT", "''"),   # 多箱明細 [{actual_weight,length,width,height,tracking_num,billed_weight}]
         # 出檔案給廠商（Nigel / JpD）追蹤欄位
         ("exported_at", "TEXT", "''"),
         ("exported_vendor", "TEXT", "''"),
@@ -1015,6 +1016,17 @@ def log_op(action, target="", detail=""):
 def get_current_agent_id():
     """當前代理 id（>0 才是代理，0 = 主管理員看全部）"""
     return int(session.get("agent_id", 0))
+
+
+def _parse_boxes(boxes_json):
+    """安全解析 boxes_json → list（失敗回空）。"""
+    if not boxes_json:
+        return []
+    try:
+        v = json.loads(boxes_json)
+        return v if isinstance(v, list) else []
+    except (ValueError, TypeError):
+        return []
 
 
 def _safe_str(v):
@@ -4223,6 +4235,7 @@ def _admin_exports_generate_impl():
             "updated_at":           rd.get("updated_at") or "",
             "created_at":           rd.get("created_at") or "",
             "packages":             pkgs,
+            "boxes":                _parse_boxes(rd.get("boxes_json")),
         })
 
     if not shipments:
@@ -4442,6 +4455,7 @@ def admin_update_shipment_request(req_id):
     total_fee = data.get("total_fee", 0)
     tracking_num = data.get("tracking_num", "")
     extra_services = json.dumps(data.get("extra_services", []), ensure_ascii=False)
+    boxes_json = json.dumps(data.get("boxes", []), ensure_ascii=False)  # 多箱明細（空=單箱舊制）
 
     # 代理可自由設定費率，無下限（min_rate 僅為 UI 預設值參考）
 
@@ -4450,9 +4464,9 @@ def admin_update_shipment_request(req_id):
             """UPDATE shipment_requests 
                SET status=?, admin_note=?, updated_at=?,
                    billed_weight=?, rate_per_kg=?, shipping_fee=?, handling_fee=?, consolidation_fee=?, letter_fee=?, total_fee=?,
-                   tracking_num=?, extra_services=?
+                   tracking_num=?, extra_services=?, boxes_json=?
                WHERE id=?""",
-            (status, admin_note, now, billed_weight, rate_per_kg, shipping_fee, handling_fee, consolidation_fee, letter_fee, total_fee, tracking_num, extra_services, req_id)
+            (status, admin_note, now, billed_weight, rate_per_kg, shipping_fee, handling_fee, consolidation_fee, letter_fee, total_fee, tracking_num, extra_services, boxes_json, req_id)
         )
     else:
         conn.execute(

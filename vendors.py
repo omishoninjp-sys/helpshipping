@@ -131,6 +131,12 @@ NIGEL = {
         ("金額",           lambda ctx: ctx["item"]["price"]),
         ("產地",           lambda ctx: ctx["item"]["origin"]),
         ("URL/JanCode",    lambda ctx: ""),
+        # ── N~R：每箱資訊（甲案，接在 URL/JanCode 之後）──
+        ("清關號碼2",      lambda ctx: ctx.get("box_tracking", "")),      # N = 該箱追蹤號
+        ("重量",           lambda ctx: ctx.get("box_actual_weight", "")), # O = 實際重量（不進位）
+        ("長",             lambda ctx: ctx.get("box_length", "")),        # P
+        ("寬",             lambda ctx: ctx.get("box_width", "")),         # Q
+        ("高",             lambda ctx: ctx.get("box_height", "")),        # R
     ],
 }
 
@@ -214,55 +220,55 @@ def build_rows(vendor_id: str, shipments: list[dict]) -> tuple[list[str], list[l
     rows = []
 
     for s in shipments:
-        # packaging_mmdd = 客戶申請出單（admin 打包）的日期 → MMDD
-        # 來源優先：updated_at（admin 標記已出貨那刻）> created_at（客戶申請時）> 今天
         packaging_mmdd = _packaging_mmdd(s)
 
-        # 出貨追蹤號碼正規化：把換行／半形逗號／全形逗號／頓號都統一成換行分隔，去空行
-        # 多箱 → 多行（與後台「多箱請換行」一致）；單箱 → 單一字串
-        tracking_num = "\n".join(
+        # 整串追蹤號（舊制單箱 fallback 用）
+        tracking_all = "\n".join(
             t.strip()
             for t in re.split(r"[\n,，、]+", str(s.get("tracking_num") or ""))
             if t.strip()
         )
 
-        # 每筆出貨單先配置品項（白名單、同筆內品名不重複、同名同價、數量依重量、單價≤2萬除貴鞋子）
-        # 包裹 weight 缺失（stub 補位／到貨沒填）→ fallback 用計費重量平均分攤，再不行給 1kg
-        pkg_count = len(s["packages"]) or 1
-        try:
-            avg_kg = float(s.get("billed_weight") or 0) / pkg_count
-        except (TypeError, ValueError):
-            avg_kg = 0.0
-        if avg_kg <= 0:
-            avg_kg = 1.0
-        weights = []
-        for pkg in s["packages"]:
+        # 決定「箱子」清單：新制讀 boxes；舊制（無 boxes）合成一箱、用出貨層級資料
+        boxes = s.get("boxes") or []
+        if not boxes:
+            boxes = [{
+                "tracking_num":  tracking_all,
+                "actual_weight": "",     # 舊資料未存實際重量 → 留空（符合「舊的照舊」）
+                "length": "", "width": "", "height": "",
+                "billed_weight": s.get("billed_weight") or 0,
+            }]
+
+        # 各箱重量（給品名/數量配置用）：優先計費重量、其次實際重量、再 fallback 1kg
+        box_weights = []
+        for b in boxes:
             try:
-                w = float(pkg.get("weight") or 0)
+                w = float(b.get("billed_weight") or 0) or float(b.get("actual_weight") or 0)
             except (TypeError, ValueError):
                 w = 0.0
-            weights.append(w if w > 0 else avg_kg)
-        item_plan = build_item_plan(s["id"], weights)
+            box_weights.append(w if w > 0 else 1.0)
+        item_plan = build_item_plan(s["id"], box_weights)
 
-        for pkg_index, pkg in enumerate(s["packages"]):
+        for bi, b in enumerate(boxes):
+            box_tracking = str(b.get("tracking_num") or "").strip() or tracking_all
             ctx = {
                 "shipment_id":          s["id"],
                 "g_code":               s["g_code"],
-                "packaging_mmdd":       packaging_mmdd,   # 客戶申請出單日（打包日）MMDD
-                "tracking_num":         tracking_num,     # 出貨追蹤號碼（Nigel→清關號碼 / JpD→JpD包裹ID）
-                # 品名/數量/金額/產地一律來自白名單配置（不使用客戶預報資料）
-                "item":                 item_plan[pkg_index],
-                "pkg_index":            pkg_index,
-                # str() 防 DB 把 phone 存成 float（912345678.0）造成下游 .strip() 炸
+                "packaging_mmdd":       packaging_mmdd,
+                "tracking_num":         box_tracking,      # B 欄清關號＝該箱追蹤號
+                "item":                 item_plan[bi],
+                "pkg_index":            bi,
                 "ship_recipient":       str(s["ship_recipient"]) if s["ship_recipient"] else "",
                 "ship_address":         str(s["ship_address"]) if s["ship_address"] else "",
                 "ship_phone":           str(s["ship_phone"]) if s["ship_phone"] else "",
                 "billed_weight":        s.get("billed_weight") or 0,
                 "total_fee":            s.get("total_fee") or 0,
-                "package_id":           pkg["id"],
-                "package_logis_num":    pkg.get("logis_num") or "",
-                "package_product_name": pkg.get("product_name") or "",
-                "package_weight":       pkg.get("weight") or 0,
+                # N~R：該箱資訊
+                "box_tracking":         box_tracking,
+                "box_actual_weight":    b.get("actual_weight", "") if b.get("actual_weight") not in (None,) else "",
+                "box_length":           b.get("length", ""),
+                "box_width":            b.get("width", ""),
+                "box_height":           b.get("height", ""),
             }
             row = [getter(ctx) for _, getter in vendor["columns"]]
             rows.append(row)

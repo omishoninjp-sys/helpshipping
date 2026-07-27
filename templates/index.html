@@ -1676,6 +1676,19 @@
                             </div>`;
                         }
                         
+                        // 各箱追蹤號（多箱）：從 boxes_json 取，只顯示追蹤號
+                        let boxesHtml = '';
+                        try {
+                            var _bx = JSON.parse(req.boxes_json || '[]');
+                            var _tracks = (Array.isArray(_bx) ? _bx : []).map(function(b){ return (b.tracking_num||'').trim(); }).filter(Boolean);
+                            if (_tracks.length > 1) {
+                                boxesHtml = '<div style="margin:-4px 0 10px 0;padding:10px 14px;background:rgba(155,89,182,0.06);border:1px solid rgba(155,89,182,0.2);border-radius:8px;font-size:12px;">'
+                                    + '<div style="color:#c9a9e0;font-weight:600;margin-bottom:4px;">📦 共 ' + _tracks.length + ' 箱</div>'
+                                    + _tracks.map(function(t,i){ return '<div style="color:#ccc;">第 '+(i+1)+' 箱：<strong style="color:#fff;">'+t+'</strong></div>'; }).join('')
+                                    + '</div>';
+                            }
+                        } catch(e) {}
+
                         // 台灣配送貨況（僅已出貨顯示）：有真實單號→顯示查詢；否則依已出貨天數顯示估計時間軸
                         let deliveryHtml = '';
                         if (req.status === '已出貨') {
@@ -1723,6 +1736,7 @@
                             <div><div class="label">管理員回覆</div><div class="value" style="font-size:12px;">${req.admin_note || '-'}</div></div>
                         </div>
                         ${req.ship_recipient ? `<div style="margin:-6px 0 10px 0;padding:10px 14px;background:rgba(52,152,219,0.06);border:1px solid rgba(52,152,219,0.15);border-radius:8px;font-size:12px;color:#aaa;">📦 寄送至：<strong style="color:#fff;">${req.ship_recipient}</strong> ${req.ship_phone || ''}<br>📍 ${req.ship_address || ''}</div>` : ''}
+                        ${boxesHtml}
                         ${deliveryHtml}
                         ${req.note ? `<div style="margin:-6px 0 10px 0;padding:8px 14px;background:rgba(255,255,255,0.03);border-radius:8px;font-size:12px;color:#888;">📝 ${req.note}</div>` : ''}
                         ${billingHtml}`;
