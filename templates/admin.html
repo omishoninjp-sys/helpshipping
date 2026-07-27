@@ -1530,15 +1530,26 @@ if (loginBtn) {
 
 // ── 無主包裹認領牆 ──
 var _unclaimedData = [];
-async function loadUnclaimed() {
+async function loadUnclaimed(_retry) {
+    var tbody = document.getElementById('unclaimedTable');
     try {
         var res = await fetch('/api/admin/unclaimed');
         var d = await res.json();
-        _unclaimedData = (d.success && d.items) ? d.items : [];
+        if (!d.success) {
+            // 讀取失敗 ≠ 沒資料：不要清掉、不要顯示「共 0 件」誤導
+            if (!_retry) return loadUnclaimed(true);   // 自動重試一次
+            if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#e67e22;padding:30px;">⚠️ 讀取失敗，請按「🔄 重新整理」再試（資料未遺失）</td></tr>';
+            return;
+        }
+        _unclaimedData = d.items || [];
         var badge = document.getElementById('unclaimed-badge');
         if (badge) { badge.textContent = _unclaimedData.length; badge.style.display = _unclaimedData.length ? '' : 'none'; }
         renderUnclaimed();
-    } catch(e) { console.error('loadUnclaimed:', e); }
+    } catch(e) {
+        console.error('loadUnclaimed:', e);
+        if (!_retry) return loadUnclaimed(true);       // 網路錯誤也自動重試一次
+        if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#e67e22;padding:30px;">⚠️ 讀取失敗（網路問題），請按「🔄 重新整理」再試（資料未遺失）</td></tr>';
+    }
 }
 function renderUnclaimed() {
     var tbody = document.getElementById('unclaimedTable');
