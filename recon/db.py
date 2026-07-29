@@ -57,13 +57,22 @@ def diagnose(conn, start: date, end: date, agent_id: int = 0) -> dict:
         p["agent_id"] = agent_id
     def q(where):
         return conn.execute(f"SELECT COUNT(*) c FROM shipment_requests sr WHERE {where} {af}", p).fetchone()["c"]
+    in_range = (
+        "sr.status='已出貨' AND COALESCE(sr.payment_last5,'')<>'' AND ("
+        "date(replace(substr(COALESCE(NULLIF(sr.payment_at,''),sr.updated_at,sr.created_at),1,10),'/','-')) BETWEEN date(:start) AND date(:end)"
+        " OR date(replace(substr(COALESCE(NULLIF(sr.updated_at,''),sr.created_at),1,10),'/','-')) BETWEEN date(:start) AND date(:end))")
+    # 取樣：區間內帳單的 payment_last5 實際長怎樣（判斷是數字末五碼還是文字如『管確認/現金』）
+    samples = [str(r["payment_last5"]) for r in conn.execute(
+        f"SELECT DISTINCT payment_last5 FROM shipment_requests sr WHERE {in_range} {af} LIMIT 12", p).fetchall()]
+    numeric = conn.execute(
+        f"SELECT COUNT(*) c FROM shipment_requests sr WHERE {in_range} {af} "
+        "AND length(sr.payment_last5)=5 AND sr.payment_last5 GLOB '[0-9][0-9][0-9][0-9][0-9]'", p).fetchone()["c"]
     return {
         "已出貨總數": q("sr.status='已出貨'"),
         "有填末五碼": q("sr.status='已出貨' AND COALESCE(sr.payment_last5,'')<>''"),
-        "區間內(出貨或付款日)": q(
-            "sr.status='已出貨' AND COALESCE(sr.payment_last5,'')<>'' AND ("
-            "date(replace(substr(COALESCE(NULLIF(sr.payment_at,''),sr.updated_at,sr.created_at),1,10),'/','-')) BETWEEN date(:start) AND date(:end)"
-            " OR date(replace(substr(COALESCE(NULLIF(sr.updated_at,''),sr.created_at),1,10),'/','-')) BETWEEN date(:start) AND date(:end))"),
+        "區間內(出貨或付款日)": q(in_range),
+        "區間內_末五碼是純5碼數字": numeric,
+        "末五碼取樣": samples,
     }
 
 

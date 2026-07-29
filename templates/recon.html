@@ -52,15 +52,17 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 {% if error %}<div class="card err">{{ error }}</div>{% endif %}
 {% if diag %}
 <div class="card" style="border-left:4px solid #e67e22;background:#fdf6ec;">
-  <b>⚠️ 這個區間撈不到帳單，所以無法對帳。診斷：</b>
+  <b>🔎 對帳診斷</b>
   <ul style="margin:8px 0 0 18px;line-height:1.8;">
-    <li>已出貨帳單總數：<b>{{ diag['已出貨總數'] }}</b></li>
-    <li>其中「有填匯款末五碼」：<b>{{ diag['有填末五碼'] }}</b></li>
-    <li>其中「出貨日或付款日落在此區間」：<b>{{ diag['區間內(出貨或付款日)'] }}</b></li>
+    <li>撈到帳單：<b>{{ diag['撈到帳單'] }}</b> 筆　｜　銀行入帳：<b>{{ diag['銀行入帳筆數'] }}</b> 筆</li>
+    <li>已出貨帳單總數：<b>{{ diag['已出貨總數'] }}</b>　｜　有填末五碼：<b>{{ diag['有填末五碼'] }}</b></li>
+    <li>區間內帳單：<b>{{ diag['區間內(出貨或付款日)'] }}</b>　｜　其中末五碼是「純5碼數字」：<b>{{ diag['區間內_末五碼是純5碼數字'] }}</b></li>
+    <li>帳單末五碼實際樣態取樣：<b>{{ diag['末五碼取樣'] | join('、') if diag['末五碼取樣'] else '（無）' }}</b></li>
   </ul>
-  <div style="margin-top:8px;color:#8a6d3b;font-size:13px;">
-    對帳靠「客戶回報的匯款末五碼」比對銀行入帳。若「有填末五碼」數很少，代表多數客戶沒在系統回報末五碼，這種帳單無法自動對；
-    若「有填末五碼」不少但「區間內」是 0，多半是日期區間沒涵蓋到，試著把區間放寬。
+  <div style="margin-top:8px;color:#8a6d3b;font-size:13px;line-height:1.7;">
+    ・「撈到帳單 0」＝這區間沒有可對的帳單，多半是客戶沒在系統回報末五碼，或日期沒涵蓋（放寬區間再試）。<br>
+    ・末五碼取樣若出現「管確認 / 現金 / 後付」等文字而非 5 位數字，代表那些帳單沒有可比對的末五碼，自然對不上銀行入帳。<br>
+    ・「純5碼數字」的筆數，才是真正能跟銀行自動比對的帳單數。
   </div>
 </div>
 {% endif %}

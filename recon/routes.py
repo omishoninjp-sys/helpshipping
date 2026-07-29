@@ -72,10 +72,11 @@ def index():
             conn = db.connect(current_app.config.get("DB_PATH"))
             bills = db.fetch_bills(conn, start, end,
                                    agent_id=_current_agent_id())
-            if not bills:
-                # 撈不到帳單 → 附上診斷數字，讓使用者知道卡在哪一關
-                diag = db.diagnose(conn, start, end, agent_id=_current_agent_id())
-                ctx["diag"] = diag
+            # 一律附診斷（撈到帳單數 / 銀行筆數 / 帳單末五碼樣態），方便排查對不上的原因
+            diag = db.diagnose(conn, start, end, agent_id=_current_agent_id())
+            diag["撈到帳單"] = len(bills)
+            diag["銀行入帳筆數"] = len(records)
+            ctx["diag"] = diag
             res = reconcile(bills, records, own_account=db.OWN_ACCOUNT,
                             period=(start, end), parse_errors=errors)
             _LAST[session.get("user_id") or session.get("username") or "?"] = res
