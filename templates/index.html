@@ -1637,9 +1637,30 @@
                                     })()}
                                 </div>
                                 ${(() => {
+                                    // 材積明細：顯示各箱長寬高，若因材積較大而以材積計費則說明，避免客戶疑惑「重量很輕為何運費高」
                                     try {
-                                        const extras = typeof req.extra_services === 'string' ? JSON.parse(req.extra_services || '[]') : (req.extra_services || []);
-                                        if (extras.length > 0) {
+                                        const bx = JSON.parse(req.boxes_json || '[]');
+                                        if (!Array.isArray(bx) || !bx.length) return '';
+                                        const rows = bx.map((b, i) => {
+                                            const w = parseFloat(b.actual_weight) || 0;
+                                            const L = parseFloat(b.length) || 0, W = parseFloat(b.width) || 0, H = parseFloat(b.height) || 0;
+                                            if (!(L > 0 && W > 0 && H > 0)) return '';
+                                            const vol = (L * W * H) / 6000;
+                                            const byVol = vol > w * 3;
+                                            const label = bx.length > 1 ? ('第 ' + (i + 1) + ' 箱：') : '';
+                                            return '<div style="padding:2px 0;">' + label
+                                                + '尺寸 <strong style="color:#fff;">' + L + '×' + W + '×' + H + ' cm</strong>'
+                                                + '，實際 ' + w + ' kg，材積 ' + vol.toFixed(1) + ' kg'
+                                                + (byVol ? '<span style="color:#e67e22;"> → 材積大於實際 3 倍，以材積計費</span>' : '')
+                                                + '</div>';
+                                        }).filter(Boolean).join('');
+                                        if (!rows) return '';
+                                        return '<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.06);font-size:12px;color:#bbb;line-height:1.7;">'
+                                            + '<div style="font-weight:600;color:#e67e22;margin-bottom:4px;">📦 材積明細</div>' + rows
+                                            + '<div style="margin-top:4px;color:#888;">※ 一般照實際重量計費；材積（長×寬×高÷6000）超過實際重量 3 倍時，改以材積計費。</div>'
+                                            + '</div>';
+                                    } catch(e) { return ''; }
+                                })()}
                                             return '<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.06);font-size:13px;color:#ccc;">'
                                                 + '<div style="font-weight:600;color:#9b59b6;margin-bottom:4px;">⭐ 加值服務</div>'
                                                 + extras.map(e => '<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>' + e.name + (e.qty && e.qty > 1 ? ' ×' + e.qty : '') + '</span><strong style="color:#fff;">NT$ ' + ((e.subtotal || e.qty * e.price || e.price) || 0).toLocaleString() + '</strong></div>').join('')
