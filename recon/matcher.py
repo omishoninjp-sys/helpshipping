@@ -38,6 +38,8 @@ class BillRecord:
     @property
     def last5(self) -> str:
         s = self.pay_mark.strip()
+        if s.endswith(".0"):            # 防禦：11414.0 → 11414（SQLite 浮點字串）
+            s = s[:-2]
         return s.zfill(5) if s.isdigit() else ""
 
     @property
@@ -45,7 +47,10 @@ class BillRecord:
         low = self.pay_mark.strip().lower()
         if any(k in low for k in NON_BANK_MARKS):
             return False
-        return self.pay_mark.strip().isdigit()
+        s = self.pay_mark.strip()
+        if s.endswith(".0"):
+            s = s[:-2]
+        return s.isdigit()
 
 
 @dataclass

@@ -15,10 +15,21 @@
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 from datetime import date, datetime
 
 from .matcher import BillRecord
+
+
+def _norm_pay_mark(v) -> str:
+    """正規化匯款欄：SQLite 可能把末五碼存成浮點字串（11414.0）→ 還原成 11414。
+    非數字（現金/管確認/後付…）原樣保留。"""
+    s = str(v or "").strip()
+    m = re.fullmatch(r"(\d+)\.0+", s)   # 11414.0 / 11414.00 → 11414
+    if m:
+        s = m.group(1)
+    return s
 
 # 與 app.py 一致
 DB_PATH = os.environ.get("DB_PATH", "packages.db")
@@ -66,7 +77,8 @@ def diagnose(conn, start: date, end: date, agent_id: int = 0) -> dict:
         f"SELECT DISTINCT payment_last5 FROM shipment_requests sr WHERE {in_range} {af} LIMIT 12", p).fetchall()]
     numeric = conn.execute(
         f"SELECT COUNT(*) c FROM shipment_requests sr WHERE {in_range} {af} "
-        "AND length(sr.payment_last5)=5 AND sr.payment_last5 GLOB '[0-9][0-9][0-9][0-9][0-9]'", p).fetchone()["c"]
+        "AND replace(sr.payment_last5,'.0','') GLOB '[0-9][0-9][0-9][0-9][0-9]' "
+        "AND length(replace(sr.payment_last5,'.0',''))=5", p).fetchone()["c"]
     return {
         "已出貨總數": q("sr.status='已出貨'"),
         "有填末五碼": q("sr.status='已出貨' AND COALESCE(sr.payment_last5,'')<>''"),
@@ -113,7 +125,7 @@ def fetch_bills(conn, start: date, end: date, agent_id: int = 0,
             customer_name=str(r["customer_name"] or ""),
             ship_date=_to_date(r["ship_date"]),
             amount=int(round(float(r["amount"] or 0))),
-            pay_mark=str(r["pay_mark"] or "").strip(),
+            pay_mark=_norm_pay_mark(r["pay_mark"]),
             paid_at=_to_date(r["paid_at"]),
         ))
     return out
