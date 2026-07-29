@@ -2,10 +2,15 @@
 """
 帳單來源：從 helpshipping 的 SQLite 撈出指定付款日區間的帳單。
 
-⚠️ 需確認的三件事（見 README 的「接線」段落）：
-   1. 帳單資料表名稱
-   2. 欄位對應（BILL_SQL 內的 AS 別名要維持不變）
-   3. 付款日欄位（目前假設是 paid_at，用來做日期區間篩選）
+已對照 app.py 實際 schema：
+  資料表 shipment_requests
+    g_code         客戶編號
+    customer_name  客戶姓名
+    total_fee      合計
+    payment_last5  匯款欄（末五碼，或「現金 / 後付 / 管確認 / 收日幣現金」）
+    payment_at     銷帳時間 ← 用來做付款日區間篩選
+    updated_at     標記已出貨那天（＝出貨日），舊單 fallback created_at
+    agent_id       0 = 主管理員
 """
 from __future__ import annotations
 
@@ -15,26 +20,29 @@ from datetime import date, datetime
 
 from .matcher import BillRecord
 
-DB_PATH = os.environ.get("HELPSHIPPING_DB", "helpshipping.db")
+# 與 app.py 一致
+DB_PATH = os.environ.get("DB_PATH", "packages.db")
 
-# 自家收款帳號（用來偵測「末五碼誤填成自家帳號片段」）
+# 自家收款帳號（偵測「末五碼誤填成自家帳號片段」）
 OWN_ACCOUNT = os.environ.get("OWN_ACCOUNT", "699515361956")
 
-# ---- 這段是唯一需要照實際 schema 改的地方 -------------------------------
 BILL_SQL = """
 SELECT
-    b.id                AS bill_id,
-    b.customer_code     AS customer_code,
-    b.customer_name     AS customer_name,
-    b.ship_date         AS ship_date,
-    b.total             AS amount,
-    b.pay_mark          AS pay_mark,
-    b.paid_at           AS paid_at
-FROM bills b
-WHERE date(b.paid_at) BETWEEN date(:start) AND date(:end)
-ORDER BY b.ship_date DESC
+    sr.id                                                 AS bill_id,
+    sr.g_code                                             AS customer_code,
+    sr.customer_name                                      AS customer_name,
+    COALESCE(NULLIF(sr.updated_at, ''), sr.created_at)    AS ship_date,
+    sr.total_fee                                          AS amount,
+    sr.payment_last5                                      AS pay_mark,
+    sr.payment_at                                         AS paid_at
+FROM shipment_requests sr
+WHERE sr.status = '已出貨'
+  AND COALESCE(sr.payment_last5, '') <> ''
+  AND date(replace(substr(sr.payment_at, 1, 10), '/', '-'))
+      BETWEEN date(:start) AND date(:end)
+  {agent_filter}
+ORDER BY sr.payment_at DESC, sr.id DESC
 """
-# ------------------------------------------------------------------------
 
 
 def _to_date(v):
@@ -43,26 +51,31 @@ def _to_date(v):
     if isinstance(v, date):
         return v
     s = str(v)[:19].replace("/", "-")
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d", "%m-%d"):
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
         try:
-            d = datetime.strptime(s, fmt)
-            return d.replace(year=date.today().year).date() if fmt == "%m-%d" else d.date()
+            return datetime.strptime(s, fmt).date()
         except ValueError:
             continue
     return None
 
 
 def connect(db_path: str | None = None) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path or DB_PATH)
+    conn = sqlite3.connect(db_path or DB_PATH, timeout=5)
     conn.row_factory = sqlite3.Row
     return conn
 
 
-def fetch_bills(conn, start: date, end: date, sql: str | None = None) -> list[BillRecord]:
-    rows = conn.execute(sql or BILL_SQL,
-                        {"start": start.isoformat(), "end": end.isoformat()}).fetchall()
+def fetch_bills(conn, start: date, end: date, agent_id: int = 0,
+                sql: str | None = None) -> list[BillRecord]:
+    params = {"start": start.isoformat(), "end": end.isoformat()}
+    if sql is None:
+        sql = BILL_SQL.format(
+            agent_filter="AND sr.agent_id = :agent_id" if agent_id > 0 else "")
+        if agent_id > 0:
+            params["agent_id"] = agent_id
+
     out = []
-    for r in rows:
+    for r in conn.execute(sql, params).fetchall():
         out.append(BillRecord(
             bill_id=str(r["bill_id"]),
             customer_code=str(r["customer_code"] or ""),
@@ -76,7 +89,6 @@ def fetch_bills(conn, start: date, end: date, sql: str | None = None) -> list[Bi
 
 
 def inspect_schema(conn) -> dict:
-    """列出所有資料表與欄位，方便確認 BILL_SQL 該怎麼寫。"""
     out = {}
     for (name,) in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"):

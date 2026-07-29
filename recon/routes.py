@@ -5,6 +5,7 @@ Flask blueprint：上傳銷帳檔 → 對帳 → 網頁報表 / Excel 下載
 app.py 加兩行：
     from recon.routes import bp as recon_bp
     app.register_blueprint(recon_bp)
+（DB_PATH 沿用 app.py 的環境變數，不必另外設定）
 """
 from __future__ import annotations
 
@@ -34,8 +35,16 @@ def _month_range(today: date | None = None):
 
 
 def _login_required():
-    """接上 helpshipping 現有的管理員驗證；預設沿用 session['admin']。"""
-    return bool(session.get("admin") or session.get("user_id"))
+    """對帳是財務功能，限老闆（super）：與 app.py 的 is_boss() 一致。"""
+    return session.get("user_type") == "admin" and session.get("role") == "super"
+
+
+def _current_agent_id() -> int:
+    """代理只看自己的帳單；主管理員（0）看全部。"""
+    try:
+        return int(session.get("agent_id", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 @bp.route("/", methods=["GET", "POST"])
@@ -60,11 +69,12 @@ def index():
             if not records:
                 raise ValueError("銷帳檔沒有解析到任何資料，請確認檔案格式")
 
-            conn = db.connect(current_app.config.get("HELPSHIPPING_DB"))
-            bills = db.fetch_bills(conn, start, end)
+            conn = db.connect(current_app.config.get("DB_PATH"))
+            bills = db.fetch_bills(conn, start, end,
+                                   agent_id=_current_agent_id())
             res = reconcile(bills, records, own_account=db.OWN_ACCOUNT,
                             period=(start, end), parse_errors=errors)
-            _LAST["res"] = res
+            _LAST[session.get("user_id") or session.get("username") or "?"] = res
             ctx["res"], ctx["text"] = res, to_text(res)
         except Exception as exc:                     # noqa: BLE001
             current_app.logger.exception("對帳失敗")
@@ -77,7 +87,7 @@ def index():
 def export():
     if not _login_required():
         return "unauthorized", 401
-    res = _LAST.get("res")
+    res = _LAST.get(session.get("user_id") or session.get("username") or "?")
     if not res:
         return "尚未執行對帳", 400
     p = res.period

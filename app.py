@@ -35,6 +35,14 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=7)
 # PWA：註冊 /sw.js + /manifest.webmanifest + /admin-manifest.webmanifest 三條路由
 register_pwa(app)
 
+# 對帳模組：/recon 上傳銷帳檔比對帳單（限老闆）。DB_PATH 讓 recon 沿用同一個資料庫
+app.config["DB_PATH"] = os.environ.get("DB_PATH", "packages.db")
+try:
+    from recon.routes import bp as recon_bp
+    app.register_blueprint(recon_bp)
+except Exception as _recon_err:
+    print(f"[recon] 對帳模組載入失敗（不影響主程式）: {_recon_err}", flush=True)
+
 # ============ 設定區（從環境變數讀取）============
 JPD_BASE_URL = "https://biz.cloudwh.jp"
 JPD_EMAIL = os.environ.get("JPD_EMAIL", "omishoninjp@gmail.com")
