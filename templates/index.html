@@ -1680,11 +1680,16 @@
                         let boxesHtml = '';
                         try {
                             var _bx = JSON.parse(req.boxes_json || '[]');
-                            var _tracks = (Array.isArray(_bx) ? _bx : []).map(function(b){ return (b.tracking_num||'').trim(); }).filter(Boolean);
-                            if (_tracks.length > 1) {
+                            var _boxes = (Array.isArray(_bx) ? _bx : []).filter(function(b){ return (b.tracking_num||'').trim(); });
+                            if (_boxes.length > 1) {
                                 boxesHtml = '<div style="margin:-4px 0 10px 0;padding:10px 14px;background:rgba(155,89,182,0.06);border:1px solid rgba(155,89,182,0.2);border-radius:8px;font-size:12px;">'
-                                    + '<div style="color:#c9a9e0;font-weight:600;margin-bottom:4px;">📦 共 ' + _tracks.length + ' 箱</div>'
-                                    + _tracks.map(function(t,i){ return '<div style="color:#ccc;">第 '+(i+1)+' 箱：<strong style="color:#fff;">'+t+'</strong></div>'; }).join('')
+                                    + '<div style="color:#c9a9e0;font-weight:600;margin-bottom:4px;">📦 共 ' + _boxes.length + ' 箱</div>'
+                                    + _boxes.map(function(b,i){
+                                        var t = (b.tracking_num||'').trim();
+                                        var L = parseFloat(b.length)||0, W = parseFloat(b.width)||0, H = parseFloat(b.height)||0;
+                                        var dim = (L>0&&W>0&&H>0) ? '<span style="color:#999;"> ｜ 尺寸 '+L+'×'+W+'×'+H+' cm</span>' : '';
+                                        return '<div style="color:#ccc;margin-bottom:2px;">第 '+(i+1)+' 箱：<strong style="color:#fff;">'+t+'</strong>'+dim+'</div>';
+                                    }).join('')
                                     + '</div>';
                             }
                         } catch(e) {}
