@@ -38,11 +38,33 @@ SELECT
 FROM shipment_requests sr
 WHERE sr.status = '已出貨'
   AND COALESCE(sr.payment_last5, '') <> ''
-  AND date(replace(substr(sr.payment_at, 1, 10), '/', '-'))
-      BETWEEN date(:start) AND date(:end)
+  AND (
+        date(replace(substr(COALESCE(NULLIF(sr.payment_at,''), sr.updated_at, sr.created_at), 1, 10), '/', '-'))
+        BETWEEN date(:start) AND date(:end)
+     OR date(replace(substr(COALESCE(NULLIF(sr.updated_at,''), sr.created_at), 1, 10), '/', '-'))
+        BETWEEN date(:start) AND date(:end)
+      )
   {agent_filter}
 ORDER BY sr.payment_at DESC, sr.id DESC
 """
+
+
+def diagnose(conn, start: date, end: date, agent_id: int = 0) -> dict:
+    """回報帳單在各條件下的筆數，用來判斷『0 筆』是卡在哪一關。"""
+    af = "AND agent_id = :agent_id" if agent_id > 0 else ""
+    p = {"start": start.isoformat(), "end": end.isoformat()}
+    if agent_id > 0:
+        p["agent_id"] = agent_id
+    def q(where):
+        return conn.execute(f"SELECT COUNT(*) c FROM shipment_requests sr WHERE {where} {af}", p).fetchone()["c"]
+    return {
+        "已出貨總數": q("sr.status='已出貨'"),
+        "有填末五碼": q("sr.status='已出貨' AND COALESCE(sr.payment_last5,'')<>''"),
+        "區間內(出貨或付款日)": q(
+            "sr.status='已出貨' AND COALESCE(sr.payment_last5,'')<>'' AND ("
+            "date(replace(substr(COALESCE(NULLIF(sr.payment_at,''),sr.updated_at,sr.created_at),1,10),'/','-')) BETWEEN date(:start) AND date(:end)"
+            " OR date(replace(substr(COALESCE(NULLIF(sr.updated_at,''),sr.created_at),1,10),'/','-')) BETWEEN date(:start) AND date(:end))"),
+    }
 
 
 def _to_date(v):
