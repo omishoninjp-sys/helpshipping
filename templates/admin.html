@@ -327,6 +327,7 @@
                 <div class="sidebar-item" id="sidebar-announcements" onclick="switchAdminTab('announcements')">📢 公告管理</div>
                 <div class="sidebar-item" id="sidebar-stats" onclick="switchAdminTab('stats')">📊 統計</div>
                 <div class="sidebar-item" id="sidebar-oplogs" onclick="switchAdminTab('oplogs')" style="display:none;">📋 操作紀錄</div>
+                <div class="sidebar-item" id="sidebar-recon" onclick="window.open('/recon','_blank')" style="display:none;">🧾 對帳</div>
                 <div class="sidebar-divider"></div>
                 <div class="sidebar-item" id="sidebar-exports" onclick="switchAdminTab('exports')" style="display:none;">📤 出檔案 <span id="exports-badge" class="sidebar-badge" style="display:none;background:#3498db;">0</span></div>
                 <div class="sidebar-item" id="sidebar-extraservices" onclick="switchAdminTab('extraservices')" style="display:none;">⭐ 加值服務</div>
@@ -1500,7 +1501,7 @@ async function adminLogin() {
             if (sbMB) sbMB.style.display = currentAdmin.user_type === 'agent' ? '' : 'none';
             // 老闆(super) vs 員工(staff)：員工看不到 統計/代理/操作紀錄/變更密碼/管理員帳號
             var isBoss = currentAdmin.user_type === 'admin' && currentAdmin.role === 'super';
-            var bossOnly = { 'sidebar-stats': isBoss, 'sidebar-agents': isBoss, 'sidebar-oplogs': isBoss, 'sidebar-changepwd': isBoss };
+            var bossOnly = { 'sidebar-stats': isBoss, 'sidebar-agents': isBoss, 'sidebar-oplogs': isBoss, 'sidebar-recon': isBoss, 'sidebar-changepwd': isBoss };
             Object.keys(bossOnly).forEach(function(id){ var el = document.getElementById(id); if (el) el.style.display = bossOnly[id] ? '' : 'none'; });
             var adminMgmt = document.getElementById('adminUsersSection');
             if (adminMgmt) adminMgmt.style.display = isBoss ? '' : 'none';
