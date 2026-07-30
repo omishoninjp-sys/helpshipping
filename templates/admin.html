@@ -2937,8 +2937,8 @@ function renderShipReqs(list) {
 
         // 匯款
         var paymentHtml = '';
-        if (r.payment_last5) {
-            paymentHtml = '<span style="font-size:13px;color:#27ae60;font-weight:600;">✅ ' + r.payment_last5 + '</span> <span style="font-size:11px;color:#888;">' + (r.payment_at||'').slice(5,16) + '</span>';
+        if (hasPayment(r.payment_last5)) {
+            paymentHtml = '<span style="font-size:13px;color:#27ae60;font-weight:600;">✅ ' + fmtLast5(r.payment_last5) + '</span> <span style="font-size:11px;color:#888;">' + (r.payment_at||'').slice(5,16) + '</span>';
         } else if (r.total_fee && r.total_fee > 0) {
             paymentHtml = '<span style="font-size:12px;color:#e74c3c;">未回報</span>';
         } else {
@@ -3477,6 +3477,10 @@ function fmtLast5(v) {
     var s = String(v == null ? '' : v).trim().replace(/\.0+$/, '');
     return /^\d{1,5}$/.test(s) ? s.padStart(5, '0') : s;
 }
+// 是否已回報/已確認匯款：只有 null/空字串才算「未付」；0、00000、管確認、現金 都算「已付」
+function hasPayment(v) {
+    return v !== null && v !== undefined && String(v).trim() !== '';
+}
 function filterBilling() {
     var filter = (document.getElementById('billing-filter') || {}).value || 'unpaid';
     var q = ((document.getElementById('billing-search') || {}).value || '').trim().toUpperCase();
@@ -3489,8 +3493,8 @@ function filterBilling() {
 
     var list = (allBillingData || []).slice();
     // 付款狀態
-    if (filter === 'unpaid') list = list.filter(function(r){ return r.total_fee > 0 && !r.payment_last5; });
-    else if (filter === 'paid') list = list.filter(function(r){ return !!r.payment_last5; });
+    if (filter === 'unpaid') list = list.filter(function(r){ return r.total_fee > 0 && !hasPayment(r.payment_last5); });
+    else if (filter === 'paid') list = list.filter(function(r){ return hasPayment(r.payment_last5); });
     // 關鍵字
     if (q) {
         list = list.filter(function(r){
@@ -3518,10 +3522,10 @@ function filterBilling() {
     }
     var sumTotal = 0, sumWeight = 0;
     tbody.innerHTML = list.map(function(r) {
-            var payHtml = r.payment_last5
+            var payHtml = hasPayment(r.payment_last5)
                 ? '<span style="color:#27ae60;font-weight:700;font-size:12px;">✅ ' + fmtLast5(r.payment_last5) + '</span><div style="font-size:10px;color:#888;">' + (r.payment_at||'').slice(5,16) + '</div>'
                 : '<span style="color:#e74c3c;font-size:12px;">未付款</span>';
-            var payActionBtn = r.payment_last5
+            var payActionBtn = hasPayment(r.payment_last5)
                 ? '<button class="btn" style="background:rgba(231,76,60,.15);color:#e74c3c;padding:4px 8px;font-size:11px;border:1px solid rgba(231,76,60,.3);white-space:nowrap;" onclick="adminUnconfirmPayment(' + r.id + ')">↩ 取消</button>'
                 : '<button class="btn" style="background:#27ae60;color:#fff;padding:4px 8px;font-size:11px;font-weight:700;white-space:nowrap;" onclick="adminConfirmPayment(' + r.id + ')">✓ 確認</button>';
             var editBtn = '<button class="btn" style="background:rgba(52,152,219,.2);color:#3498db;padding:4px 8px;font-size:11px;border:1px solid rgba(52,152,219,.3);white-space:nowrap;" onclick="openBillingEditModal(' + r.id + ')">✏️ 修改</button>';

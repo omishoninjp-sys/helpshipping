@@ -1583,6 +1583,10 @@
             var s = String(v == null ? '' : v).trim().replace(/\.0+$/, '');
             return /^\d{1,5}$/.test(s) ? s.padStart(5, '0') : s;
         }
+        // 是否已回報匯款：0/00000/現金 等都算已回報，只有 null/空字串才算未回報
+        function hasPayment(v) {
+            return v !== null && v !== undefined && String(v).trim() !== '';
+        }
 
         async function submitPayment(reqId) {
             const input = document.getElementById('pay5-' + reqId);
@@ -1692,7 +1696,7 @@
                                         <span style="color:#ccc;">：如需刷卡支付，請<strong style="color:#fff;">私訊客服</strong>為您開啟</span>
                                     </div>
                                 </div>
-                                ${req.payment_last5 
+                                ${hasPayment(req.payment_last5)
                                     ? `<div style="margin-top:10px;padding:10px 14px;background:rgba(39,174,96,0.1);border:1px solid rgba(39,174,96,0.3);border-radius:8px;font-size:13px;color:#27ae60;font-weight:600;">
                                         ✅ 已回報匯款（後五碼：${fmtLast5(req.payment_last5)}）<span style="font-size:11px;color:#888;font-weight:400;margin-left:8px;">${req.payment_at || ''}</span>
                                        </div>`
@@ -1808,7 +1812,7 @@
                 const badgeOrders = document.getElementById('badge-orders');
                 if (reqData.success && reqData.requests) {
                     const unpaidCount = reqData.requests.filter(r => 
-                        r.status === '已出貨' && r.total_fee && r.total_fee > 0 && !r.payment_last5
+                        r.status === '已出貨' && r.total_fee && r.total_fee > 0 && !hasPayment(r.payment_last5)
                     ).length;
                     if (unpaidCount > 0) {
                         badgeOrders.textContent = unpaidCount;
