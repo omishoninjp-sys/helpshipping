@@ -3901,6 +3901,7 @@ def submit_payment_info(req_id):
         return jsonify({"success": False, "error": "請輸入帳號後五碼（5位數字）"})
     if not last5.isdigit():
         return jsonify({"success": False, "error": "請輸入數字"})
+    last5 = last5.zfill(5)   # 純數字補滿5位，保住前導0（00000/00123 不被截）
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = get_db()
@@ -4009,6 +4010,8 @@ def admin_confirm_payment(req_id):
         return jsonify({"success": False, "error": "備註請勿超過 20 字"})
     if not note:
         note = "管確認"
+    elif note.isdigit():
+        note = note.zfill(5)   # 純數字末五碼補滿5位，保住前導0（00000 等）
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = get_db()

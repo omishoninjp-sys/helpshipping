@@ -3472,6 +3472,11 @@ async function loadBilling() {
     } catch(e) { console.error('loadBilling:', e); }
 }
 
+// 末五碼顯示正規化：去 .0、純數字補回5位還原前導0；非數字原樣
+function fmtLast5(v) {
+    var s = String(v == null ? '' : v).trim().replace(/\.0+$/, '');
+    return /^\d{1,5}$/.test(s) ? s.padStart(5, '0') : s;
+}
 function filterBilling() {
     var filter = (document.getElementById('billing-filter') || {}).value || 'unpaid';
     var q = ((document.getElementById('billing-search') || {}).value || '').trim().toUpperCase();
@@ -3514,7 +3519,7 @@ function filterBilling() {
     var sumTotal = 0, sumWeight = 0;
     tbody.innerHTML = list.map(function(r) {
             var payHtml = r.payment_last5
-                ? '<span style="color:#27ae60;font-weight:700;font-size:12px;">✅ ' + r.payment_last5 + '</span><div style="font-size:10px;color:#888;">' + (r.payment_at||'').slice(5,16) + '</div>'
+                ? '<span style="color:#27ae60;font-weight:700;font-size:12px;">✅ ' + fmtLast5(r.payment_last5) + '</span><div style="font-size:10px;color:#888;">' + (r.payment_at||'').slice(5,16) + '</div>'
                 : '<span style="color:#e74c3c;font-size:12px;">未付款</span>';
             var payActionBtn = r.payment_last5
                 ? '<button class="btn" style="background:rgba(231,76,60,.15);color:#e74c3c;padding:4px 8px;font-size:11px;border:1px solid rgba(231,76,60,.3);white-space:nowrap;" onclick="adminUnconfirmPayment(' + r.id + ')">↩ 取消</button>'

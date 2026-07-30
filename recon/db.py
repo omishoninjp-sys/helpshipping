@@ -29,6 +29,8 @@ def _norm_pay_mark(v) -> str:
     m = re.fullmatch(r"(\d+)\.0+", s)   # 11414.0 / 11414.00 → 11414
     if m:
         s = m.group(1)
+    if s.isdigit():                     # 純數字補回5位，還原被吃掉的前導0（0→00000、123→00123）
+        s = s.zfill(5)
     return s
 
 # 與 app.py 一致
