@@ -286,6 +286,11 @@
     </style>
 </head>
 <body>
+    <!-- 語言切換 -->
+    <div id="langToggle" style="position:fixed;top:10px;right:12px;z-index:9999;display:flex;gap:0;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.15);border-radius:8px;overflow:hidden;font-size:12px;">
+        <button onclick="setLang('zh')" data-lang-btn="zh" style="border:none;background:none;color:#aaa;padding:6px 12px;cursor:pointer;">中文</button>
+        <button onclick="setLang('ja')" data-lang-btn="ja" style="border:none;background:none;color:#aaa;padding:6px 12px;cursor:pointer;">日本語</button>
+    </div>
 <div class="container">
     <header>
         <h1>🔧 Admin 管理後台</h1>
@@ -314,26 +319,26 @@
         <div id="internal-ann-banner" style="display:none;position:sticky;top:0;z-index:50;margin:0 0 12px 0;padding:14px 18px;background:linear-gradient(135deg,#b9770e,#f39c12);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.3);"></div>
         <div class="admin-layout">
             <div class="admin-sidebar">
-                <div class="sidebar-item active" onclick="switchAdminTab('members')">👥 會員管理</div>
-                <div class="sidebar-item" onclick="switchAdminTab('arrivals')">📦 到貨管理</div>
-                <div class="sidebar-item" onclick="switchAdminTab('unclaimed')">🔍 無主包裹 <span id="unclaimed-badge" class="sidebar-badge" style="display:none;background:#e67e22;">0</span></div>
+                <div class="sidebar-item active" onclick="switchAdminTab('members')">👥 <span data-i18n="nav.members">會員管理</span></div>
+                <div class="sidebar-item" onclick="switchAdminTab('arrivals')">📦 <span data-i18n="nav.arrivals">到貨管理</span></div>
+                <div class="sidebar-item" onclick="switchAdminTab('unclaimed')">🔍 <span data-i18n="nav.unclaimed">無主包裹</span> <span id="unclaimed-badge" class="sidebar-badge" style="display:none;background:#e67e22;">0</span></div>
                 <div class="sidebar-divider"></div>
-                <div class="sidebar-item" onclick="switchAdminTab('shipreqs')">🚚 出貨申請 <span id="shipreq-badge" class="sidebar-badge" style="display:none;">0</span></div>
-                <div class="sidebar-item" onclick="switchAdminTab('billing')">💰 帳單管理 <span id="billing-badge" class="sidebar-badge" style="display:none;background:#27ae60;">0</span></div>
+                <div class="sidebar-item" onclick="switchAdminTab('shipreqs')">🚚 <span data-i18n="nav.shipreqs">出貨申請</span> <span id="shipreq-badge" class="sidebar-badge" style="display:none;">0</span></div>
+                <div class="sidebar-item" onclick="switchAdminTab('billing')">💰 <span data-i18n="nav.billing">帳單管理</span> <span id="billing-badge" class="sidebar-badge" style="display:none;background:#27ae60;">0</span></div>
                 <div class="sidebar-divider"></div>
-                <div class="sidebar-item" onclick="switchAdminTab('forecasts')">📝 預報管理 <span id="forecast-badge" class="sidebar-badge" style="display:none;">0</span></div>
-                <div class="sidebar-item" onclick="switchAdminTab('schedule')">📅 班表</div>
-                <div class="sidebar-item" onclick="switchAdminTab('internalann')">📢 內部公告 <span id="internalann-badge" class="sidebar-badge" style="display:none;background:#e74c3c;">!</span></div>
-                <div class="sidebar-item" id="sidebar-announcements" onclick="switchAdminTab('announcements')">📢 公告管理</div>
-                <div class="sidebar-item" id="sidebar-stats" onclick="switchAdminTab('stats')">📊 統計</div>
-                <div class="sidebar-item" id="sidebar-oplogs" onclick="switchAdminTab('oplogs')" style="display:none;">📋 操作紀錄</div>
-                <div class="sidebar-item" id="sidebar-recon" onclick="window.open('/recon','_blank')" style="display:none;">🧾 對帳</div>
+                <div class="sidebar-item" onclick="switchAdminTab('forecasts')">📝 <span data-i18n="nav.forecasts">預報管理</span> <span id="forecast-badge" class="sidebar-badge" style="display:none;">0</span></div>
+                <div class="sidebar-item" onclick="switchAdminTab('schedule')">📅 <span data-i18n="nav.schedule">班表</span></div>
+                <div class="sidebar-item" onclick="switchAdminTab('internalann')">📢 <span data-i18n="nav.internalann">內部公告</span> <span id="internalann-badge" class="sidebar-badge" style="display:none;background:#e74c3c;">!</span></div>
+                <div class="sidebar-item" id="sidebar-announcements" onclick="switchAdminTab('announcements')">📢 <span data-i18n="nav.announcements">公告管理</span></div>
+                <div class="sidebar-item" id="sidebar-stats" onclick="switchAdminTab('stats')">📊 <span data-i18n="nav.stats">統計</span></div>
+                <div class="sidebar-item" id="sidebar-oplogs" onclick="switchAdminTab('oplogs')" style="display:none;">📋 <span data-i18n="nav.oplogs">操作紀錄</span></div>
+                <div class="sidebar-item" id="sidebar-recon" onclick="window.open('/recon','_blank')" style="display:none;">🧾 <span data-i18n="nav.recon">對帳</span></div>
                 <div class="sidebar-divider"></div>
-                <div class="sidebar-item" id="sidebar-exports" onclick="switchAdminTab('exports')" style="display:none;">📤 出檔案 <span id="exports-badge" class="sidebar-badge" style="display:none;background:#3498db;">0</span></div>
-                <div class="sidebar-item" id="sidebar-extraservices" onclick="switchAdminTab('extraservices')" style="display:none;">⭐ 加值服務</div>
-                <div class="sidebar-item" id="sidebar-agents" onclick="switchAdminTab('agents')" style="display:none;">🤝 代理管理</div>
-                <div class="sidebar-item" id="sidebar-my-branding" onclick="switchAdminTab('mybranding')" style="display:none;">🎨 我的品牌設定</div>
-                <div class="sidebar-item" id="sidebar-changepwd" onclick="openChangePwd()" style="color:#666;">🔑 變更密碼</div>
+                <div class="sidebar-item" id="sidebar-exports" onclick="switchAdminTab('exports')" style="display:none;">📤 <span data-i18n="nav.exports">出檔案</span> <span id="exports-badge" class="sidebar-badge" style="display:none;background:#3498db;">0</span></div>
+                <div class="sidebar-item" id="sidebar-extraservices" onclick="switchAdminTab('extraservices')" style="display:none;">⭐ <span data-i18n="nav.extraservices">加值服務</span></div>
+                <div class="sidebar-item" id="sidebar-agents" onclick="switchAdminTab('agents')" style="display:none;">🤝 <span data-i18n="nav.agents">代理管理</span></div>
+                <div class="sidebar-item" id="sidebar-my-branding" onclick="switchAdminTab('mybranding')" style="display:none;">🎨 <span data-i18n="nav.mybranding">我的品牌設定</span></div>
+                <div class="sidebar-item" id="sidebar-changepwd" onclick="openChangePwd()" style="color:#666;">🔑 <span data-i18n="nav.changepwd">變更密碼</span></div>
             </div>
             <div class="admin-main">
 
@@ -1457,6 +1462,68 @@ let membersData = [];
 let pendingChanges = {};
 let allPackages = [];
 let twd_to_jpy_rate = 5.0;
+
+// ==================== 後台多語系（中／日）第一階段 ====================
+// 翻譯先求可用，商務/集運行話（材積・理貨費・合箱 等）建議請日本員工潤稿。
+var I18N = {
+  ja: {
+    "nav.members":"会員管理","nav.arrivals":"入荷管理","nav.unclaimed":"持ち主不明荷物",
+    "nav.shipreqs":"出荷申請","nav.billing":"請求管理","nav.forecasts":"事前連絡",
+    "nav.schedule":"シフト表","nav.internalann":"社内お知らせ","nav.announcements":"お知らせ管理",
+    "nav.stats":"統計","nav.oplogs":"操作履歴","nav.recon":"入金照合","nav.exports":"データ出力",
+    "nav.extraservices":"付加サービス","nav.agents":"代理店管理","nav.mybranding":"ブランド設定",
+    "nav.changepwd":"パスワード変更",
+    "title.members":"会員管理","title.arrivals":"入荷管理","title.unclaimed":"持ち主不明荷物 引取ウォール",
+    "title.shipreqs":"出荷申請一覧","title.billing":"請求管理","title.forecasts":"事前連絡管理",
+    "title.schedule":"従業員シフト表","title.internalann":"社内お知らせ","title.oplogs":"操作履歴",
+    "btn.refresh":"更新","btn.confirm":"確認","btn.edit":"修正","btn.cancel":"キャンセル",
+    "btn.delete":"削除","btn.add":"追加","btn.save":"保存","btn.login":"ログイン","btn.logout":"ログアウト",
+    "btn.search":"検索","btn.print":"印刷","btn.register":"登録","btn.claim":"引取","btn.cancelship":"出荷取消",
+    "btn.today":"今日","btn.thismonth":"今月","btn.lastmonth":"先月","btn.last30":"直近30日","btn.clear":"クリア",
+    "col.customer":"顧客","col.shipdate":"出荷日","col.kg":"kg","col.shipping":"送料","col.handling":"仕分け料",
+    "col.consolidation":"同梱料","col.extra":"付加","col.total":"合計","col.payment":"入金","col.tracking":"追跡番号",
+    "col.action":"操作","col.date":"日付","col.amount":"金額","col.status":"状態","col.operator":"操作者",
+    "col.actiontype":"操作","col.target":"対象","col.content":"内容","col.name":"氏名","col.weight":"重量",
+    "col.logisnum":"日本伝票番号","col.recipient":"受取人","col.note":"備考","col.arrivedate":"入荷日","col.placed":"経過日数",
+    "login.title":"管理者ログイン","login.pwd":"パスワード","login.agent":"代理店ログイン（ID必要）",
+  }
+};
+var _lang = 'ja';
+function setLang(lang) {
+  _lang = (lang === 'zh') ? 'zh' : 'ja';
+  try { localStorage.setItem('adminLang', _lang); } catch(e) {}
+  applyI18n();
+  document.querySelectorAll('[data-lang-btn]').forEach(function(b){
+    var on = b.getAttribute('data-lang-btn') === _lang;
+    b.style.background = on ? '#e67e22' : 'none';
+    b.style.color = on ? '#fff' : '#aaa';
+    b.style.fontWeight = on ? '700' : '400';
+  });
+}
+function t(key) {
+  if (_lang === 'zh') return null;
+  var d = I18N[_lang] || {};
+  return d[key] != null ? d[key] : null;
+}
+function applyI18n() {
+  document.querySelectorAll('[data-i18n]').forEach(function(el){
+    var key = el.getAttribute('data-i18n');
+    if (el.getAttribute('data-i18n-zh') === null) el.setAttribute('data-i18n-zh', el.textContent);
+    var ja = t(key);
+    el.textContent = (_lang === 'ja' && ja != null) ? ja : (el.getAttribute('data-i18n-zh') || el.textContent);
+  });
+  document.querySelectorAll('[data-i18n-ph]').forEach(function(el){
+    var key = el.getAttribute('data-i18n-ph');
+    if (el.getAttribute('data-i18n-ph-zh') === null) el.setAttribute('data-i18n-ph-zh', el.getAttribute('placeholder') || '');
+    var ja = t(key);
+    el.setAttribute('placeholder', (_lang === 'ja' && ja != null) ? ja : (el.getAttribute('data-i18n-ph-zh') || ''));
+  });
+}
+document.addEventListener('DOMContentLoaded', function(){
+  var saved = 'ja';
+  try { saved = localStorage.getItem('adminLang') || 'ja'; } catch(e) {}
+  setLang(saved);
+});
 
 // ── 會員分頁 & 搜尋 ──
 const MEMBER_PAGE_SIZE = 50;
