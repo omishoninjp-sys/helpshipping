@@ -578,7 +578,7 @@
                     </div>
                 </div>
                 <div class="filter-bar">
-                    <input type="text" id="shipreq-search" placeholder="🔍 搜尋客戶編號、姓名、地址、追蹤號或備註...">
+                    <input type="text" id="shipreq-search" placeholder="🔍 搜尋客戶編號、姓名、地址、追蹤號或備註..." oninput="filterShipReqs()">
                     <span class="pkg-count" id="shipreq-count"></span>
                 </div>
                 <div class="filter-bar" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 4px 10px;">
@@ -599,6 +599,11 @@
                 </div>
                 <div id="shipreqList" class="sr-list">
                     <div style="text-align:center;color:#666;padding:40px;">載入中...</div>
+                </div>
+                <div id="shipreqPager" style="display:none;justify-content:center;align-items:center;gap:10px;padding:14px;font-size:13px;color:#aaa;">
+                    <button class="btn" id="shipreq-prev" style="background:rgba(255,255,255,.08);color:#fff;padding:6px 14px;" onclick="shipReqPage(-1)">← 上一頁</button>
+                    <span id="shipreq-pageinfo"></span>
+                    <button class="btn" id="shipreq-next" style="background:rgba(255,255,255,.08);color:#fff;padding:6px 14px;" onclick="shipReqPage(1)">下一頁 →</button>
                 </div>
             </div>
         </div>
@@ -2855,58 +2860,63 @@ async function loadShipReqBadge() {
 
 var allShipReqsData = [];
 
-async function loadShipReqs() {
-    const status = document.getElementById('shipreq-filter').value;
-    try {
-        const res = await fetch('/api/admin/shipment_requests' + (status ? '?status=' + encodeURIComponent(status) : ''));
-        const result = await res.json();
-        if (!result.success) { showToast('載入失敗', 'error'); return; }
-        allShipReqsData = result.requests || [];
-        filterShipReqs();  // 套用搜尋（若有）並渲染
-    } catch(e) { console.error('loadShipReqs error:', e); showToast('載入出貨申請失敗', 'error'); }
-}
+var _shipReqPage = 1;
+var _shipReqTotal = 0;
+var _shipReqSearchTimer = null;
 
-function filterShipReqs() {
-    var q = ((document.getElementById('shipreq-search') || {}).value || '').trim().toUpperCase();
+async function loadShipReqs(page) {
+    _shipReqPage = page || 1;
+    var status = document.getElementById('shipreq-filter').value;
+    var q = ((document.getElementById('shipreq-search') || {}).value || '').trim();
     var dFrom = (document.getElementById('shipreq-date-from') || {}).value || '';
     var dTo = (document.getElementById('shipreq-date-to') || {}).value || '';
     var dField = (document.getElementById('shipreq-date-field') || {}).value || 'auto';
-    var statusFilter = (document.getElementById('shipreq-filter') || {}).value || '';
-    var list = allShipReqsData || [];
+    var params = new URLSearchParams();
+    if (status) params.set('status', status);
+    if (q) params.set('q', q);
+    if (dFrom) params.set('date_from', dFrom);
+    if (dTo) params.set('date_to', dTo);
+    if (dField) params.set('date_field', dField);
+    params.set('page', _shipReqPage);
+    params.set('limit', 50);
+    try {
+        const res = await fetch('/api/admin/shipment_requests?' + params.toString());
+        const result = await res.json();
+        if (!result.success) { showToast('載入失敗', 'error'); return; }
+        allShipReqsData = result.requests || [];
+        _shipReqTotal = result.total || 0;
+        renderShipReqs(allShipReqsData);
+        renderShipReqPager(result);
+    } catch(e) { console.error('loadShipReqs error:', e); showToast('載入出貨申請失敗', 'error'); }
+}
 
-    // 關鍵字搜尋
-    if (q) {
-        list = list.filter(function(r){
-            var fields = [
-                r.g_code, r.customer_name,
-                r.ship_recipient, r.ship_phone, r.ship_address,
-                r.note, r.tracking_num, r.package_summary, r.payment_last5
-            ];
-            for (var i = 0; i < fields.length; i++) {
-                var v = fields[i];
-                if (v !== null && v !== undefined && String(v).toUpperCase().includes(q)) return true;
-            }
-            return false;
-        });
-    }
+// 搜尋/日期改變 → 回第1頁、後端查（打字 debounce 400ms）
+function filterShipReqs() {
+    clearTimeout(_shipReqSearchTimer);
+    _shipReqSearchTimer = setTimeout(function(){ loadShipReqs(1); }, 400);
+}
 
-    // 日期篩選
-    if (dFrom || dTo) {
-        // 自動模式：已出貨/已付款 → 比對 updated_at（出貨日），否則 created_at（申請日）
-        var useField = dField;
-        if (useField === 'auto') {
-            useField = (statusFilter === '已出貨' || statusFilter === '已付款') ? 'updated_at' : 'created_at';
-        }
-        list = list.filter(function(r){
-            var dateStr = String(r[useField] || '').substring(0, 10);  // YYYY-MM-DD
-            if (!dateStr) return false;
-            if (dFrom && dateStr < dFrom) return false;
-            if (dTo && dateStr > dTo) return false;
-            return true;
-        });
-    }
+function shipReqPage(delta) {
+    var next = _shipReqPage + delta;
+    if (next < 1) return;
+    loadShipReqs(next);
+    var panel = document.getElementById('panel-shipreqs');
+    if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
-    renderShipReqs(list);
+function renderShipReqPager(result) {
+    var pager = document.getElementById('shipreqPager');
+    var info = document.getElementById('shipreq-pageinfo');
+    if (!pager) return;
+    var total = result.total || 0, page = result.page || 1, limit = result.limit || 50;
+    if (total <= limit) { pager.style.display = 'none'; return; }
+    var totalPages = Math.ceil(total / limit);
+    pager.style.display = 'flex';
+    info.textContent = '第 ' + page + ' / ' + totalPages + ' 頁（共 ' + total + ' 筆）';
+    document.getElementById('shipreq-prev').disabled = (page <= 1);
+    document.getElementById('shipreq-next').disabled = !result.has_more;
+    document.getElementById('shipreq-prev').style.opacity = (page <= 1) ? '.4' : '1';
+    document.getElementById('shipreq-next').style.opacity = result.has_more ? '1' : '.4';
 }
 
 function setShipReqDateRange(preset) {
@@ -2929,7 +2939,7 @@ function setShipReqDateRange(preset) {
     }
     document.getElementById('shipreq-date-from').value = from;
     document.getElementById('shipreq-date-to').value = to;
-    filterShipReqs();
+    loadShipReqs(1);
 }
 
 function renderShipReqs(list) {

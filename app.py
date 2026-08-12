@@ -4487,32 +4487,59 @@ def admin_get_shipment_requests():
     """管理員查看所有出貨申請（含對應客戶的待處理預報資料）"""
     maybe_auto_sync()  # 後台有人活動時，距上次同步>24h 就背景同步台灣配送貨況
     status = request.args.get("status", "")
+    q = (request.args.get("q") or "").strip()
+    date_from = (request.args.get("date_from") or "").strip()
+    date_to = (request.args.get("date_to") or "").strip()
+    date_field = (request.args.get("date_field") or "auto").strip()
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+    except (ValueError, TypeError):
+        page = 1
+    try:
+        limit = min(200, max(1, int(request.args.get("limit", 50))))
+    except (ValueError, TypeError):
+        limit = 50
+    offset = (page - 1) * limit
     aid = get_current_agent_id()
-    # 代理過濾片段
-    af = " AND agent_id=?" if aid > 0 else ""
-    aparams = (aid,) if aid > 0 else ()
     try:
         conn = get_db()
+        where, params = [], []
+        # 狀態
         if status == "已付款":
-            sql = "SELECT * FROM shipment_requests WHERE status='已出貨' AND payment_last5 != '' AND payment_last5 IS NOT NULL" + af + " ORDER BY payment_at DESC, id DESC"
-            rows = conn.execute(sql, aparams).fetchall()
-        elif status == "recent":
-            if aid > 0:
-                rows = conn.execute(
-                    "SELECT * FROM shipment_requests WHERE agent_id=? ORDER BY id DESC LIMIT 50", (aid,)
-                ).fetchall()
-            else:
-                rows = conn.execute("SELECT * FROM shipment_requests ORDER BY id DESC LIMIT 50").fetchall()
-        elif status:
-            sql = "SELECT * FROM shipment_requests WHERE status=?" + af + " ORDER BY id DESC"
-            rows = conn.execute(sql, (status,) + aparams).fetchall()
+            where.append("status='已出貨' AND payment_last5 != '' AND payment_last5 IS NOT NULL")
+            order = "ORDER BY payment_at DESC, id DESC"
+        elif status and status != "recent":
+            where.append("status=?"); params.append(status)
+            order = "ORDER BY id DESC"
         else:
-            if aid > 0:
-                rows = conn.execute(
-                    "SELECT * FROM shipment_requests WHERE agent_id=? ORDER BY id DESC LIMIT 50", (aid,)
-                ).fetchall()
-            else:
-                rows = conn.execute("SELECT * FROM shipment_requests ORDER BY id DESC LIMIT 50").fetchall()
+            order = "ORDER BY id DESC"
+        # 代理過濾
+        if aid > 0:
+            where.append("agent_id=?"); params.append(aid)
+        # 關鍵字（後端查，不再前端全撈）
+        if q:
+            like = f"%{q}%"
+            fields = ["g_code", "customer_name", "ship_recipient", "ship_phone",
+                      "ship_address", "note", "tracking_num", "package_summary", "payment_last5"]
+            where.append("(" + " OR ".join(f"{f} LIKE ?" for f in fields) + ")")
+            params += [like] * len(fields)
+        # 日期區間（auto：已出貨/已付款→出貨日 updated_at，其他→申請日 created_at）
+        if date_from or date_to:
+            df = date_field
+            if df == "auto":
+                df = "updated_at" if status in ("已出貨", "已付款") else "created_at"
+            col = f"date(replace(substr(COALESCE(NULLIF({df},''), created_at),1,10),'/','-'))"
+            if date_from:
+                where.append(f"{col} >= date(?)"); params.append(date_from)
+            if date_to:
+                where.append(f"{col} <= date(?)"); params.append(date_to)
+
+        wsql = (" WHERE " + " AND ".join(where)) if where else ""
+        total = conn.execute(f"SELECT COUNT(*) AS c FROM shipment_requests{wsql}", params).fetchone()["c"]
+        rows = conn.execute(
+            f"SELECT * FROM shipment_requests{wsql} {order} LIMIT ? OFFSET ?",
+            params + [limit, offset]
+        ).fetchall()
 
         # 一次撈出涉及到的客戶的待處理預報（避免 N+1 查詢）
         g_codes = list({r["g_code"] for r in rows if r["g_code"]})
@@ -4559,7 +4586,9 @@ def admin_get_shipment_requests():
             d["pending_forecasts"] = forecast_map.get(r["g_code"], [])
             d["letter_count"] = sum(1 for pid in req_pids.get(r["id"], []) if pid in letter_ids)
             result.append(d)
-        return jsonify({"success": True, "requests": result})
+        return jsonify({"success": True, "requests": result,
+                        "total": total, "page": page, "limit": limit,
+                        "has_more": offset + len(rows) < total})
     except Exception as e:
         return jsonify({"success": False, "error": str(e), "requests": []})
 
