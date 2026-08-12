@@ -4487,6 +4487,7 @@ def admin_get_shipment_requests():
     """管理員查看所有出貨申請（含對應客戶的待處理預報資料）"""
     maybe_auto_sync()  # 後台有人活動時，距上次同步>24h 就背景同步台灣配送貨況
     status = request.args.get("status", "")
+    pay = (request.args.get("pay") or "").strip()   # 帳單付款狀態：unpaid / paid / all
     q = (request.args.get("q") or "").strip()
     date_from = (request.args.get("date_from") or "").strip()
     date_to = (request.args.get("date_to") or "").strip()
@@ -4504,8 +4505,18 @@ def admin_get_shipment_requests():
     try:
         conn = get_db()
         where, params = [], []
-        # 狀態
-        if status == "已付款":
+        # 帳單付款狀態（優先於 status；供帳單管理分頁用）
+        if pay == "unpaid":
+            where.append("status='已出貨' AND total_fee>0 AND (payment_last5 IS NULL OR payment_last5='')")
+            order = "ORDER BY id DESC"
+        elif pay == "paid":
+            where.append("status='已出貨' AND payment_last5 IS NOT NULL AND payment_last5!=''")
+            order = "ORDER BY payment_at DESC, id DESC"
+        elif pay == "all":
+            where.append("status='已出貨'")
+            order = "ORDER BY id DESC"
+        # 狀態（出貨申請用）
+        elif status == "已付款":
             where.append("status='已出貨' AND payment_last5 != '' AND payment_last5 IS NOT NULL")
             order = "ORDER BY payment_at DESC, id DESC"
         elif status and status != "recent":
@@ -4536,6 +4547,15 @@ def admin_get_shipment_requests():
 
         wsql = (" WHERE " + " AND ".join(where)) if where else ""
         total = conn.execute(f"SELECT COUNT(*) AS c FROM shipment_requests{wsql}", params).fetchone()["c"]
+        # 帳單管理需要「全部符合」的加總（列印摘要用），一次算好
+        sum_total = sum_weight = 0
+        if pay:
+            srow = conn.execute(
+                f"SELECT COALESCE(SUM(total_fee),0) AS st, COALESCE(SUM(billed_weight),0) AS sw FROM shipment_requests{wsql}",
+                params
+            ).fetchone()
+            sum_total = round(srow["st"] or 0)
+            sum_weight = round((srow["sw"] or 0), 1)
         rows = conn.execute(
             f"SELECT * FROM shipment_requests{wsql} {order} LIMIT ? OFFSET ?",
             params + [limit, offset]
@@ -4588,7 +4608,8 @@ def admin_get_shipment_requests():
             result.append(d)
         return jsonify({"success": True, "requests": result,
                         "total": total, "page": page, "limit": limit,
-                        "has_more": offset + len(rows) < total})
+                        "has_more": offset + len(rows) < total,
+                        "sum_total": sum_total, "sum_weight": sum_weight})
     except Exception as e:
         return jsonify({"success": False, "error": str(e), "requests": []})
 
