@@ -2247,6 +2247,7 @@ def admin_list_packages():
     aid = get_current_agent_id()
     conn = get_db()
     if g_code:
+        # 單一客戶的包裹（供會員明細等用）：維持原樣，不分頁
         if aid > 0:
             rows = conn.execute(
                 "SELECT * FROM packages WHERE g_code=? AND agent_id=? ORDER BY id DESC",
@@ -2256,15 +2257,46 @@ def admin_list_packages():
             rows = conn.execute(
                 "SELECT * FROM packages WHERE g_code=? ORDER BY id DESC", (g_code.upper(),)
             ).fetchall()
+        conn.close()
+        return jsonify({"success": True, "packages": [dict(r) for r in rows]})
+
+    # 到貨管理列表：後端分頁 + 狀態 + 搜尋
+    status = (request.args.get("status") or "").strip()
+    q = (request.args.get("q") or "").strip()
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+    except (ValueError, TypeError):
+        page = 1
+    try:
+        limit = min(200, max(1, int(request.args.get("limit", 50))))
+    except (ValueError, TypeError):
+        limit = 50
+    offset = (page - 1) * limit
+
+    where, params = [], []
+    if aid > 0:
+        where.append("agent_id=?"); params.append(aid)
+    if q:
+        like = f"%{q}%"
+        where.append("(g_code LIKE ? OR logis_num LIKE ? OR product_name LIKE ?)")
+        params += [like, like, like]   # 搜尋時忽略狀態、跨全部
     else:
-        if aid > 0:
-            rows = conn.execute(
-                "SELECT * FROM packages WHERE agent_id=? ORDER BY id DESC", (aid,)
-            ).fetchall()
-        else:
-            rows = conn.execute("SELECT * FROM packages ORDER BY id DESC").fetchall()
+        if status == "未出貨":
+            where.append("status!='已出貨'")
+        elif status and status not in ("全部", "最近50"):
+            where.append("status=?"); params.append(status)
+        # 全部 / 最近50 → 不加狀態條件（最近50 由分頁自然呈現）
+
+    wsql = (" WHERE " + " AND ".join(where)) if where else ""
+    total = conn.execute(f"SELECT COUNT(*) AS c FROM packages{wsql}", params).fetchone()["c"]
+    rows = conn.execute(
+        f"SELECT * FROM packages{wsql} ORDER BY id DESC LIMIT ? OFFSET ?",
+        params + [limit, offset]
+    ).fetchall()
     conn.close()
-    return jsonify({"success": True, "packages": [dict(r) for r in rows]})
+    return jsonify({"success": True, "packages": [dict(r) for r in rows],
+                    "total": total, "page": page, "limit": limit,
+                    "has_more": offset + len(rows) < total})
 
 
 # ===== 無主包裹認領牆 =====

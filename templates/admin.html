@@ -463,8 +463,7 @@
                     </div>
                 </div>
                 <div class="filter-bar">
-                    <input type="text" id="pkg-filter" placeholder="🔍 搜尋客戶編號、末四碼或物流業者（會搜全部含已出貨）...">
-                    <select id="pkg-status-filter" class="form-control" style="width:auto;padding:9px 12px;font-size:13px;" onchange="filterPackages()">
+                    <input type="text" id="pkg-filter" placeholder="🔍 搜尋客戶編號、末四碼或物流業者（會搜全部含已出貨）..." oninput="filterPackages()">                    <select id="pkg-status-filter" class="form-control" style="width:auto;padding:9px 12px;font-size:13px;" onchange="loadPackages(1)">
                         <option value="已到貨" selected>📦 已到貨</option>
                         <option value="待入庫">⏳ 待入庫</option>
                         <option value="已入庫">🏷 已入庫</option>
@@ -481,6 +480,11 @@
                 </div>
                 <div id="packagesList" class="sr-list">
                     <div style="text-align:center;color:#666;padding:40px;">切換至「到貨管理」頁籤以載入</div>
+                </div>
+                <div id="packagesPager" style="display:none;justify-content:center;align-items:center;gap:10px;padding:14px;font-size:13px;color:#aaa;">
+                    <button class="btn" id="pkg-prev" style="background:rgba(255,255,255,.08);color:#fff;padding:6px 14px;" onclick="packagesPage(-1)">← 上一頁</button>
+                    <span id="pkg-pageinfo"></span>
+                    <button class="btn" id="pkg-next" style="background:rgba(255,255,255,.08);color:#fff;padding:6px 14px;" onclick="packagesPage(1)">下一頁 →</button>
                 </div>
             </div>
         </div>
@@ -2541,15 +2545,55 @@ function copyInfo(gCode, phone) {
 }
 
 // ── 到貨管理 ──
-async function loadPackages() {
+var _pkgPage = 1;
+var _pkgSearchTimer = null;
+
+async function loadPackages(page) {
+    _pkgPage = page || 1;
     const chkAll = document.getElementById('chk-all');
     if (chkAll) chkAll.checked = false;
     document.getElementById('ship-btn').style.display = 'none';
-    const res = await fetch('/api/admin/packages');
-    const result = await res.json();
-    if (!result.success) { showToast('載入失敗', 'error'); return; }
-    allPackages = result.packages;
-    filterPackages();  // 套用預設「已到貨」篩選
+    var q = (document.getElementById('pkg-filter').value || '').trim();
+    var status = (document.getElementById('pkg-status-filter') || {}).value || '已到貨';
+    var params = new URLSearchParams();
+    if (q) params.set('q', q);            // 搜尋時後端會忽略狀態、跨全部
+    else params.set('status', status);
+    params.set('page', _pkgPage);
+    params.set('limit', 50);
+    try {
+        const res = await fetch('/api/admin/packages?' + params.toString());
+        const result = await res.json();
+        if (!result.success) { showToast('載入失敗', 'error'); return; }
+        allPackages = result.packages || [];
+        renderPackages(allPackages, result);
+        renderPackagesPager(result);
+    } catch(e) { console.error('loadPackages:', e); showToast('載入到貨記錄失敗', 'error'); }
+}
+
+// 搜尋/狀態改變 → 回第1頁、後端查（打字 debounce 400ms）
+function filterPackages() {
+    clearTimeout(_pkgSearchTimer);
+    _pkgSearchTimer = setTimeout(function(){ loadPackages(1); }, 400);
+}
+
+function packagesPage(delta) {
+    var next = _pkgPage + delta;
+    if (next < 1) return;
+    loadPackages(next);
+    var panel = document.getElementById('panel-arrivals');
+    if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderPackagesPager(result) {
+    var pager = document.getElementById('packagesPager');
+    if (!pager) return;
+    var total = result.total || 0, page = result.page || 1, limit = result.limit || 50;
+    if (total <= limit) { pager.style.display = 'none'; return; }
+    var totalPages = Math.ceil(total / limit);
+    pager.style.display = 'flex';
+    document.getElementById('pkg-pageinfo').textContent = '第 ' + page + ' / ' + totalPages + ' 頁（共 ' + total + ' 筆）';
+    document.getElementById('pkg-prev').style.opacity = (page <= 1) ? '.4' : '1';
+    document.getElementById('pkg-next').style.opacity = result.has_more ? '1' : '.4';
 }
 
 // 從 membersData 建客戶姓名查找表
@@ -2561,32 +2605,9 @@ function getMemberNameMap() {
     return map;
 }
 
-function filterPackages() {
-    var q = (document.getElementById('pkg-filter').value || '').trim().toUpperCase();
-    var statusFilter = (document.getElementById('pkg-status-filter') || {}).value || '已到貨';
-    var list = allPackages || [];
-
-    if (q) {
-        // 搜尋時忽略狀態篩選、跨所有記錄（含已出貨）
-        list = list.filter(function(p){
-            return String(p.g_code||'').toUpperCase().includes(q)
-                || String(p.logis_num||'').toUpperCase().includes(q)
-                || String(p.product_name||'').toUpperCase().includes(q);
-        });
-    } else {
-        if (statusFilter === '最近50') {
-            list = list.slice(0, 50);
-        } else if (statusFilter === '未出貨') {
-            list = list.filter(function(p){ return p.status !== '已出貨'; });
-        } else if (statusFilter && statusFilter !== '全部') {
-            list = list.filter(function(p){ return p.status === statusFilter; });
-        }
-    }
-    renderPackages(list);
-}
-
-function renderPackages(list) {
-    document.getElementById('pkg-count').textContent = `共 ${list.length} 筆`;
+function renderPackages(list, result) {
+    var totalMatched = (result && result.total != null) ? result.total : list.length;
+    document.getElementById('pkg-count').textContent = `共 ${totalMatched} 筆`;
     var container = document.getElementById('packagesList');
     if (!list.length) { container.innerHTML = '<div style="text-align:center;color:#666;padding:40px;">暫無記錄</div>'; return; }
     var nameMap = getMemberNameMap();
