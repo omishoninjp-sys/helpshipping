@@ -568,29 +568,29 @@
         <div class="admin-panel" id="panel-shipreqs">
             <div class="card">
                 <div class="toolbar">
-                    <h3>🚚 出貨申請列表</h3>
+                    <h3>🚚 <span data-i18n="sr.title">出貨申請列表</span></h3>
                     <div class="toolbar-actions">
                         <select id="shipreq-filter" class="form-control" style="width:auto;padding:6px 12px;font-size:13px;" onchange="loadShipReqs()">
-                            <option value="待處理" selected>待處理</option>
-                            <option value="處理中">處理中</option>
-                            <option value="已付款">💰 已付款待出貨</option>
-                            <option value="已出貨">已出貨</option>
-                            <option value="已拒絕">已拒絕</option>
-                            <option value="recent">最近 50 筆</option>
+                            <option value="待處理" selected data-i18n="sr.st.pending">待處理</option>
+                            <option value="處理中" data-i18n="sr.st.processing">處理中</option>
+                            <option value="已付款" data-i18n="sr.st.paidwait">💰 已付款待出貨</option>
+                            <option value="已出貨" data-i18n="sr.st.shipped">已出貨</option>
+                            <option value="已拒絕" data-i18n="sr.st.rejected">已拒絕</option>
+                            <option value="recent" data-i18n="sr.st.recent">最近 50 筆</option>
                         </select>
                         <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadShipReqs()">🔄 重新整理</button>
                     </div>
                 </div>
                 <div class="filter-bar">
-                    <input type="text" id="shipreq-search" placeholder="🔍 搜尋客戶編號、姓名、地址、追蹤號或備註..." oninput="filterShipReqs()">
+                    <input type="text" id="shipreq-search" data-i18n-ph="sr.search" placeholder="🔍 搜尋客戶編號、姓名、地址、追蹤號或備註..." oninput="filterShipReqs()">
                     <span class="pkg-count" id="shipreq-count"></span>
                 </div>
                 <div class="filter-bar" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 4px 10px;">
-                    <span style="font-size:12px;color:#888;">📅 日期區間：</span>
+                    <span style="font-size:12px;color:#888;">📅 <span data-i18n="sr.daterange">日期區間：</span></span>
                     <select id="shipreq-date-field" class="form-control" style="width:auto;padding:6px 10px;font-size:12px;" onchange="filterShipReqs()">
-                        <option value="auto" selected>自動（已出貨看出貨日、其他看申請日）</option>
-                        <option value="created_at">申請日</option>
-                        <option value="updated_at">出貨日</option>
+                        <option value="auto" selected data-i18n="sr.datefield.auto">自動（已出貨看出貨日、其他看申請日）</option>
+                        <option value="created_at" data-i18n="sr.datefield.req">申請日</option>
+                        <option value="updated_at" data-i18n="sr.datefield.ship">出貨日</option>
                     </select>
                     <input type="date" id="shipreq-date-from" class="form-control" style="width:auto;padding:6px 10px;font-size:12px;" onchange="filterShipReqs()">
                     <span style="font-size:12px;color:#666;">～</span>
@@ -1500,8 +1500,26 @@ var I18N = {
     "col.actiontype":"操作","col.target":"対象","col.content":"内容","col.name":"氏名","col.weight":"重量",
     "col.logisnum":"日本伝票番号","col.recipient":"受取人","col.note":"備考","col.arrivedate":"入荷日","col.placed":"経過日数",
     "login.title":"管理者ログイン","login.pwd":"パスワード","login.agent":"代理店ログイン（ID必要）",
+    // 出貨申請頁
+    "sr.title":"出荷申請一覧","sr.st.pending":"未処理","sr.st.processing":"処理中",
+    "sr.st.paidwait":"💰 入金済み・出荷待ち","sr.st.shipped":"出荷済み","sr.st.rejected":"却下",
+    "sr.st.recent":"直近50件","btn.refresh2":"更新",
+    "sr.search":"🔍 顧客番号・氏名・住所・追跡番号・備考で検索...",
+    "sr.daterange":"📅 期間：","sr.datefield.auto":"自動（出荷済みは出荷日、その他は申請日）",
+    "sr.datefield.req":"申請日","sr.datefield.ship":"出荷日","btn.clear2":"クリア",
+    // 出貨申請卡片（JS 動態，用 T() 對照）
+    "件":"件","合計約":"合計約","客戶備註：":"お客様備考：","匯款：":"入金：","無":"なし",
+    "📥 申請 ":"📥 申請 ","⏳ 處理中":"⏳ 処理中","📦 JPD建單":"📦 JPD伝票作成",
+    "✅ 已出貨":"✅ 出荷済み","✗ 拒絕":"✗ 却下","無出貨申請":"出荷申請はありません",
+    "待處理":"未処理","處理中":"処理中","已出貨":"出荷済み","已拒絕":"却下","無收件資訊":"配送先情報なし",
   }
 };
+// JS 動態文字翻譯：日文模式回日文、中文模式回原字（找不到 key 就原樣）
+function T(zh) {
+    if (_lang !== 'ja') return zh;
+    var d = I18N.ja || {};
+    return d[zh] != null ? d[zh] : zh;
+}
 var _lang = 'ja';
 function setLang(lang) {
   _lang = (lang === 'zh') ? 'zh' : 'ja';
@@ -1513,6 +1531,12 @@ function setLang(lang) {
     b.style.color = on ? '#fff' : '#aaa';
     b.style.fontWeight = on ? '700' : '400';
   });
+  // 動態卡片（JS 產生、用 T()）需重繪才會套用語言
+  try {
+    if (typeof allShipReqsData !== 'undefined' && Array.isArray(allShipReqsData) && allShipReqsData.length && typeof renderShipReqs === 'function') {
+      renderShipReqs(allShipReqsData);
+    }
+  } catch(e) {}
 }
 function t(key) {
   if (_lang === 'zh') return null;
@@ -2973,7 +2997,7 @@ function renderShipReqs(list) {
     if (countEl) countEl.textContent = '共 ' + list.length + ' 筆';
     var container = document.getElementById('shipreqList');
     if (!list.length) {
-        container.innerHTML = '<div style="text-align:center;color:#666;padding:40px;">無出貨申請</div>';
+        container.innerHTML = '<div style="text-align:center;color:#666;padding:40px;">'+T('無出貨申請')+'</div>';
         return;
     }
     // 分析同客戶多筆申請：判斷是「不同收件地址」還是「疑似同址重複」
@@ -3027,10 +3051,10 @@ function renderShipReqs(list) {
         // 操作按鈕
         var actions = '';
         if (r.status === '待處理' || r.status === '處理中') {
-            actions = '<button class="btn-edit-sm" style="padding:6px 12px;font-size:12px;" onclick="updateShipReq(' + r.id + ',\'處理中\')">⏳ 處理中</button>'
-                + '<button class="btn-edit-sm" style="background:rgba(52,152,219,.2);border-color:rgba(52,152,219,.3);color:#3498db;padding:6px 12px;font-size:12px;" onclick="createJpdOrder(' + r.id + ')">📦 JPD建單</button>'
-                + '<button class="btn-edit-sm" style="background:rgba(39,174,96,.2);border-color:rgba(39,174,96,.3);color:#27ae60;padding:6px 12px;font-size:12px;" onclick="openBillingModal(' + r.id + ',\'' + (r.g_code||'') + '\',\'' + (r.customer_name||'').replace(/'/g,'') + '\',\'' + (r.package_summary||'').replace(/'/g,'').replace(/\n/g,' ') + '\')">✅ 已出貨</button>'
-                + '<button class="btn-danger-sm" style="padding:6px 12px;font-size:12px;" onclick="updateShipReq(' + r.id + ',\'已拒絕\')">✗ 拒絕</button>';
+            actions = '<button class="btn-edit-sm" style="padding:6px 12px;font-size:12px;" onclick="updateShipReq(' + r.id + ',\'處理中\')">'+T('⏳ 處理中')+'</button>'
+                + '<button class="btn-edit-sm" style="background:rgba(52,152,219,.2);border-color:rgba(52,152,219,.3);color:#3498db;padding:6px 12px;font-size:12px;" onclick="createJpdOrder(' + r.id + ')">'+T('📦 JPD建單')+'</button>'
+                + '<button class="btn-edit-sm" style="background:rgba(39,174,96,.2);border-color:rgba(39,174,96,.3);color:#27ae60;padding:6px 12px;font-size:12px;" onclick="openBillingModal(' + r.id + ',\'' + (r.g_code||'') + '\',\'' + (r.customer_name||'').replace(/'/g,'') + '\',\'' + (r.package_summary||'').replace(/'/g,'').replace(/\n/g,' ') + '\')">'+T('✅ 已出貨')+'</button>'
+                + '<button class="btn-danger-sm" style="padding:6px 12px;font-size:12px;" onclick="updateShipReq(' + r.id + ',\'已拒絕\')">'+T('✗ 拒絕')+'</button>';
         } else {
             actions = r.total_fee ? '<span style="font-size:13px;color:#27ae60;font-weight:700;">NT$' + Math.round(r.total_fee).toLocaleString() + '</span>　<span style="font-size:12px;color:#888;">' + (r.billed_weight||0) + 'kg × ' + (r.rate_per_kg||0) + ' + 理貨' + (r.handling_fee||0) + '</span>' : '<span style="font-size:12px;color:#666;">' + (r.updated_at || '-') + '</span>';
             if (r.status === '已出貨' || r.status === '已拒絕') {
@@ -3051,7 +3075,7 @@ function renderShipReqs(list) {
         // 時間
         var ts = (r.created_at || '').toString();
         var shippedAt = (r.status === '已出貨' && r.updated_at) ? r.updated_at.toString() : '';
-        var timeHtml = '<span style="font-size:12px;color:#aaa;">📥 申請 ' + ts.slice(0,16) + '</span>';
+        var timeHtml = '<span style="font-size:12px;color:#aaa;">'+T('📥 申請 ')+ ts.slice(0,16) + '</span>';
         if (shippedAt) {
             timeHtml += '　<span style="font-size:12px;color:#27ae60;">🚚 出貨 ' + shippedAt.slice(0,16) + '</span>';
         }
@@ -3108,7 +3132,7 @@ function renderShipReqs(list) {
                 pkgCount = lines.filter(function(l){ return !/合計/.test(l); }).length;
             }
             var summaryText = summary
-                ? '📦 ' + pkgCount + ' 件' + (totalLine ? '　' + totalLine : '')
+                ? '📦 ' + pkgCount + ' ' + T('件') + (totalLine ? '　' + totalLine : '')
                 : '📝 無到貨資料';
             if (pendingFc.length) summaryText += '　/　📝 預報 ' + pendingFc.length;
             var rowId = 'pkg-row-' + r.id;
@@ -3147,7 +3171,7 @@ function renderShipReqs(list) {
         return '<div class="sr-card">'
             + '<div class="sr-head">'
             +   '<span class="sr-cust">' + customerHtml + '</span>'
-            +   '<span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:700;background:' + c + '22;color:' + c + ';">' + r.status + '</span>'
+            +   '<span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:700;background:' + c + '22;color:' + c + ';">' + T(r.status) + '</span>'
             +   '<span class="sr-spacer"></span>'
             +   timeHtml
             + '</div>'
@@ -3156,8 +3180,8 @@ function renderShipReqs(list) {
             + '<div class="sr-body">'
             +   '<div class="sr-col sr-col-ship">' + shipInfo + '</div>'
             +   '<div class="sr-col sr-col-meta">'
-            +     '<div style="font-size:13px;color:#ccc;margin-bottom:8px;"><span style="color:#888;">客戶備註：</span>' + (r.note || '無') + '</div>'
-            +     '<div style="font-size:13px;"><span style="color:#888;">匯款：</span>' + paymentHtml + '</div>'
+            +     '<div style="font-size:13px;color:#ccc;margin-bottom:8px;"><span style="color:#888;">' + T('客戶備註：') + '</span>' + (r.note || T('無')) + '</div>'
+            +     '<div style="font-size:13px;"><span style="color:#888;">'+T('匯款：')+'</span>' + paymentHtml + '</div>'
             +     extraHtml
             +   '</div>'
             + '</div>'
