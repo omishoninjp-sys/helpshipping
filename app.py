@@ -1793,25 +1793,34 @@ def admin_delete_schedule(sched_id):
 
 @app.route("/api/admin/operation_logs", methods=["GET"])
 def admin_operation_logs():
-    """操作紀錄（老闆專用）：誰做了什麼。可用 ?q= 關鍵字、?limit= 筆數。"""
+    """操作紀錄（老闆專用）：誰做了什麼。?q= 關鍵字、?page=、?limit= 分頁。"""
     if not is_boss():
         return jsonify({"success": False, "error": "權限不足"}), 403
     q = (request.args.get("q") or "").strip()
     try:
-        limit = min(int(request.args.get("limit", 300)), 1000)
+        page = max(1, int(request.args.get("page", 1)))
     except (ValueError, TypeError):
-        limit = 300
+        page = 1
+    try:
+        limit = min(200, max(1, int(request.args.get("limit", 50))))
+    except (ValueError, TypeError):
+        limit = 50
+    offset = (page - 1) * limit
     conn = get_db()
+    where, params = "", []
     if q:
         like = f"%{q}%"
-        rows = conn.execute(
-            "SELECT * FROM operation_logs WHERE operator LIKE ? OR action LIKE ? OR target LIKE ? OR detail LIKE ? "
-            "ORDER BY id DESC LIMIT ?", (like, like, like, like, limit)
-        ).fetchall()
-    else:
-        rows = conn.execute("SELECT * FROM operation_logs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        where = " WHERE operator LIKE ? OR action LIKE ? OR target LIKE ? OR detail LIKE ?"
+        params = [like, like, like, like]
+    total = conn.execute(f"SELECT COUNT(*) AS c FROM operation_logs{where}", params).fetchone()["c"]
+    rows = conn.execute(
+        f"SELECT * FROM operation_logs{where} ORDER BY id DESC LIMIT ? OFFSET ?",
+        params + [limit, offset]
+    ).fetchall()
     conn.close()
-    return jsonify({"success": True, "logs": [dict(r) for r in rows]})
+    return jsonify({"success": True, "logs": [dict(r) for r in rows],
+                    "total": total, "page": page, "limit": limit,
+                    "has_more": offset + len(rows) < total})
 
 
 def _mark_disabled(members):

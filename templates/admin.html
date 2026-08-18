@@ -1093,7 +1093,7 @@
                 </div>
                 <p style="font-size:12px;color:#888;margin:-6px 0 14px;">記錄每位管理員/員工的操作：登記到貨、出貨處理、帳單確認付款、無主件認領。</p>
                 <div class="filter-bar">
-                    <input type="text" id="oplog-search" placeholder="🔍 搜尋操作者、動作、客編、內容..." oninput="renderOpLogs()">
+                    <input type="text" id="oplog-search" placeholder="🔍 搜尋操作者、動作、客編、內容..." oninput="filterOpLogs()">
                     <span class="pkg-count" id="oplog-count"></span>
                 </div>
                 <div style="overflow-x:auto;">
@@ -1101,6 +1101,11 @@
                         <thead><tr><th>時間</th><th>操作者</th><th>動作</th><th>對象</th><th>內容</th></tr></thead>
                         <tbody id="oplogTable"><tr><td colspan="5" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr></tbody>
                     </table>
+                </div>
+                <div id="oplogPager" style="display:none;justify-content:center;align-items:center;gap:10px;padding:14px;font-size:13px;color:#aaa;">
+                    <button class="btn" id="oplog-prev" style="background:rgba(255,255,255,.08);color:#fff;padding:6px 14px;" onclick="opLogsPage(-1)">← 上一頁</button>
+                    <span id="oplog-pageinfo"></span>
+                    <button class="btn" id="oplog-next" style="background:rgba(255,255,255,.08);color:#fff;padding:6px 14px;" onclick="opLogsPage(1)">下一頁 →</button>
                 </div>
             </div>
         </div>
@@ -4597,23 +4602,56 @@ async function deleteSchedule(id) {
 
 // ── 操作紀錄（老闆）──
 var _opLogsData = [];
-async function loadOpLogs() {
+var _opLogPage = 1;
+var _opLogSearchTimer = null;
+
+async function loadOpLogs(page) {
+    _opLogPage = page || 1;
+    var q = ((document.getElementById('oplog-search') || {}).value || '').trim();
+    var params = new URLSearchParams();
+    if (q) params.set('q', q);
+    params.set('page', _opLogPage);
+    params.set('limit', 50);
     try {
-        var res = await fetch('/api/admin/operation_logs');
+        var res = await fetch('/api/admin/operation_logs?' + params.toString());
         var d = await res.json();
         _opLogsData = (d.success && d.logs) ? d.logs : [];
-        renderOpLogs();
+        renderOpLogs(d);
+        renderOpLogsPager(d);
     } catch(e) { console.error('loadOpLogs:', e); }
 }
-function renderOpLogs() {
+
+function filterOpLogs() {
+    clearTimeout(_opLogSearchTimer);
+    _opLogSearchTimer = setTimeout(function(){ loadOpLogs(1); }, 400);
+}
+
+function opLogsPage(delta) {
+    var next = _opLogPage + delta;
+    if (next < 1) return;
+    loadOpLogs(next);
+    var panel = document.getElementById('panel-oplogs');
+    if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderOpLogsPager(d) {
+    var pager = document.getElementById('oplogPager');
+    if (!pager) return;
+    var total = (d && d.total) || 0, page = (d && d.page) || 1, limit = (d && d.limit) || 50;
+    if (total <= limit) { pager.style.display = 'none'; return; }
+    var totalPages = Math.ceil(total / limit);
+    pager.style.display = 'flex';
+    document.getElementById('oplog-pageinfo').textContent = '第 ' + page + ' / ' + totalPages + ' 頁（共 ' + total + ' 筆）';
+    document.getElementById('oplog-prev').style.opacity = (page <= 1) ? '.4' : '1';
+    document.getElementById('oplog-next').style.opacity = d.has_more ? '1' : '.4';
+}
+
+function renderOpLogs(d) {
     var tbody = document.getElementById('oplogTable');
     var countEl = document.getElementById('oplog-count');
-    var q = ((document.getElementById('oplog-search') || {}).value || '').trim().toUpperCase();
-    var list = _opLogsData.slice();
-    if (q) list = list.filter(function(l){
-        return [l.operator, l.action, l.target, l.detail].some(function(v){ return v && String(v).toUpperCase().includes(q); });
-    });
-    if (countEl) countEl.textContent = '共 ' + list.length + ' 筆';
+    var list = _opLogsData;
+    var totalMatched = (d && d.total != null) ? d.total : list.length;
+    if (countEl) countEl.textContent = '共 ' + totalMatched + ' 筆';
     if (!list.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#666;padding:30px;">尚無操作紀錄</td></tr>'; return; }
     var actionColor = { '登記到貨':'#3498db', '出貨處理':'#e67e22', '帳單確認付款':'#27ae60', '認領無主件':'#9b59b6' };
     tbody.innerHTML = list.map(function(l){
