@@ -378,7 +378,7 @@
                         <thead>
                             <tr>
                                 <th>客戶</th>
-                                <th>地址</th>
+                                <th data-i18n="col.address">地址</th>
                                 <th>手機（密碼）</th>
                                 <th>運費 (台幣/kg)</th>
                                 <th>操作</th>
@@ -519,7 +519,7 @@
                 <div style="overflow-x:auto;">
                     <table class="data-table">
                         <thead>
-                            <tr><th>收件名</th><th>日本單號</th><th>重量</th><th>品名/備註</th><th>到倉日</th><th>已放置</th><th>操作</th></tr>
+                            <tr><th>收件名</th><th>日本單號</th><th data-i18n="col.weight2">重量</th><th>品名/備註</th><th>到倉日</th><th>已放置</th><th>操作</th></tr>
                         </thead>
                         <tbody id="unclaimedTable"><tr><td colspan="7" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr></tbody>
                     </table>
@@ -1109,41 +1109,36 @@
         <div class="admin-panel" id="panel-exports">
             <div class="card" style="margin-bottom:14px;border:1px solid rgba(52,152,219,0.25);">
                 <div class="toolbar" style="justify-content:space-between;flex-wrap:wrap;gap:10px;">
-                    <h3 style="color:#3498db;">🚚 台灣配送貨況同步</h3>
-                    <button class="btn btn-primary" style="padding:8px 16px;" onclick="syncTracking()">🔄 立即同步</button>
+                    <h3 style="color:#3498db;" data-i18n="ex.sync.title">🚚 台灣配送貨況同步</h3>
+                    <button class="btn btn-primary" style="padding:8px 16px;" onclick="syncTracking()" data-i18n="btn.syncnow">🔄 立即同步</button>
                 </div>
-                <p style="font-size:12px;color:#888;margin:6px 0 8px;">
-                    從貨運行試算表抓取台灣派件單號（黑貓/新竹），用出檔案的客戶編號比對，客戶即可在出貨單看到台灣配送查詢連結。
-                    系統每天會在有人開後台時自動同步一次；也可按上方「立即同步」。
-                </p>
+                <p style="font-size:12px;color:#888;margin:6px 0 8px;" data-i18n="ex.sync.desc">從貨運行試算表抓取台灣派件單號（黑貓/新竹），用出檔案的客戶編號比對，客戶即可在出貨單看到台灣配送查詢連結。系統每天會在有人開後台時自動同步一次；也可按上方「立即同步」。</p>
                 <div id="trackingStatus" style="font-size:12px;color:#aaa;">載入中…</div>
             </div>
             <div class="card">
                 <div class="toolbar">
-                    <h3>📤 出檔案給廠商</h3>
+                    <h3 data-i18n="ex.title">📤 出檔案給廠商</h3>
                     <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadExports()">🔄 重新整理</button>
                 </div>
 
                 <div id="exports-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px;"></div>
 
-                <div style="background:rgba(52,152,219,0.06);border:1px solid rgba(52,152,219,0.18);border-radius:10px;padding:14px 18px;margin-bottom:18px;font-size:13px;color:#bbb;">
-                    💡 這裡顯示<strong style="color:#fff">「已標記出貨」且<strong>已收到客戶匯款後五碼</strong></strong>、但<strong style="color:#fff">尚未出檔案給廠商</strong>的單。勾選後選廠商下載 Excel，被勾的單自動標記「已出檔案」、下次不會再出現。
-                </div>
+                <div data-i18n-html="ex.hint" style="background:rgba(52,152,219,0.06);border:1px solid rgba(52,152,219,0.18);border-radius:10px;padding:14px 18px;margin-bottom:18px;font-size:13px;color:#bbb;">💡 這裡顯示<strong style="color:#fff">「已標記出貨」且<strong>已收到客戶匯款後五碼</strong></strong>、但<strong style="color:#fff">尚未出檔案給廠商</strong>的單。勾選後選廠商下載 Excel，被勾的單自動標記「已出檔案」、下次不會再出現。</div>
 
                 <div id="exports-toolbar" style="display:none;background:rgba(39,174,96,0.08);border:1px solid rgba(39,174,96,0.25);border-radius:10px;padding:14px 18px;margin-bottom:14px;align-items:center;gap:14px;flex-wrap:wrap;">
-                    <span style="color:#27ae60;font-weight:700;">已選 <span id="exports-selected-count">0</span> 筆</span>
+                    <span style="color:#27ae60;font-weight:700;"><span data-i18n="ex.selected">已選</span> <span id="exports-selected-count">0</span> 筆</span>
                     <span style="color:#aaa;font-size:13px;">總重 <strong id="exports-selected-kg">0</strong> kg · 總額 NT$ <strong id="exports-selected-fee">0</strong></span>
-                    <label style="margin-left:auto;color:#fff;font-size:13px;">廠商：
+                    <label style="margin-left:auto;color:#fff;font-size:13px;"><span data-i18n="ex.vendor">廠商：</span>
                         <select id="exports-vendor-select" class="form-control" style="width:auto;display:inline-block;padding:6px 12px;font-size:13px;margin-left:6px;"></select>
                     </label>
-                    <button class="btn btn-primary" style="padding:8px 20px;font-weight:700;" onclick="generateExport()">📥 下載 Excel + 標記已出檔案</button>
+                    <button class="btn btn-primary" style="padding:8px 20px;font-weight:700;" onclick="generateExport()" data-i18n="btn.gen">📥 下載 Excel + 標記已出檔案</button>
                 </div>
 
                 <div style="display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-bottom:10px;">
-                    <label style="color:#aaa;font-size:13px;">排序：</label>
+                    <label style="color:#aaa;font-size:13px;" data-i18n="ex.sort">排序：</label>
                     <select id="exports-sort" onchange="renderExportsTable()" class="form-control" style="width:auto;display:inline-block;padding:6px 12px;font-size:13px;">
-                        <option value="payment_asc">付款時間（舊 → 新）</option>
-                        <option value="payment_desc">付款時間（新 → 舊）</option>
+                        <option value="payment_asc" data-i18n="ex.sort.asc">付款時間（舊 → 新）</option>
+                        <option value="payment_desc" data-i18n="ex.sort.desc">付款時間（新 → 舊）</option>
                     </select>
                 </div>
 
@@ -1152,15 +1147,15 @@
                         <thead>
                             <tr>
                                 <th style="width:42px;"><input type="checkbox" id="exports-select-all" onchange="toggleAllExports(this.checked)" style="width:16px;height:16px;"></th>
-                                <th>客編</th>
-                                <th>收件人</th>
+                                <th data-i18n="col.custno">客編</th>
+                                <th data-i18n="col.recipient2">收件人</th>
                                 <th>地址</th>
-                                <th>電話</th>
+                                <th data-i18n="col.phone">電話</th>
                                 <th>重量</th>
-                                <th>金額</th>
-                                <th>付款時間</th>
-                                <th>後五碼</th>
-                                <th>預覽編號</th>
+                                <th data-i18n="col.amount2">金額</th>
+                                <th data-i18n="col.paytime">付款時間</th>
+                                <th data-i18n="col.last5">後五碼</th>
+                                <th data-i18n="col.previewno">預覽編號</th>
                             </tr>
                         </thead>
                         <tbody id="exports-tbody">
@@ -1512,6 +1507,18 @@ var I18N = {
     "📥 申請 ":"📥 申請 ","⏳ 處理中":"⏳ 処理中","📦 JPD建單":"📦 JPD伝票作成",
     "✅ 已出貨":"✅ 出荷済み","✗ 拒絕":"✗ 却下","無出貨申請":"出荷申請はありません",
     "待處理":"未処理","處理中":"処理中","已出貨":"出荷済み","已拒絕":"却下","無收件資訊":"配送先情報なし",
+    "ex.sync.title":"🚚 台湾配送状況の同期","btn.syncnow":"🔄 今すぐ同期",
+    "ex.sync.desc":"配送業者のスプレッドシートから台湾配送の伝票番号（ヤマト/新竹）を取得し、出力ファイルの顧客番号と照合します。お客様は出荷伝票で台湾配送の追跡リンクを確認できます。毎日、管理画面を最初に開いた際に自動同期されます。上の「今すぐ同期」も使えます。",
+    "ex.title":"📤 業者向けデータ出力","btn.refresh":"更新",
+    "ex.hint":"💡 ここには<strong style=\"color:#fff\">「出荷済み」かつ<strong>お客様の入金末5桁を受領済み</strong></strong>、ただ<strong style=\"color:#fff\">まだ業者へ未出力</strong>の伝票が表示されます。チェックして業者を選び Excel をダウンロードすると、対象は自動的に「出力済み」となり次回以降は表示されません。",
+    "ex.selected":"選択済み","ex.totalkg":"総重量","ex.totalfee":"総額","ex.vendor":"業者：",
+    "btn.gen":"📥 Excel ダウンロード＋出力済みにする","ex.sort":"並び替え：",
+    "ex.sort.asc":"入金日時（古い→新しい）","ex.sort.desc":"入金日時（新しい→古い）",
+    "col.custno":"顧客番号","col.recipient2":"受取人","col.address":"住所","col.phone":"電話",
+    "col.weight2":"重量","col.amount2":"金額","col.paytime":"入金日時","col.last5":"末5桁","col.previewno":"プレビュー番号",
+    "目前已同步":"現在同期済み","筆派件資料":"件の配送データ","上次同步":"前回同期",
+    "待出檔案筆數":"出力待ち件数","總重量":"総重量","總金額":"総額",
+    "涉及":"対象","位客戶":"名の顧客","載入中…":"読み込み中…","無待出檔案的單":"出力待ちの伝票はありません",
   }
 };
 // JS 動態文字翻譯：日文模式回日文、中文模式回原字（找不到 key 就原樣）
@@ -1536,6 +1543,10 @@ function setLang(lang) {
     if (typeof allShipReqsData !== 'undefined' && Array.isArray(allShipReqsData) && allShipReqsData.length && typeof renderShipReqs === 'function') {
       renderShipReqs(allShipReqsData);
     }
+    var exPanel = document.getElementById('panel-exports');
+    if (exPanel && exPanel.classList.contains('active') && typeof loadExports === 'function') {
+      loadExports();
+    }
   } catch(e) {}
 }
 function t(key) {
@@ -1555,6 +1566,13 @@ function applyI18n() {
     if (el.getAttribute('data-i18n-ph-zh') === null) el.setAttribute('data-i18n-ph-zh', el.getAttribute('placeholder') || '');
     var ja = t(key);
     el.setAttribute('placeholder', (_lang === 'ja' && ja != null) ? ja : (el.getAttribute('data-i18n-ph-zh') || ''));
+  });
+  // 含內部 HTML（如 <strong>）的元素：換 innerHTML、保留原結構
+  document.querySelectorAll('[data-i18n-html]').forEach(function(el){
+    var key = el.getAttribute('data-i18n-html');
+    if (el.getAttribute('data-i18n-html-zh') === null) el.setAttribute('data-i18n-html-zh', el.innerHTML);
+    var ja = t(key);
+    el.innerHTML = (_lang === 'ja' && ja != null) ? ja : (el.getAttribute('data-i18n-html-zh') || el.innerHTML);
   });
 }
 document.addEventListener('DOMContentLoaded', function(){
@@ -4044,8 +4062,8 @@ async function loadTrackingStatus() {
         var res = await fetch('/api/admin/tracking/status');
         var d = await res.json();
         if (!d.success) { el.textContent = d.error || '無法載入'; return; }
-        el.innerHTML = '目前已同步 <strong style="color:#fff;">' + (d.total || 0) + '</strong> 筆派件資料'
-            + '｜上次同步：<strong style="color:#fff;">' + (d.last_sync || '尚未同步') + '</strong>';
+        el.innerHTML = T('目前已同步') + ' <strong style="color:#fff;">' + (d.total || 0) + '</strong> ' + T('筆派件資料')
+            + '｜' + T('上次同步') + '：<strong style="color:#fff;">' + (d.last_sync || T('無')) + '</strong>';
     } catch(e) { el.textContent = '無法載入同步狀態'; }
 }
 async function syncTracking() {
@@ -4093,13 +4111,13 @@ async function loadExports() {
         document.getElementById('exports-stats').innerHTML = ''
             + '<div style="padding:20px;background:rgba(52,152,219,.08);border:1px solid rgba(52,152,219,.2);border-radius:12px;text-align:center;">'
             + '<div style="font-size:30px;font-weight:700;color:#3498db;">' + _exportsCache.length + '</div>'
-            + '<div style="font-size:12px;color:#888;margin-top:4px;">待出檔案筆數</div></div>'
+            + '<div style="font-size:12px;color:#888;margin-top:4px;">' + T('待出檔案筆數') + '</div></div>'
             + '<div style="padding:20px;background:rgba(243,156,18,.08);border:1px solid rgba(243,156,18,.2);border-radius:12px;text-align:center;">'
             + '<div style="font-size:30px;font-weight:700;color:#f39c12;">' + totalKg.toFixed(1) + ' <small style="font-size:14px;">kg</small></div>'
-            + '<div style="font-size:12px;color:#888;margin-top:4px;">總重量</div></div>'
+            + '<div style="font-size:12px;color:#888;margin-top:4px;">' + T('總重量') + '</div></div>'
             + '<div style="padding:20px;background:rgba(39,174,96,.08);border:1px solid rgba(39,174,96,.2);border-radius:12px;text-align:center;">'
             + '<div style="font-size:30px;font-weight:700;color:#27ae60;">NT$ ' + Math.round(totalFee).toLocaleString() + '</div>'
-            + '<div style="font-size:12px;color:#888;margin-top:4px;">總金額（涉及 ' + Object.keys(customers).length + ' 位客戶）</div></div>';
+            + '<div style="font-size:12px;color:#888;margin-top:4px;">' + T('總金額') + '（' + T('涉及') + ' ' + Object.keys(customers).length + ' ' + T('位客戶') + '）</div></div>';
 
         renderExportsTable();
         loadExportsHistory();
