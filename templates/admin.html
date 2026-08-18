@@ -1608,6 +1608,7 @@ async function adminLogin() {
                 username: result.username || 'admin',
                 role: result.role || 'admin',
                 user_type: result.user_type || 'admin',
+                user_id: result.user_id || null,
                 prefix: result.prefix || 'G'
             };
             // 主管理員專屬分頁（代理隱藏）
@@ -4451,8 +4452,19 @@ async function ackInternalAnn(id) {
 
 async function loadSchedule() {
     _scheduleIsBoss = (currentAdmin && currentAdmin.user_type === 'admin' && currentAdmin.role === 'super');
-    document.getElementById('scheduleAddBox').style.display = _scheduleIsBoss ? 'block' : 'none';
-    if (_scheduleIsBoss) loadScheduleStaffOptions();
+    var isAdmin = (currentAdmin && currentAdmin.user_type === 'admin');
+    // 老闆與員工都可排班（員工只能排自己）
+    document.getElementById('scheduleAddBox').style.display = isAdmin ? 'block' : 'none';
+    if (_scheduleIsBoss) {
+        loadScheduleStaffOptions();
+    } else if (isAdmin) {
+        // 員工：員工欄鎖成自己、不能選別人
+        var sel = document.getElementById('sch-staff');
+        sel.innerHTML = '<option value="' + (currentAdmin.user_id||'') + '">' + (currentAdmin.username||'我') + '</option>';
+        sel.value = currentAdmin.user_id || '';
+        sel.disabled = true;
+        sel.style.opacity = '.7';
+    }
     try {
         var res = await fetch('/api/admin/schedules');
         var d = await res.json();
@@ -4521,22 +4533,29 @@ function renderSchedule() {
         var dow = new Date(year, month-1, day).getDay();
         var isToday = dateStr === todayStr;
         var shifts = (byDate[dateStr] || []).sort(function(a,b){ return (a.start_time||'').localeCompare(b.start_time||''); }).map(function(s){
-            var del = _scheduleIsBoss ? '<span onclick="event.stopPropagation();deleteSchedule(' + s.id + ')" style="color:#e74c3c;cursor:pointer;margin-left:3px;">✕</span>' : '';
+            // 刪除鈕：老闆全部可刪；員工只能刪自己的、且不能刪過去的
+            var isPast = dateStr < todayStr;
+            var canDel = _scheduleIsBoss || (currentAdmin && s.staff_id === currentAdmin.user_id && !isPast);
+            var del = canDel ? '<span onclick="event.stopPropagation();deleteSchedule(' + s.id + ')" style="color:#e74c3c;cursor:pointer;margin-left:3px;">✕</span>' : '';
             return '<div style="background:rgba(155,89,182,.18);border:1px solid rgba(155,89,182,.35);border-radius:6px;padding:3px 5px;margin-bottom:3px;font-size:11px;line-height:1.3;">'
                 + '<strong style="color:#fff;">' + s.staff_name + '</strong>' + del
                 + '<div style="color:#c9a9e0;">' + s.start_time + '–' + s.end_time + '</div></div>';
         }).join('');
         var dayColor = (dow===0||dow===6) ? '#e67e22' : '#bbb';
-        var clickable = _scheduleIsBoss ? ' onclick="quickSchedule(\'' + dateStr + '\')" title="點此為這天排班"' : '';
+        // 老闆與員工都可點格子排班（員工排自己）；但過去的日期員工不能排
+        var isAdmin = (currentAdmin && currentAdmin.user_type === 'admin');
+        var canClick = _scheduleIsBoss || (isAdmin && dateStr >= todayStr);
+        var clickable = canClick ? ' onclick="quickSchedule(\'' + dateStr + '\')" title="點此為這天排班"' : '';
         html += '<div' + clickable + ' style="min-height:78px;background:' + (isToday ? 'rgba(243,156,18,.08)' : 'rgba(255,255,255,.02)')
             + ';border:1px solid ' + (isToday ? 'rgba(243,156,18,.5)' : 'rgba(255,255,255,.06)') + ';border-radius:8px;padding:5px;'
-            + (_scheduleIsBoss ? 'cursor:pointer;' : '') + '">'
+            + (canClick ? 'cursor:pointer;' : '') + '">'
             + '<div style="font-size:12px;font-weight:700;color:' + (isToday ? '#f39c12' : dayColor) + ';margin-bottom:3px;">' + day + (isToday ? ' •' : '') + '</div>'
             + shifts + '</div>';
     }
     html += '</div>';
     if (!rows.length) {
-        html += '<div style="text-align:center;color:#666;padding:16px;">' + month + ' 月尚無排班' + (_scheduleIsBoss ? '（點日期格子或用上方表單排入）' : '') + '</div>';
+        var isAdmin2 = (currentAdmin && currentAdmin.user_type === 'admin');
+        html += '<div style="text-align:center;color:#666;padding:16px;">' + month + ' 月尚無排班' + (isAdmin2 ? '（點日期格子或用上方表單排入）' : '') + '</div>';
     }
     box.innerHTML = html;
 }

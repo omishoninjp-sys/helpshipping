@@ -976,6 +976,7 @@ def admin_verify():
             return jsonify({
                 "success": True,
                 "user_type": "admin",
+                "user_id": user["id"],
                 "username": user["username"],
                 "role": user["role"]
             })
@@ -1705,9 +1706,9 @@ def admin_list_schedules():
 
 @app.route("/api/admin/schedules", methods=["POST"])
 def admin_add_schedule():
-    """排班（老闆）：{staff_id, work_date, start_time, end_time}。"""
-    if not is_boss():
-        return jsonify({"success": False, "error": "只有老闆能排班"}), 403
+    """排班：老闆可排任何人（不受限）；員工只能排自己，且套用排班規則。"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "請先登入"}), 403
     data = request.json or {}
     try:
         staff_id = int(data.get("staff_id"))
@@ -1720,11 +1721,41 @@ def admin_add_schedule():
         return jsonify({"success": False, "error": "日期與起訖時間為必填"}), 400
     if start_time >= end_time:
         return jsonify({"success": False, "error": "結束時間要晚於開始時間"}), 400
+
     conn = get_db()
     u = conn.execute("SELECT username FROM admin_users WHERE id=?", (staff_id,)).fetchone()
     if not u:
         conn.close()
         return jsonify({"success": False, "error": "找不到此員工"}), 404
+
+    # ── 員工自排規則（老闆豁免，權限不變）──
+    if not is_boss():
+        me_id = session.get("user_id")
+        if staff_id != me_id:
+            conn.close()
+            return jsonify({"success": False, "error": "只能排自己的班"}), 403
+        today = datetime.now().strftime("%Y-%m-%d")
+        if work_date < today:
+            conn.close()
+            return jsonify({"success": False, "error": "不能排過去的日期"}), 400
+        if start_time < "09:00" or end_time > "18:00":
+            conn.close()
+            return jsonify({"success": False, "error": "上班時間只能排在 09:00–18:00"}), 400
+        # 同一天同一人不能重複排
+        dup = conn.execute(
+            "SELECT 1 FROM staff_schedules WHERE staff_id=? AND work_date=?", (staff_id, work_date)
+        ).fetchone()
+        if dup:
+            conn.close()
+            return jsonify({"success": False, "error": "這天你已經排過班了"}), 400
+        # 一天最多 2 人（不同人數）
+        cnt = conn.execute(
+            "SELECT COUNT(DISTINCT staff_id) AS c FROM staff_schedules WHERE work_date=?", (work_date,)
+        ).fetchone()["c"]
+        if cnt >= 2:
+            conn.close()
+            return jsonify({"success": False, "error": "這天已經有 2 人排班了，額滿"}), 400
+
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cur = conn.execute(
         "INSERT INTO staff_schedules (staff_id, staff_name, work_date, start_time, end_time, created_at) "
@@ -1739,9 +1770,21 @@ def admin_add_schedule():
 
 @app.route("/api/admin/schedules/<int:sched_id>", methods=["DELETE"])
 def admin_delete_schedule(sched_id):
-    if not is_boss():
-        return jsonify({"success": False, "error": "只有老闆能刪除班表"}), 403
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "請先登入"}), 403
     conn = get_db()
+    row = conn.execute("SELECT staff_id, work_date FROM staff_schedules WHERE id=?", (sched_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"success": False, "error": "找不到此班表"}), 404
+    # 員工只能刪自己的、且不能刪過去的（老闆不受限）
+    if not is_boss():
+        if row["staff_id"] != session.get("user_id"):
+            conn.close()
+            return jsonify({"success": False, "error": "只能刪自己排的班"}), 403
+        if row["work_date"] < datetime.now().strftime("%Y-%m-%d"):
+            conn.close()
+            return jsonify({"success": False, "error": "過去的班不能刪除"}), 400
     conn.execute("DELETE FROM staff_schedules WHERE id=?", (sched_id,))
     conn.commit()
     conn.close()
