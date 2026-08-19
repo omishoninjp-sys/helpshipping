@@ -1408,7 +1408,7 @@
 <!-- 出貨帳單 Modal -->
 <div class="modal-overlay" id="billingModal">
     <div class="modal-box" style="max-width:500px;max-height:90vh;overflow-y:auto;">
-        <div class="modal-title" id="billing-modal-title">📦 出貨帳單</div>
+        <div class="modal-title" id="billing-modal-title" data-i18n="bl.title">📦 出貨帳單</div>
         <input type="hidden" id="bill-req-id">
         <div style="margin-bottom:16px;padding:12px;background:rgba(243,156,18,.08);border-radius:8px;">
             <span class="g-code" id="bill-gcode"></span>
@@ -1418,87 +1418,87 @@
         </div>
         <div class="pkg-form-grid" style="grid-template-columns:1fr 1fr;">
             <div class="form-group" style="margin:0;">
-                <label>運費單價 (台幣/kg)</label>
+                <label data-i18n="bl.rate">運費單價 (台幣/kg)</label>
                 <input type="number" id="bill-rate" class="form-control" value="180" min="0" oninput="calcBoxes()">
             </div>
             <div class="form-group" style="margin:0;">
-                <label>總計費重量 (kg，各箱加總)</label>
+                <label data-i18n="bl.billedwt">總計費重量 (kg，各箱加總)</label>
                 <input type="number" id="bill-billed-weight" class="form-control" readonly style="color:#f39c12;font-weight:700;">
             </div>
             <div class="form-group" style="margin:0;grid-column:1/-1;">
                 <label style="display:flex;justify-content:space-between;align-items:center;">
-                    <span>📦 箱子明細（每箱各自計費）</span>
-                    <button type="button" class="btn" style="background:#9b59b6;color:#fff;padding:4px 12px;font-size:12px;" onclick="addBox()">➕ 新增箱子</button>
+                    <span data-i18n="bl.boxes">📦 箱子明細（每箱各自計費）</span>
+                    <button type="button" class="btn" style="background:#9b59b6;color:#fff;padding:4px 12px;font-size:12px;" onclick="addBox()" data-i18n="bl.addbox">➕ 新增箱子</button>
                 </label>
                 <div id="bill-boxes"></div>
             </div>
             <div class="form-group" style="margin:0;">
-                <label>運費小計 (各箱加總)</label>
+                <label data-i18n="bl.shipsub">運費小計 (各箱加總)</label>
                 <input type="number" id="bill-shipping" class="form-control" readonly style="color:#27ae60;font-weight:700;">
             </div>
             <div class="form-group" style="margin:0;"></div>
             <div class="form-group" style="margin:0;">
-                <label>理貨重量 (kg)</label>
-                <input type="number" id="bill-handling-weight" class="form-control" step="0.5" min="0" placeholder="0 = 不收" oninput="calcHandling()">
+                <label data-i18n="bl.handlewt">理貨重量 (kg)</label>
+                <input type="number" id="bill-handling-weight" class="form-control" step="0.5" min="0" data-i18n-ph="bl.ph.handlewt" placeholder="0 = 不收" oninput="calcHandling()">
             </div>
             <div class="form-group" style="margin:0;">
-                <label>理貨費</label>
+                <label data-i18n="bl.handlefee">理貨費</label>
                 <input type="number" id="bill-handling" class="form-control" min="0" oninput="calcTotal()">
-                <div style="font-size:11px;color:#888;margin-top:2px;">每kg 11元，0.5kg尾數+6元</div>
+                <div style="font-size:11px;color:#888;margin-top:2px;" data-i18n="bl.handlehint">每kg 11元，0.5kg尾數+6元</div>
             </div>
         </div>
         <!-- 合箱費 -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
             <div class="form-group" style="margin:0;">
-                <label>包裹數</label>
+                <label data-i18n="bl.pkgcount">包裹數</label>
                 <input type="number" id="bill-pkg-count" class="form-control" min="0" readonly style="background:rgba(255,255,255,.03);">
             </div>
             <div class="form-group" style="margin:0;">
-                <label>合箱費</label>
+                <label data-i18n="bl.consofee">合箱費</label>
                 <input type="number" id="bill-consolidation" class="form-control" min="0" oninput="calcTotal()">
-                <div style="font-size:11px;color:#888;margin-top:2px;">3個內免費，超過每個+NT$14</div>
+                <div style="font-size:11px;color:#888;margin-top:2px;" data-i18n="bl.consohint">3個內免費，超過每個+NT$14</div>
             </div>
         </div>
         <!-- 信件費 -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
             <div class="form-group" style="margin:0;">
-                <label>信件件數</label>
+                <label data-i18n="bl.lettercount">信件件數</label>
                 <input type="number" id="bill-letter-count" class="form-control" min="0" value="0" oninput="calcLetter()">
-                <div style="font-size:11px;color:#888;margin-top:2px;">系統依到貨類型自動帶入，可調整</div>
+                <div style="font-size:11px;color:#888;margin-top:2px;" data-i18n="bl.letterhint">系統依到貨類型自動帶入，可調整</div>
             </div>
             <div class="form-group" style="margin:0;">
-                <label>信件費</label>
+                <label data-i18n="bl.letterfee">信件費</label>
                 <input type="number" id="bill-letter" class="form-control" min="0" readonly style="color:#3498db;font-weight:700;">
                 <div style="font-size:11px;color:#888;margin-top:2px;">每件 NT$20</div>
             </div>
         </div>
         <!-- 加值服務 -->
         <div style="margin-top:14px;padding:14px;background:rgba(155,89,182,0.08);border:1px solid rgba(155,89,182,0.2);border-radius:8px;">
-            <div style="font-size:13px;font-weight:600;color:#9b59b6;margin-bottom:10px;">⭐ 加值服務（選填）</div>
+            <div style="font-size:13px;font-weight:600;color:#9b59b6;margin-bottom:10px;" data-i18n="bl.extra">⭐ 加值服務（選填）</div>
             <div id="extraServicesContainer"></div>
-            <button type="button" onclick="addExtraService()" style="display:flex;align-items:center;gap:6px;padding:8px 14px;background:rgba(155,89,182,0.1);border:1px dashed rgba(155,89,182,0.4);border-radius:6px;color:#9b59b6;font-size:12px;cursor:pointer;width:100%;justify-content:center;margin-top:8px;">➕ 新增加值服務</button>
+            <button type="button" onclick="addExtraService()" style="display:flex;align-items:center;gap:6px;padding:8px 14px;background:rgba(155,89,182,0.1);border:1px dashed rgba(155,89,182,0.4);border-radius:6px;color:#9b59b6;font-size:12px;cursor:pointer;width:100%;justify-content:center;margin-top:8px;" data-i18n="bl.addextra">➕ 新增加值服務</button>
         </div>
         <!-- 合計 -->
         <div style="margin-top:14px;padding:14px;background:rgba(243,156,18,0.08);border:1px solid rgba(243,156,18,0.2);border-radius:10px;text-align:center;">
-            <div style="font-size:12px;color:#888;margin-bottom:4px;">💰 合計 (台幣)</div>
+            <div style="font-size:12px;color:#888;margin-bottom:4px;" data-i18n="bl.total">💰 合計 (台幣)</div>
             <input type="number" id="bill-total" class="form-control" style="color:#f39c12;font-weight:700;font-size:22px;text-align:center;background:transparent;border:none;" readonly>
         </div>
-        <div style="font-size:12px;color:#888;margin-top:8px;">
+        <div style="font-size:12px;color:#888;margin-top:8px;" data-i18n-html="bl.formula_block">
             運費 = 計費重量 × 單價<br>
             理貨費 = 每kg 11元，0.5kg尾數+6元（理貨重量填 0 = 不收）<br>
             計費規則：最低 1kg，超過後以 0.5kg 進位
         </div>
         <div class="form-group" style="margin-top:12px;">
-            <label>📦 追蹤號碼（多箱請換行）</label>
+            <label data-i18n="bl.tracking">📦 追蹤號碼（多箱請換行）</label>
             <textarea id="bill-tracking" class="form-control" rows="2" placeholder="SG21213544501&#10;SG21213544502" style="resize:vertical;"></textarea>
         </div>
         <div class="form-group">
-            <label>管理員備註（選填）</label>
-            <input type="text" id="bill-admin-note" class="form-control" placeholder="選填">
+            <label data-i18n="bl.adminnote">管理員備註（選填）</label>
+            <input type="text" id="bill-admin-note" class="form-control" data-i18n-ph="bl.ph.adminnote" placeholder="選填">
         </div>
         <div class="modal-actions">
-            <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;" onclick="closeBillingModal()">取消</button>
-            <button class="btn btn-green" id="billing-submit-btn" onclick="submitBilling()">✅ 確認出貨</button>
+            <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;" onclick="closeBillingModal()" data-i18n="btn.cancel2">取消</button>
+            <button class="btn btn-green" id="billing-submit-btn" onclick="submitBilling()" data-i18n="btn.confirmship">✅ 確認出貨</button>
         </div>
     </div>
 </div>
@@ -1557,6 +1557,23 @@ var I18N = {
     "目前已同步":"現在同期済み","筆派件資料":"件の配送データ","上次同步":"前回同期",
     "待出檔案筆數":"出力待ち件数","總重量":"総重量","總金額":"総額",
     "涉及":"対象","位客戶":"名の顧客","載入中…":"読み込み中…","無待出檔案的單":"出力待ちの伝票はありません",
+    // 出貨帳單 modal 固定
+    "bl.title":"📦 出荷請求書","bl.rate":"送料単価 (台湾ドル/kg)","bl.billedwt":"合計課金重量 (kg・各箱合計)",
+    "bl.boxes":"📦 箱明細（箱ごとに計算）","bl.addbox":"➕ 箱を追加","bl.shipsub":"送料小計 (各箱合計)",
+    "bl.handlewt":"仕分け重量 (kg)","bl.handlefee":"仕分け料","bl.handlehint":"1kgあたり11元、0.5kg端数+6元",
+    "bl.pkgcount":"箱数","bl.consofee":"同梱料","bl.consohint":"3箱まで無料、超過分は1箱+NT$14",
+    "bl.lettercount":"手紙の件数","bl.letterhint":"入荷種別により自動入力、変更可",
+    "bl.letterfee":"手紙料","bl.letterhint2":"1件 NT$20","bl.extra":"⭐ 付加サービス（任意）",
+    "bl.addextra":"➕ 付加サービスを追加","bl.total":"💰 合計 (台湾ドル)",
+    "bl.formula":"送料 = 課金重量 × 単価","bl.formula2":"仕分け料 = 1kgあたり11元、0.5kg端数+6元（仕分け重量0=不要）",
+    "bl.formula3":"課金ルール：最低1kg、超過後は0.5kg単位で切り上げ",
+    "bl.formula_block":"送料 = 課金重量 × 単価<br>仕分け料 = 1kgあたり11元、0.5kg端数+6元（仕分け重量0=不要）<br>課金ルール：最低1kg、超過後は0.5kg単位で切り上げ",
+    "bl.tracking":"📦 追跡番号（複数箱は改行）","bl.adminnote":"管理者メモ（任意）",
+    "btn.cancel2":"キャンセル","btn.confirmship":"✅ 出荷を確定",
+    "bl.ph.handlewt":"0 = 不要","bl.ph.adminnote":"任意",
+    // 箱子明細 placeholder（JS 動態，用 T()）
+    "實際重量kg":"実重量kg","材積":"容積","長":"長さ","寬":"幅","高":"高さ","追蹤號碼":"追跡番号",
+    "第":"箱 ","箱":"","實際 ":"実重量 ","材積 ":"容積 ","計費 ":"課金 ","運費 ":"送料 ",
   }
 };
 // JS 動態文字翻譯：日文模式回日文、中文模式回原字（找不到 key 就原樣）
@@ -5166,17 +5183,17 @@ function renderBoxes() {
     box.innerHTML = _billBoxes.map(function(b, i){
         return '<div class="bill-box-row" style="background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:10px;margin-bottom:8px;">'
             + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
-            +   '<span style="font-size:12px;font-weight:700;color:#c9a9e0;">第 ' + (i+1) + ' 箱</span>'
+            +   '<span style="font-size:12px;font-weight:700;color:#c9a9e0;">' + T('第') + (i+1) + ' ' + T('箱') + '</span>'
             +   '<span style="font-size:12px;"><span class="bx-billed" style="color:#f39c12;font-weight:700;"></span> <span class="bx-sub" style="color:#27ae60;"></span> '
             +     (_billBoxes.length>1 ? '<button type="button" onclick="removeBox('+i+')" style="background:none;border:none;color:#e74c3c;cursor:pointer;margin-left:6px;">✕</button>' : '') + '</span>'
             + '</div>'
             + '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'
-            +   '<input type="number" class="form-control bx-w" step="0.1" min="0" placeholder="實際重量kg" value="'+(b.actual_weight||'')+'" oninput="calcBoxes()" style="width:110px;padding:6px;">'
-            +   '<span style="color:#666;">材積</span>'
-            +   '<input type="number" class="form-control bx-l" min="0" placeholder="長" value="'+(b.length||'')+'" oninput="calcBoxes()" style="width:58px;padding:6px;">×'
-            +   '<input type="number" class="form-control bx-wd" min="0" placeholder="寬" value="'+(b.width||'')+'" oninput="calcBoxes()" style="width:58px;padding:6px;">×'
-            +   '<input type="number" class="form-control bx-h" min="0" placeholder="高" value="'+(b.height||'')+'" oninput="calcBoxes()" style="width:58px;padding:6px;">'
-            +   '<input type="text" class="form-control bx-t" placeholder="追蹤號碼" value="'+(b.tracking_num||'')+'" oninput="calcBoxes()" style="flex:1;min-width:140px;padding:6px;">'
+            +   '<input type="number" class="form-control bx-w" step="0.1" min="0" placeholder="'+T('實際重量kg')+'" value="'+(b.actual_weight||'')+'" oninput="calcBoxes()" style="width:110px;padding:6px;">'
+            +   '<span style="color:#666;">'+T('材積')+'</span>'
+            +   '<input type="number" class="form-control bx-l" min="0" placeholder="'+T('長')+'" value="'+(b.length||'')+'" oninput="calcBoxes()" style="width:58px;padding:6px;">×'
+            +   '<input type="number" class="form-control bx-wd" min="0" placeholder="'+T('寬')+'" value="'+(b.width||'')+'" oninput="calcBoxes()" style="width:58px;padding:6px;">×'
+            +   '<input type="number" class="form-control bx-h" min="0" placeholder="'+T('高')+'" value="'+(b.height||'')+'" oninput="calcBoxes()" style="width:58px;padding:6px;">'
+            +   '<input type="text" class="form-control bx-t" placeholder="'+T('追蹤號碼')+'" value="'+(b.tracking_num||'')+'" oninput="calcBoxes()" style="flex:1;min-width:140px;padding:6px;">'
             + '</div>'
             + '<div class="bx-hint" style="font-size:11px;color:#888;margin-top:4px;"></div>'
             + '</div>';
@@ -5206,8 +5223,8 @@ function calcBoxes() {
         if (b.tracking_num) trackings.push(b.tracking_num);
         var row = rows[i];
         if (row) {
-            row.querySelector('.bx-billed').textContent = billed>0 ? ('計費 '+billed.toFixed(1)+'kg') : '';
-            row.querySelector('.bx-sub').textContent = billed>0 ? ('運費 NT$'+sub) : '';
+            row.querySelector('.bx-billed').textContent = billed>0 ? (T('計費 ')+billed.toFixed(1)+'kg') : '';
+            row.querySelector('.bx-sub').textContent = billed>0 ? (T('運費 ')+'NT$'+sub) : '';
             row.querySelector('.bx-hint').innerHTML = hint;
             row.querySelector('.bx-hint').style.color = hintColor;
         }
