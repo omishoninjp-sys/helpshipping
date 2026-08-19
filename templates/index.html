@@ -334,7 +334,7 @@
                         <span id="promo-badge-text" style="font-size:14px;color:#fff;font-weight:700;letter-spacing:1px;">🔥 限時特價招生中</span>
                         <span id="promo-badge-price" style="font-size:18px;color:#ffeaa7;font-weight:900;margin-left:8px;">NT$220 元</span>
                     </div>
-                    <div style="font-size: 16px; color: #888; margin-bottom: 8px;">約日幣 1,375 円</div>
+                    <div id="promo-yen" style="font-size: 16px; color: #888; margin-bottom: 8px;">約日幣 1,100 円</div>
                     <div style="font-size: 14px; color: #f39c12; margin-bottom: 20px; font-weight: 600;">💎 依會員等級提供專屬費率，登入後查看您的費率</div>
                     <div style="display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">
                         <span style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; background: rgba(39,174,96,0.15); border: 1px solid rgba(39,174,96,0.3); border-radius: 20px; font-size: 13px; font-weight: 600; color: #2ecc71;">✓ 包關稅</span>
@@ -912,6 +912,17 @@
                 var promo = document.getElementById('promo-badge');
                 var promoText = document.getElementById('promo-badge-text');
                 var promoPrice = document.getElementById('promo-badge-price');
+                // 日幣自動換算：從徽章的 NT$ 價抓數字 × 匯率，四捨五入到整數。改單價時日幣自動跟著。
+                var TWD_TO_JPY = 5.0;  // 台幣→日幣參考匯率（要調匯率改這裡）
+                function syncPromoYen() {
+                    var yenEl = document.getElementById('promo-yen');
+                    if (!yenEl || !promoPrice) return;
+                    var m = (promoPrice.textContent || '').replace(/,/g, '').match(/(\d+(?:\.\d+)?)/);
+                    if (!m) { yenEl.style.display = 'none'; return; }
+                    var yen = Math.round(parseFloat(m[1]) * TWD_TO_JPY);
+                    yenEl.textContent = '約日幣 ' + yen.toLocaleString() + ' 円';
+                    yenEl.style.display = '';
+                }
                 if (promo && promoText && promoPrice) {
                     if (b.is_agent) {
                         if (b.promo_text || b.promo_price) {
@@ -927,6 +938,7 @@
                         promoPrice.textContent = 'NT$220 元';
                         promo.style.display = 'inline-block';
                     }
+                    syncPromoYen();  // 依徽章價格自動更新日幣
                 }
 
                 // 2) 申請會員指引：有 signup_guide → 換成代理版本
