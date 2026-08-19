@@ -331,6 +331,7 @@
                 <div class="sidebar-item" onclick="switchAdminTab('internalann')">📢 <span data-i18n="nav.internalann">內部公告</span> <span id="internalann-badge" class="sidebar-badge" style="display:none;background:#e74c3c;">!</span></div>
                 <div class="sidebar-item" id="sidebar-announcements" onclick="switchAdminTab('announcements')">📢 <span data-i18n="nav.announcements">公告管理</span></div>
                 <div class="sidebar-item" id="sidebar-stats" onclick="switchAdminTab('stats')">📊 <span data-i18n="nav.stats">統計</span></div>
+                <div class="sidebar-item" onclick="switchAdminTab('dailyops')">📅 <span data-i18n="nav.dailyops">每日營運</span></div>
                 <div class="sidebar-item" id="sidebar-oplogs" onclick="switchAdminTab('oplogs')" style="display:none;">📋 <span data-i18n="nav.oplogs">操作紀錄</span></div>
                 <div class="sidebar-item" id="sidebar-recon" onclick="window.open('/recon','_blank')" style="display:none;">🧾 <span data-i18n="nav.recon">對帳</span></div>
                 <div class="sidebar-divider"></div>
@@ -1084,6 +1085,37 @@
             </div>
         </div>
 
+        <!-- 每日營運（老闆＋員工） -->
+        <div class="admin-panel" id="panel-dailyops">
+            <div class="card">
+                <div class="toolbar">
+                    <h3>📅 每日營運</h3>
+                    <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadDailyOps()">🔄 重新整理</button>
+                </div>
+                <p style="font-size:12px;color:#888;margin:-6px 0 14px;">每天的進倉（到倉日）與出貨（標記出貨日）工作量。出貨為當天標記出貨的全部單，不論是否已收款。</p>
+                <div class="filter-bar" style="flex-wrap:wrap;gap:8px;align-items:center;">
+                    <button class="btn" style="background:rgba(52,152,219,.15);color:#3498db;padding:6px 12px;font-size:12px;" onclick="setDailyRange('today')">今天</button>
+                    <button class="btn" style="background:rgba(52,152,219,.15);color:#3498db;padding:6px 12px;font-size:12px;" onclick="setDailyRange('7d')">近 7 天</button>
+                    <button class="btn" style="background:rgba(52,152,219,.15);color:#3498db;padding:6px 12px;font-size:12px;" onclick="setDailyRange('month')">本月</button>
+                    <span style="color:#666;">｜</span>
+                    <input type="date" id="daily-from" class="form-control" style="width:auto;padding:6px 10px;font-size:13px;" onchange="loadDailyOps()">
+                    <span style="color:#888;">～</span>
+                    <input type="date" id="daily-to" class="form-control" style="width:auto;padding:6px 10px;font-size:13px;" onchange="loadDailyOps()">
+                </div>
+                <div id="daily-summary" style="display:flex;flex-wrap:wrap;gap:12px;margin:14px 0;"></div>
+                <div style="overflow-x:auto;">
+                    <table class="data-table">
+                        <thead><tr>
+                            <th>日期</th>
+                            <th style="text-align:right;">進倉件數</th><th style="text-align:right;">進倉重量</th>
+                            <th style="text-align:right;">出貨單數</th><th style="text-align:right;">出貨重量</th><th style="text-align:right;">出貨金額</th>
+                        </tr></thead>
+                        <tbody id="dailyTable"><tr><td colspan="6" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <!-- 操作紀錄（老闆） -->
         <div class="admin-panel" id="panel-oplogs">
             <div class="card">
@@ -1485,6 +1517,7 @@ var I18N = {
     "nav.shipreqs":"出荷申請","nav.billing":"請求管理","nav.forecasts":"事前連絡",
     "nav.schedule":"シフト表","nav.internalann":"社内お知らせ","nav.announcements":"お知らせ管理",
     "nav.stats":"統計","nav.oplogs":"操作履歴","nav.recon":"入金照合","nav.exports":"データ出力",
+    "nav.dailyops":"日次オペレーション",
     "nav.extraservices":"付加サービス","nav.agents":"代理店管理","nav.mybranding":"ブランド設定",
     "nav.changepwd":"パスワード変更",
     "title.members":"会員管理","title.arrivals":"入荷管理","title.unclaimed":"持ち主不明荷物 引取ウォール",
@@ -1780,6 +1813,7 @@ function switchAdminTab(tab) {
     if (tab === 'arrivals') loadPackages();
     if (tab === 'unclaimed') loadUnclaimed();
     if (tab === 'oplogs') loadOpLogs();
+    if (tab === 'dailyops') { if (!document.getElementById('daily-from').value) setDailyRange('7d'); else loadDailyOps(); }
     if (tab === 'schedule') loadSchedule();
     if (tab === 'internalann') loadInternalAnns();
     if (tab === 'shipreqs') loadShipReqs();
@@ -4598,6 +4632,68 @@ async function deleteSchedule(id) {
         if (d.success) { showToast('已移除', 'success'); loadSchedule(); }
         else { showToast(d.error || '移除失敗', 'error'); }
     } catch(e) { showToast('網路錯誤', 'error'); }
+}
+
+// ── 每日營運（老闆＋員工）──
+function setDailyRange(preset) {
+    var pad = function(n){ return n<10?'0'+n:''+n; };
+    var fmt = function(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); };
+    var now = new Date(), from='', to='';
+    if (preset === 'today') { from = to = fmt(now); }
+    else if (preset === '7d') { var d7=new Date(now); d7.setDate(d7.getDate()-6); from=fmt(d7); to=fmt(now); }
+    else if (preset === 'month') { from=fmt(new Date(now.getFullYear(),now.getMonth(),1)); to=fmt(new Date(now.getFullYear(),now.getMonth()+1,0)); }
+    document.getElementById('daily-from').value = from;
+    document.getElementById('daily-to').value = to;
+    loadDailyOps();
+}
+
+async function loadDailyOps() {
+    var from = (document.getElementById('daily-from')||{}).value || '';
+    var to = (document.getElementById('daily-to')||{}).value || '';
+    var params = new URLSearchParams();
+    if (from) params.set('date_from', from);
+    if (to) params.set('date_to', to);
+    try {
+        var res = await fetch('/api/admin/stats/daily?' + params.toString());
+        var d = await res.json();
+        if (!d.success) { document.getElementById('dailyTable').innerHTML = '<tr><td colspan="6" style="text-align:center;color:#e74c3c;padding:30px;">'+(d.error||'載入失敗')+'</td></tr>'; return; }
+        // 首次載入若日期框是空的，用後端回的預設區間補上
+        if (!from && d.date_from) document.getElementById('daily-from').value = d.date_from;
+        if (!to && d.date_to) document.getElementById('daily-to').value = d.date_to;
+        renderDailyOps(d);
+    } catch(e) { console.error('loadDailyOps:', e); }
+}
+
+function renderDailyOps(d) {
+    var t = d.total || {};
+    var card = function(label, val, color){
+        return '<div style="flex:1;min-width:130px;padding:14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:10px;text-align:center;">'
+            + '<div style="font-size:22px;font-weight:700;color:'+color+';">'+val+'</div>'
+            + '<div style="font-size:11px;color:#888;margin-top:2px;">'+label+'</div></div>';
+    };
+    document.getElementById('daily-summary').innerHTML =
+        card('進倉件數', t.in_count||0, '#3498db')
+      + card('進倉重量', (t.in_kg||0)+' kg', '#3498db')
+      + card('出貨單數', t.out_count||0, '#e67e22')
+      + card('出貨重量', (t.out_kg||0)+' kg', '#e67e22')
+      + card('出貨金額', 'NT$ '+Number(t.out_fee||0).toLocaleString(), '#27ae60');
+
+    var rows = d.rows || [];
+    var tbody = document.getElementById('dailyTable');
+    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#666;padding:30px;">此區間沒有資料</td></tr>'; return; }
+    var dow = ['日','一','二','三','四','五','六'];
+    tbody.innerHTML = rows.map(function(r){
+        var wd = '';
+        try { var dt = new Date(r.date + 'T00:00:00'); wd = '（'+dow[dt.getDay()]+'）'; } catch(e){}
+        return '<tr>'
+            + '<td style="white-space:nowrap;color:#fff;">' + r.date + ' <span style="color:#888;font-size:11px;">'+wd+'</span></td>'
+            + '<td style="text-align:right;color:#3498db;font-weight:700;">' + r.in_count + '</td>'
+            + '<td style="text-align:right;color:#aaa;">' + r.in_kg + ' kg</td>'
+            + '<td style="text-align:right;color:#e67e22;font-weight:700;">' + r.out_count + '</td>'
+            + '<td style="text-align:right;color:#aaa;">' + r.out_kg + ' kg</td>'
+            + '<td style="text-align:right;color:#27ae60;font-weight:700;">NT$ ' + Number(r.out_fee).toLocaleString() + '</td>'
+            + '</tr>';
+    }).join('');
 }
 
 // ── 操作紀錄（老闆）──

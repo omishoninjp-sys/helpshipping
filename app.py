@@ -3081,6 +3081,72 @@ def _matches_period(date_str, period_key):
         return date_str[:7] == period_key
 
 
+@app.route("/api/admin/stats/daily", methods=["GET"])
+def admin_daily_ops():
+    """每日營運（老闆＋員工）：每天的進倉件數/重量、出貨單數/重量/金額。
+    進倉＝packages 依到倉日 in_date；出貨＝shipment_requests 依出貨日(updated_at)、
+    算『當天標記已出貨的全部單』(看工作量/產出，不論是否收款)。"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "請先登入"}), 403
+    date_from = (request.args.get("date_from") or "").strip()
+    date_to = (request.args.get("date_to") or "").strip()
+    # 預設近 7 天
+    if not date_from and not date_to:
+        date_to = datetime.now().strftime("%Y-%m-%d")
+        date_from = (datetime.now() - timedelta(days=6)).strftime("%Y-%m-%d")
+    aid = get_current_agent_id()
+    conn = get_db()
+
+    # 進倉：依到倉日 group（in_date 為 YYYY-MM-DD；防呆截前10碼）
+    inb_where = ["substr(COALESCE(in_date,''),1,10) BETWEEN ? AND ?"]
+    inb_params = [date_from, date_to]
+    if aid > 0:
+        inb_where.append("agent_id=?"); inb_params.append(aid)
+    inbound = {}
+    for r in conn.execute(
+        f"SELECT substr(in_date,1,10) AS d, COUNT(*) AS cnt, "
+        f"COALESCE(SUM(CAST(weight AS REAL)),0) AS kg FROM packages "
+        f"WHERE {' AND '.join(inb_where)} GROUP BY d", inb_params
+    ).fetchall():
+        inbound[r["d"]] = {"in_count": r["cnt"], "in_kg": round(r["kg"] or 0, 1)}
+
+    # 出貨：依出貨日 group（出貨日＝updated_at 那刻；當天全部已出貨單）
+    out_where = ["status='已出貨'",
+                 "substr(COALESCE(NULLIF(updated_at,''), created_at),1,10) BETWEEN ? AND ?"]
+    out_params = [date_from, date_to]
+    if aid > 0:
+        out_where.append("agent_id=?"); out_params.append(aid)
+    outbound = {}
+    for r in conn.execute(
+        f"SELECT substr(COALESCE(NULLIF(updated_at,''), created_at),1,10) AS d, "
+        f"COUNT(*) AS cnt, COALESCE(SUM(CAST(billed_weight AS REAL)),0) AS kg, "
+        f"COALESCE(SUM(CAST(total_fee AS REAL)),0) AS fee FROM shipment_requests "
+        f"WHERE {' AND '.join(out_where)} GROUP BY d", out_params
+    ).fetchall():
+        outbound[r["d"]] = {"out_count": r["cnt"], "out_kg": round(r["kg"] or 0, 1),
+                            "out_fee": round(r["fee"] or 0)}
+    conn.close()
+
+    # 合併每一天（區間內每天一列，新到舊）
+    days = sorted(set(list(inbound.keys()) + list(outbound.keys())), reverse=True)
+    rows = []
+    tot = {"in_count": 0, "in_kg": 0.0, "out_count": 0, "out_kg": 0.0, "out_fee": 0}
+    for d in days:
+        i = inbound.get(d, {}); o = outbound.get(d, {})
+        row = {
+            "date": d,
+            "in_count": i.get("in_count", 0), "in_kg": i.get("in_kg", 0),
+            "out_count": o.get("out_count", 0), "out_kg": o.get("out_kg", 0),
+            "out_fee": o.get("out_fee", 0),
+        }
+        rows.append(row)
+        tot["in_count"] += row["in_count"]; tot["in_kg"] += row["in_kg"]
+        tot["out_count"] += row["out_count"]; tot["out_kg"] += row["out_kg"]; tot["out_fee"] += row["out_fee"]
+    tot["in_kg"] = round(tot["in_kg"], 1); tot["out_kg"] = round(tot["out_kg"], 1)
+    return jsonify({"success": True, "rows": rows, "total": tot,
+                    "date_from": date_from, "date_to": date_to})
+
+
 @app.route("/api/admin/stats/monthly", methods=["GET"])
 def admin_monthly_stats():
     """月/週統計：代理→按週、主帳號→可選月/週（?period=month|week，預設 month）"""
