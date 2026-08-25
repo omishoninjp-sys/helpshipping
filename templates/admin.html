@@ -332,6 +332,7 @@
                 <div class="sidebar-item" id="sidebar-announcements" onclick="switchAdminTab('announcements')">📢 <span data-i18n="nav.announcements">公告管理</span></div>
                 <div class="sidebar-item" id="sidebar-stats" onclick="switchAdminTab('stats')">📊 <span data-i18n="nav.stats">統計</span></div>
                 <div class="sidebar-item" onclick="switchAdminTab('dailyops')">📅 <span data-i18n="nav.dailyops">每日營運</span></div>
+                <div class="sidebar-item" id="sidebar-custactivity" onclick="switchAdminTab('custactivity')">👥 <span data-i18n="nav.custactivity">客戶活躍度</span></div>
                 <div class="sidebar-item" id="sidebar-oplogs" onclick="switchAdminTab('oplogs')" style="display:none;">📋 <span data-i18n="nav.oplogs">操作紀錄</span></div>
                 <div class="sidebar-item" id="sidebar-recon" onclick="window.open('/recon','_blank')" style="display:none;">🧾 <span data-i18n="nav.recon">對帳</span></div>
                 <div class="sidebar-divider"></div>
@@ -1116,6 +1117,42 @@
             </div>
         </div>
 
+        <!-- 客戶活躍度（老闆） -->
+        <div class="admin-panel" id="panel-custactivity">
+            <div class="card">
+                <div class="toolbar">
+                    <h3>👥 客戶活躍度</h3>
+                    <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadCustActivity(1)">🔄 重新整理</button>
+                </div>
+                <p style="font-size:12px;color:#888;margin:-6px 0 14px;">依「最後活動」分類：最後已出貨或到貨取較近者。活躍 ≤7天／觀察 7–30天／沉睡 30–60天／僵屍 &gt;60天／未啟用＝從沒出貨也沒到貨。</p>
+                <div id="cust-summary" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;"></div>
+                <div class="filter-bar" style="flex-wrap:wrap;gap:8px;align-items:center;">
+                    <select id="cust-seg" class="form-control" style="width:auto;padding:8px 12px;font-size:13px;" onchange="loadCustActivity(1)">
+                        <option value="">全部</option>
+                        <option value="active">🟢 活躍</option>
+                        <option value="watch">🟡 觀察</option>
+                        <option value="sleep">🟠 沉睡</option>
+                        <option value="zombie">🔴 僵屍</option>
+                        <option value="inactive">⚪ 未啟用</option>
+                    </select>
+                    <input type="text" id="cust-search" placeholder="🔍 搜尋客編或姓名..." oninput="filterCustActivity()" style="flex:1;min-width:180px;">
+                </div>
+                <div style="overflow-x:auto;">
+                    <table class="data-table">
+                        <thead><tr>
+                            <th>客編</th><th>姓名</th><th>最後活動</th><th style="text-align:right;">幾天沒動</th><th>分類</th>
+                        </tr></thead>
+                        <tbody id="custTable"><tr><td colspan="5" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr></tbody>
+                    </table>
+                </div>
+                <div id="custPager" style="display:none;justify-content:center;align-items:center;gap:10px;padding:14px;font-size:13px;color:#aaa;">
+                    <button class="btn" id="cust-prev" style="background:rgba(255,255,255,.08);color:#fff;padding:6px 14px;" onclick="custPage(-1)">← 上一頁</button>
+                    <span id="cust-pageinfo"></span>
+                    <button class="btn" id="cust-next" style="background:rgba(255,255,255,.08);color:#fff;padding:6px 14px;" onclick="custPage(1)">下一頁 →</button>
+                </div>
+            </div>
+        </div>
+
         <!-- 操作紀錄（老闆） -->
         <div class="admin-panel" id="panel-oplogs">
             <div class="card">
@@ -1517,7 +1554,7 @@ var I18N = {
     "nav.shipreqs":"出荷申請","nav.billing":"請求管理","nav.forecasts":"事前連絡",
     "nav.schedule":"シフト表","nav.internalann":"社内お知らせ","nav.announcements":"お知らせ管理",
     "nav.stats":"統計","nav.oplogs":"操作履歴","nav.recon":"入金照合","nav.exports":"データ出力",
-    "nav.dailyops":"日次オペレーション",
+    "nav.dailyops":"日次オペレーション","nav.custactivity":"顧客アクティブ度",
     "nav.extraservices":"付加サービス","nav.agents":"代理店管理","nav.mybranding":"ブランド設定",
     "nav.changepwd":"パスワード変更",
     "title.members":"会員管理","title.arrivals":"入荷管理","title.unclaimed":"持ち主不明荷物 引取ウォール",
@@ -1680,7 +1717,7 @@ async function adminLogin() {
             if (sbMB) sbMB.style.display = currentAdmin.user_type === 'agent' ? '' : 'none';
             // 老闆(super) vs 員工(staff)：員工看不到 統計/代理/操作紀錄/變更密碼/管理員帳號
             var isBoss = currentAdmin.user_type === 'admin' && currentAdmin.role === 'super';
-            var bossOnly = { 'sidebar-stats': isBoss, 'sidebar-agents': isBoss, 'sidebar-oplogs': isBoss, 'sidebar-recon': isBoss, 'sidebar-changepwd': isBoss };
+            var bossOnly = { 'sidebar-stats': isBoss, 'sidebar-agents': isBoss, 'sidebar-oplogs': isBoss, 'sidebar-recon': isBoss, 'sidebar-changepwd': isBoss, 'sidebar-custactivity': isBoss };
             Object.keys(bossOnly).forEach(function(id){ var el = document.getElementById(id); if (el) el.style.display = bossOnly[id] ? '' : 'none'; });
             var adminMgmt = document.getElementById('adminUsersSection');
             if (adminMgmt) adminMgmt.style.display = isBoss ? '' : 'none';
@@ -1831,6 +1868,7 @@ function switchAdminTab(tab) {
     if (tab === 'unclaimed') loadUnclaimed();
     if (tab === 'oplogs') loadOpLogs();
     if (tab === 'dailyops') { if (!document.getElementById('daily-from').value) setDailyRange('7d'); else loadDailyOps(); }
+    if (tab === 'custactivity') loadCustActivity(1);
     if (tab === 'schedule') loadSchedule();
     if (tab === 'internalann') loadInternalAnns();
     if (tab === 'shipreqs') loadShipReqs();
@@ -4711,6 +4749,93 @@ function renderDailyOps(d) {
             + '<td style="text-align:right;color:#27ae60;font-weight:700;">NT$ ' + Number(r.out_fee).toLocaleString() + '</td>'
             + '</tr>';
     }).join('');
+}
+
+// ── 客戶活躍度（老闆）──
+var _custPage = 1;
+var _custSearchTimer = null;
+var SEG_META = {
+    active:  {label:'🟢 活躍', color:'#27ae60'},
+    watch:   {label:'🟡 觀察', color:'#f1c40f'},
+    sleep:   {label:'🟠 沉睡', color:'#e67e22'},
+    zombie:  {label:'🔴 僵屍', color:'#e74c3c'},
+    inactive:{label:'⚪ 未啟用', color:'#95a5a6'},
+};
+
+async function loadCustActivity(page) {
+    _custPage = page || 1;
+    var seg = (document.getElementById('cust-seg')||{}).value || '';
+    var q = ((document.getElementById('cust-search')||{}).value || '').trim();
+    var params = new URLSearchParams();
+    if (seg) params.set('seg', seg);
+    if (q) params.set('q', q);
+    params.set('page', _custPage);
+    params.set('limit', 50);
+    document.getElementById('custTable').innerHTML = '<tr><td colspan="5" style="text-align:center;color:#666;padding:30px;">載入中...</td></tr>';
+    try {
+        var res = await fetch('/api/admin/stats/customer-activity?' + params.toString());
+        var d = await res.json();
+        if (!d.success) { document.getElementById('custTable').innerHTML = '<tr><td colspan="5" style="text-align:center;color:#e74c3c;padding:30px;">'+(d.error||'載入失敗')+'</td></tr>'; return; }
+        renderCustSummary(d);
+        renderCustRows(d);
+        renderCustPager(d);
+    } catch(e) { console.error('loadCustActivity:', e); }
+}
+
+function filterCustActivity() {
+    clearTimeout(_custSearchTimer);
+    _custSearchTimer = setTimeout(function(){ loadCustActivity(1); }, 400);
+}
+
+function custPage(delta) {
+    var next = _custPage + delta;
+    if (next < 1) return;
+    loadCustActivity(next);
+    var panel = document.getElementById('panel-custactivity');
+    if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderCustSummary(d) {
+    var counts = d.counts || {};
+    var order = ['active','watch','sleep','zombie','inactive'];
+    var curSeg = (document.getElementById('cust-seg')||{}).value || '';
+    document.getElementById('cust-summary').innerHTML = order.map(function(k){
+        var m = SEG_META[k];
+        var on = curSeg === k;
+        return '<div onclick="document.getElementById(\'cust-seg\').value=\''+k+'\';loadCustActivity(1);" '
+            + 'style="flex:1;min-width:110px;cursor:pointer;padding:12px;background:'+(on?m.color+'22':'rgba(255,255,255,.03)')+';border:1px solid '+(on?m.color:'rgba(255,255,255,.08)')+';border-radius:10px;text-align:center;">'
+            + '<div style="font-size:22px;font-weight:700;color:'+m.color+';">'+(counts[k]||0)+'</div>'
+            + '<div style="font-size:11px;color:#aaa;margin-top:2px;">'+m.label+'</div></div>';
+    }).join('');
+}
+
+function renderCustRows(d) {
+    var rows = d.rows || [];
+    var tbody = document.getElementById('custTable');
+    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#666;padding:30px;">沒有符合的客戶</td></tr>'; return; }
+    tbody.innerHTML = rows.map(function(r){
+        var m = SEG_META[r.segment] || SEG_META.inactive;
+        var days = (r.days_inactive == null) ? '—' : (r.days_inactive + ' 天');
+        return '<tr>'
+            + '<td><span class="g-code" style="font-size:12px;">'+r.g_code+'</span></td>'
+            + '<td style="color:#fff;">'+(r.name||'-')+'</td>'
+            + '<td style="font-size:12px;color:#aaa;white-space:nowrap;">'+(r.last_active||'從未')+'</td>'
+            + '<td style="text-align:right;color:'+m.color+';font-weight:700;">'+days+'</td>'
+            + '<td><span style="font-size:12px;padding:2px 10px;border-radius:10px;background:'+m.color+'22;color:'+m.color+';font-weight:700;">'+m.label+'</span></td>'
+            + '</tr>';
+    }).join('');
+}
+
+function renderCustPager(d) {
+    var pager = document.getElementById('custPager');
+    if (!pager) return;
+    var total = d.total || 0, page = d.page || 1, limit = d.limit || 50;
+    if (total <= limit) { pager.style.display = 'none'; return; }
+    var totalPages = Math.ceil(total / limit);
+    pager.style.display = 'flex';
+    document.getElementById('cust-pageinfo').textContent = '第 ' + page + ' / ' + totalPages + ' 頁（共 ' + total + ' 位）';
+    document.getElementById('cust-prev').style.opacity = (page <= 1) ? '.4' : '1';
+    document.getElementById('cust-next').style.opacity = d.has_more ? '1' : '.4';
 }
 
 // ── 操作紀錄（老闆）──

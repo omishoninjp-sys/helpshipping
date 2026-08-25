@@ -3081,6 +3081,100 @@ def _matches_period(date_str, period_key):
         return date_str[:7] == period_key
 
 
+@app.route("/api/admin/stats/customer-activity", methods=["GET"])
+def admin_customer_activity():
+    """客戶活躍度（老闆專用）：依最後活動（已出貨日 或 到貨日 取較近）分類。
+    活躍≤7天／觀察7-30／沉睡30-60／僵屍>60／未啟用(從沒動過)。"""
+    if not is_boss():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    seg = (request.args.get("seg") or "").strip()       # active/watch/sleep/zombie/inactive/''(全部)
+    q = (request.args.get("q") or "").strip()
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+    except (ValueError, TypeError):
+        page = 1
+    try:
+        limit = min(200, max(1, int(request.args.get("limit", 50))))
+    except (ValueError, TypeError):
+        limit = 50
+
+    conn = get_db()
+    # 每個客編最後已出貨日
+    last_ship = {}
+    for r in conn.execute(
+        "SELECT g_code, MAX(substr(COALESCE(NULLIF(updated_at,''),created_at),1,10)) AS d "
+        "FROM shipment_requests WHERE status='已出貨' AND g_code IS NOT NULL AND g_code!='' GROUP BY g_code"
+    ).fetchall():
+        if r["d"]:
+            last_ship[r["g_code"].upper()] = r["d"]
+    # 每個客編最後到貨日
+    last_arr = {}
+    for r in conn.execute(
+        "SELECT g_code, MAX(substr(in_date,1,10)) AS d FROM packages "
+        "WHERE g_code IS NOT NULL AND g_code!='' AND in_date IS NOT NULL AND in_date!='' GROUP BY g_code"
+    ).fetchall():
+        if r["d"]:
+            last_arr[r["g_code"].upper()] = r["d"]
+    conn.close()
+
+    # 客戶名單（Shopify 快取；用於抓「未啟用＝註冊但從沒動」）
+    customers = get_all_goyoutati_customers() or []
+
+    today = datetime.now().date()
+
+    def classify(days):
+        if days is None:
+            return "inactive"
+        if days <= 7:
+            return "active"
+        if days <= 30:
+            return "watch"
+        if days <= 60:
+            return "sleep"
+        return "zombie"
+
+    rows = []
+    counts = {"active": 0, "watch": 0, "sleep": 0, "zombie": 0, "inactive": 0}
+    for c in customers:
+        gc = (c.get("g_code") or "").upper()
+        if not gc:
+            continue
+        s = last_ship.get(gc); a = last_arr.get(gc)
+        last = max([x for x in (s, a) if x], default=None)
+        days = None
+        if last:
+            try:
+                days = (today - datetime.strptime(last, "%Y-%m-%d").date()).days
+            except (ValueError, TypeError):
+                days = None
+        cat = classify(days)
+        counts[cat] += 1
+        rows.append({
+            "g_code": gc, "name": c.get("name", ""),
+            "last_ship": s or "", "last_arrival": a or "",
+            "last_active": last or "", "days_inactive": days,
+            "segment": cat,
+        })
+
+    # 篩選
+    filtered = rows
+    if seg in counts:
+        filtered = [r for r in filtered if r["segment"] == seg]
+    if q:
+        ql = q.upper()
+        filtered = [r for r in filtered if ql in r["g_code"] or ql in (r["name"] or "").upper()]
+    # 排序：最久沒動排前面（未啟用視為最久；未啟用 days=None 放最後另計）
+    filtered.sort(key=lambda r: (r["days_inactive"] is None, -(r["days_inactive"] or 0)))
+    # 但未啟用要排最前面時另處理：預設把「已動過的」依天數多→少，未啟用放最後
+    total = len(filtered)
+    start = (page - 1) * limit
+    page_rows = filtered[start:start + limit]
+    return jsonify({"success": True, "rows": page_rows, "counts": counts,
+                    "total": total, "page": page, "limit": limit,
+                    "has_more": start + len(page_rows) < total,
+                    "total_customers": len(rows)})
+
+
 @app.route("/api/admin/stats/daily", methods=["GET"])
 def admin_daily_ops():
     """每日營運（老闆＋員工）：每天的進倉件數/重量、出貨單數/重量/金額。
