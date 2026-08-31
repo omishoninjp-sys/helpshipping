@@ -1523,7 +1523,7 @@
         <div style="font-size:12px;color:#888;margin-top:8px;" data-i18n-html="bl.formula_block">
             運費 = 計費重量 × 單價<br>
             理貨費 = 每kg 11元，0.5kg尾數+6元（理貨重量填 0 = 不收）<br>
-            計費規則：最低 1kg，超過後以 0.5kg 進位
+            計費規則：2026/09/01 起最低 2kg，超過後以 0.5kg 進位
         </div>
         <div class="form-group" style="margin-top:12px;">
             <label data-i18n="bl.tracking">📦 追蹤號碼（多箱請換行）</label>
@@ -1603,8 +1603,8 @@ var I18N = {
     "bl.letterfee":"手紙料","bl.letterhint2":"1件 NT$20","bl.extra":"⭐ 付加サービス（任意）",
     "bl.addextra":"➕ 付加サービスを追加","bl.total":"💰 合計 (台湾ドル)",
     "bl.formula":"送料 = 課金重量 × 単価","bl.formula2":"仕分け料 = 1kgあたり11元、0.5kg端数+6元（仕分け重量0=不要）",
-    "bl.formula3":"課金ルール：最低1kg、超過後は0.5kg単位で切り上げ",
-    "bl.formula_block":"送料 = 課金重量 × 単価<br>仕分け料 = 1kgあたり11元、0.5kg端数+6元（仕分け重量0=不要）<br>課金ルール：最低1kg、超過後は0.5kg単位で切り上げ",
+    "bl.formula3":"課金ルール：2026/09/01より最低2kg、超過後は0.5kg単位で切り上げ",
+    "bl.formula_block":"送料 = 課金重量 × 単価<br>仕分け料 = 1kgあたり11元、0.5kg端数+6元（仕分け重量0=不要）<br>課金ルール：2026/09/01より最低2kg、超過後は0.5kg単位で切り上げ",
     "bl.tracking":"📦 追跡番号（複数箱は改行）","bl.adminnote":"管理者メモ（任意）",
     "btn.cancel2":"キャンセル","btn.confirmship":"✅ 出荷を確定",
     "bl.ph.handlewt":"0 = 不要","bl.ph.adminnote":"任意",
@@ -5091,12 +5091,15 @@ async function submitChangePwd() {
 
 // ── 出貨帳單 ──
 var billingEditMode = false;
+// 修改模式：開啟時的原始帳單金額，儲存前用來比對重算差異（見 submitBilling）
+var _billOrig = null;
 
 async function openBillingModal(reqId, gCode, name, summary) {
     // 出貨前檢查此客戶是否還有未付款
     var ok = await checkUnpaidWarn(gCode);
     if (!ok) return;
     billingEditMode = false;
+    _billOrig = null;
     document.getElementById('billing-modal-title').textContent = '📦 出貨帳單';
     document.getElementById('billing-submit-btn').textContent = '✅ 確認出貨';
     document.getElementById('bill-req-id').value = reqId;
@@ -5209,6 +5212,14 @@ function openBillingEditModal(reqId) {
     document.getElementById('bill-letter').value = lf;
     document.getElementById('bill-letter-count').value = Math.round(lf / 20);
     document.getElementById('bill-total').value = Math.round(r.total_fee || 0);
+
+    // 記下原始值：下面的 calcBoxes() 會用「現行」計費規則重算（2026/09/01 起最低 2kg）
+    _billOrig = {
+        billed_weight: bw,
+        shipping: Math.round(r.shipping_fee || 0),
+        handling: Math.round(r.handling_fee || 0),
+        total:    Math.round(r.total_fee || 0)
+    };
     document.getElementById('bill-tracking').value = r.tracking_num || '';
     document.getElementById('bill-admin-note').value = r.admin_note || '';
 
@@ -5341,7 +5352,7 @@ function calcBoxes() {
             if (vsum>200){ hint+='｜⚠️超大貨物(和'+vsum+'>200)請聯繫客服'; hintColor='#e67e22'; }
             if (vlong>150){ hint+='｜🔸最長邊'+vlong+'>150 加特長件NT$86'; hintColor='#e67e22'; }
         }
-        var billed = weight<=0 ? 0 : (raw<1 ? 1 : Math.ceil(raw*2)/2);
+        var billed = weight<=0 ? 0 : (raw<2 ? 2 : Math.ceil(raw*2)/2);
         var longFee = (vlong_over(vL,vW,vH)) ? 86 : 0;
         var sub = Math.round(billed*rate) + longFee;
         totalBilled += billed; totalShipping += sub;
@@ -5371,8 +5382,8 @@ function calcHandling() {
     if (hw <= 0) {
         document.getElementById('bill-handling').value = 0;
     } else {
-        // 計費：最低1kg，0.5kg進位
-        var billedHw = hw < 1 ? 1 : Math.ceil(hw * 2) / 2;
+        // 計費：最低2kg，0.5kg進位（2026/09/01 起）
+        var billedHw = hw < 2 ? 2 : Math.ceil(hw * 2) / 2;
         // 首重 11/整數kg，續重 6/半kg
         var wholeKg = Math.floor(billedHw);
         var hasHalf = (billedHw - wholeKg) >= 0.5 ? 1 : 0;
@@ -5415,6 +5426,29 @@ async function submitBilling() {
     var boxes = _billBoxes.filter(function(b){ return b.actual_weight || b.tracking_num || b.length || b.width || b.height; });
 
     if (!billedWeight || billedWeight <= 0) { showToast('請輸入重量', 'error'); return; }
+
+    // 修改舊帳單時：calcBoxes() 已用現行規則重算，跟原值不同就先讓人看清楚差多少
+    if (billingEditMode && _billOrig) {
+        var _diffs = [];
+        var _fmt = function(v, dec) { return dec ? Number(v).toFixed(1) : Math.round(v).toLocaleString(); };
+        var _cmp = function(label, oldV, newV, unit, dec) {
+            var o = Number(oldV) || 0, n = Number(newV) || 0;
+            if (Math.abs(o - n) < 0.005) return;
+            _diffs.push('　' + label + '：' + unit + _fmt(o, dec)
+                      + '　→　' + unit + _fmt(n, dec)
+                      + '　(' + (n > o ? '+' : '−') + unit + _fmt(Math.abs(n - o), dec) + ')');
+        };
+        _cmp('計費重量', _billOrig.billed_weight, billedWeight, '',    true);
+        _cmp('運費',     _billOrig.shipping,      shipping,     'NT$', false);
+        _cmp('理貨費',   _billOrig.handling,      handling,     'NT$', false);
+        _cmp('合計',     _billOrig.total,         total,        'NT$', false);
+        if (_diffs.length) {
+            if (!confirm('⚠️ 這張帳單被重算了，金額跟原本不同：\n\n'
+                       + _diffs.join('\n')
+                       + '\n\n（計費規則 2026/09/01 起最低 2kg，開啟舊帳單會自動套用新規則重算）\n\n'
+                       + '確定要用上面的新金額覆蓋原帳單嗎？')) return;
+        }
+    }
 
     try {
         var res = await fetch('/api/admin/shipment_requests/' + reqId, {
