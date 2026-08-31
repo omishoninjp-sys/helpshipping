@@ -32,6 +32,22 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=7)
 
+# 回應壓縮：admin.html / index.html 是 341 kB / 152 kB 的純靜態 HTML，
+# gzip 後約剩 1/6，直接砍掉客戶端的下載時間（TTFB 本來就只有 15ms）。
+# 缺套件時只是不壓縮，不會讓主程式起不來（沿用 recon 的容錯寫法）。
+app.config["COMPRESS_MIMETYPES"] = [
+    "text/html", "text/css", "text/plain", "text/javascript",
+    "application/javascript", "application/json", "image/svg+xml",
+]
+app.config["COMPRESS_LEVEL"] = 6       # 1~9，6 是壓縮率與 CPU 的平衡點
+app.config["COMPRESS_MIN_SIZE"] = 500  # 小於 500 bytes 不壓（壓了反而變大）
+try:
+    from flask_compress import Compress
+    Compress(app)
+    print("[App] ✅ 回應壓縮已啟用", flush=True)
+except Exception as _compress_err:
+    print(f"[App] ⚠️ 回應壓縮未啟用，將以未壓縮傳送: {_compress_err}", flush=True)
+
 # PWA：註冊 /sw.js + /manifest.webmanifest + /admin-manifest.webmanifest 三條路由
 register_pwa(app)
 

@@ -2,3 +2,4 @@ flask
 requests
 gunicorn
 openpyxl
+Flask-Compress==1.24
