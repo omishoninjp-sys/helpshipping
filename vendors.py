@@ -272,6 +272,8 @@ def build_rows(vendor_id: str, shipments: list[dict]) -> tuple[list[str], list[l
             }
             # 申報人（報單收貨人／納稅義務人）三層 fallback：
             #   ① 該箱指定 → ② 該出貨申請的主申報人 → ③ 收件人（舊資料照舊，輸出與過去完全一致）
+            # ⚠️ 設計理由見 docs/helpshipping-declarant-spec.md §5.1：第三層是 1,241 筆歷史單
+            #    出檔案結果不變的保證，三層缺一不可，不要自行簡化或改順序。
             ctx["declarant_name"] = (
                 str(b.get("declarant_name") or "").strip()
                 or str(s.get("declarant_name") or "").strip()

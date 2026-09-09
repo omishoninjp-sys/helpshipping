@@ -410,6 +410,9 @@ def init_db():
     # ── 申報人（報單收貨人／納稅義務人）：會員層級 1..N，與地址簿無關 ──
     #    粒度是「箱」：台灣快遞進口一箱一份簡易申報單，一箱一位申報人。
     #    phone 必須是該人 EZ WAY 實名認證綁定的門號；依規定不收身分證字號。
+    # ⚠️ 完整設計理由與法規依據見 docs/helpshipping-declarant-spec.md（§0 背景、§2 Schema）。
+    #    「獨立一張表而非塞進 addresses」「存快照字串不存 declarant_id」「不收身分證字號」
+    #    都是規格書寫死的約束，不可自行簡化。
     conn.execute("""
         CREATE TABLE IF NOT EXISTS declarants (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
