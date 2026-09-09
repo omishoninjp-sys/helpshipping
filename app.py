@@ -9,6 +9,7 @@ import requests
 import json
 import os
 import sqlite3
+import shutil
 import csv
 import tw_zip
 import io
@@ -2874,6 +2875,103 @@ def admin_delete_package(pkg_id):
     return jsonify({"success": True})
 
 
+# ============ 維運：payment_last5 髒值一次性清理 ============
+# 末五碼欄位是 TEXT，但歷史上有寫入路徑（多為 Excel 匯入）把它當數字處理，
+# 導致 SQLite 掉前導 0 或存成浮點字串（00123→123、00000→0、11414→11414.0）。
+# 讀取/顯示/對帳三處的相容處理（前端 fmtLast5、recon 的 _norm_pay_mark）一律保留，
+# 這裡只是把 DB 原值清乾淨，讓未來的新程式不必再記得這件事。
+
+LAST5_TABLES = ("shipment_requests", "agent_payouts")
+
+
+def _scan_dirty_last5(conn, table, sample_limit=30):
+    """掃出該表 payment_last5 需要正規化的列。不寫入任何資料。"""
+    from recon.db import _norm_pay_mark   # 正規化規則與對帳模組共用同一份，不另外複製
+    # agent_payouts 沒有 g_code，用 agent_id 當識別欄位讓樣本看得懂是哪一筆
+    id_col = "g_code" if table == "shipment_requests" else "agent_id"
+    rows = conn.execute(
+        f"SELECT id, {id_col} AS who, payment_last5 FROM {table} "
+        f"WHERE payment_last5 IS NOT NULL AND payment_last5 != ''"
+    ).fetchall()
+
+    total = conn.execute(f"SELECT COUNT(*) AS c FROM {table}").fetchone()["c"]
+    changes, samples = [], []
+    for r in rows:
+        old = str(r["payment_last5"])
+        new = _norm_pay_mark(old)
+        if new != old:
+            changes.append((r["id"], new))
+            if len(samples) < sample_limit:
+                samples.append({"id": r["id"], "g_code": r["who"], "old": old, "new": new})
+    return {"total": total, "would_change": len(changes), "samples": samples}, changes
+
+
+@app.route("/api/admin/maintenance/clean_last5", methods=["POST"])
+def admin_clean_last5():
+    """末五碼髒值清理。預設 dry run；confirm=true 才寫入，且寫入前一定先備份整個 DB。
+    只 UPDATE payment_last5 一個欄位，不做任何 DELETE，不碰 payment_at。"""
+    if not is_boss():
+        return jsonify({"success": False, "error": "只有老闆可以執行維運作業"}), 403
+
+    confirm = (request.json or {}).get("confirm") is True
+
+    conn = get_db()
+    try:
+        scans = {}
+        plans = {}
+        for t in LAST5_TABLES:
+            scans[t], plans[t] = _scan_dirty_last5(conn, t)
+
+        if not confirm:
+            conn.close()
+            return jsonify({"success": True, "dry_run": True, **scans})
+
+        # ── 實際執行：先備份，備份失敗就中止 ──
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = os.path.abspath(DB_PATH) + ".bak-" + stamp
+        try:
+            conn.commit()          # 確保 WAL 內容落地後再複製
+            shutil.copy2(DB_PATH, backup_path)
+            if not os.path.exists(backup_path) or os.path.getsize(backup_path) == 0:
+                raise IOError("備份檔不存在或為空")
+        except Exception as e:
+            conn.close()
+            print(f"[clean_last5] ❌ 備份失敗，已中止：{e}", flush=True)
+            return jsonify({"success": False, "error": f"備份失敗，未做任何寫入：{e}"}), 500
+
+        updated = {}
+        try:
+            conn.execute("BEGIN")
+            for t in LAST5_TABLES:
+                for rid, new in plans[t]:
+                    conn.execute(f"UPDATE {t} SET payment_last5=? WHERE id=?", (new, rid))
+                updated[t] = len(plans[t])
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            conn.close()
+            print(f"[clean_last5] ❌ 更新失敗已回滾：{e}", flush=True)
+            return jsonify({"success": False, "error": f"更新失敗已回滾：{e}",
+                            "backup": backup_path}), 500
+
+        # 再掃一次，讓使用者一眼看出清乾淨了（應為 0）
+        remaining = {t: _scan_dirty_last5(conn, t)[0]["would_change"] for t in LAST5_TABLES}
+        conn.close()
+
+        detail = (f"shipment_requests={updated.get('shipment_requests', 0)} "
+                  f"agent_payouts={updated.get('agent_payouts', 0)} backup={backup_path}")
+        log_op("清理末五碼髒值", "payment_last5", detail)
+        print(f"[clean_last5] ✅ {detail}", flush=True)
+        return jsonify({"success": True, "dry_run": False, "updated": updated,
+                        "remaining": remaining, "backup": backup_path, **scans})
+    except Exception as e:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 # ============ 客服手冊（內容存 admin_settings，不另建表）============
 
 @app.route("/api/admin/handbook", methods=["GET"])
@@ -4533,7 +4631,10 @@ def create_shipment_request():
             declarant_ids.append(int(d))
         except (ValueError, TypeError):
             pass
-    declarant_consent = 1 if (declarant_ids and data.get("declarant_consent")) else 0
+    # 收緊真值判斷：form-encoded 呼叫（代理端介面、LINE 表單）送過來全是字串，
+    # 用 Python 真值判斷會讓 "false" 變成有效同意。這是存證欄位，只收白名單。
+    declarant_consent = 1 if (declarant_ids and data.get("declarant_consent")
+                              in (True, 1, "1", "true", "True")) else 0
     declarant_consent_at = ""
     declarant_consent_ip = ""
     if declarant_ids:
