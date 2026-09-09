@@ -2040,8 +2040,9 @@
 
         // ── 無主包裹認領牆（會員端）──
         async function loadUnclaimed() {
+            if (!currentCustomer) return;   // 認領牆是登入後的功能（伺服器端也擋）
             const container = document.getElementById('unclaimedList');
-            const g = currentCustomer ? currentCustomer.g_code : '';
+            const g = currentCustomer.g_code;
             try {
                 const res = await apiFetch(`/api/unclaimed?g_code=${encodeURIComponent(g)}`);
                 const data = await res.json();

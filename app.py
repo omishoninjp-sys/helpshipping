@@ -425,6 +425,21 @@ def init_db():
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_declarants_gcode ON declarants(g_code)")
+    # ── 登入嘗試紀錄（/api/verify_customer 速率限制用）──
+    #    密碼＝手機號碼、客編連號，沒有次數限制就能離線列舉。
+    #    計數放 SQLite 而非記憶體：Procfile 是 gunicorn --workers 2，
+    #    兩個 worker 不共享記憶體，用全域變數門檻會變兩倍且重啟即清空。
+    #    created_ts 一律存 unix epoch 秒（容器時區 UTC，只做時間差，避開時區問題）。
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS login_attempts (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            g_code     TEXT    DEFAULT '',
+            ip         TEXT    DEFAULT '',
+            success    INTEGER DEFAULT 0,
+            created_ts INTEGER NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_login_attempts_ts ON login_attempts(created_ts)")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS announcements (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1066,6 +1081,78 @@ def current_user():
 def is_super_admin():
     """是否為管理員（admin_users 表的人＝老闆或員工，日常作業都可）"""
     return session.get("user_type") == "admin"
+
+# ── 登入失敗速率限制（/api/verify_customer）──
+LOGIN_WINDOW_SEC = 900            # 視窗 15 分鐘
+LOGIN_MAX_FAIL_GCODE = 5          # 同一客編視窗內失敗上限
+LOGIN_MAX_FAIL_IP = 20            # 同一 IP 視窗內失敗上限
+LOGIN_ATTEMPTS_RETENTION = 86400  # 紀錄保留 24 小時
+
+
+def _client_ip():
+    """Zeabur 在 proxy 後面，優先取 X-Forwarded-For 第一段。
+    取不到就回空字串（代表無法辨識來源）。
+
+    ⚠️ 不 fallback 到 request.remote_addr：在 proxy 後面那是 proxy 自己的位址，
+    全站客戶會共用同一個值，IP 規則會把所有人一起鎖死。
+    取不到就讓 IP 規則失效，只靠 g_code 規則擋 —— 寧可少擋，不可誤鎖全站。"""
+    xff = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+    return xff or ""
+
+
+def _login_locked(g_code, ip):
+    """視窗內失敗次數是否已達上限。DB 出狀況時 fail-open（寧可少擋，不可鎖死全站）。"""
+    since = int(time.time()) - LOGIN_WINDOW_SEC
+    try:
+        conn = get_db()
+        n = conn.execute(
+            "SELECT COUNT(*) AS c FROM login_attempts "
+            "WHERE success=0 AND g_code=? AND created_ts>=?", (g_code, since)
+        ).fetchone()["c"]
+        if n >= LOGIN_MAX_FAIL_GCODE:
+            conn.close()
+            return True
+        if ip:   # ip 為空字串（取不到 XFF）→ 整條 IP 規則跳過
+            n_ip = conn.execute(
+                "SELECT COUNT(*) AS c FROM login_attempts "
+                "WHERE success=0 AND ip=? AND created_ts>=?", (ip, since)
+            ).fetchone()["c"]
+            if n_ip >= LOGIN_MAX_FAIL_IP:
+                conn.close()
+                return True
+        conn.close()
+    except Exception as e:
+        print(f"[login_lock] 檢查失敗（放行）: {e}", flush=True)
+    return False
+
+
+def _login_record(g_code, ip, success):
+    """記一筆登入嘗試；成功時清掉該客編視窗內的失敗紀錄（只清自己的）。"""
+    now = int(time.time())
+    try:
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO login_attempts (g_code, ip, success, created_ts) VALUES (?, ?, ?, ?)",
+            (g_code, ip, 1 if success else 0, now)
+        )
+        if success:
+            conn.execute(
+                "DELETE FROM login_attempts WHERE g_code=? AND success=0 AND created_ts>=?",
+                (g_code, now - LOGIN_WINDOW_SEC)
+            )
+        # 順手清理過期紀錄
+        conn.execute("DELETE FROM login_attempts WHERE created_ts < ?", (now - LOGIN_ATTEMPTS_RETENTION,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[login_lock] 記錄失敗（不影響登入）: {e}", flush=True)
+
+
+def _login_fail(g_code, ip, error, **extra):
+    """記一次失敗並回原本的錯誤訊息（訊息維持原樣，不洩漏剩餘次數）。"""
+    _login_record(g_code, ip, False)
+    return jsonify({"success": False, "error": error, **extra})
+
 
 def _require_customer(g_code):
     """驗證請求的 g_code 是否為目前登入者。
@@ -2483,7 +2570,13 @@ def _uc_valid_customer(g_code):
 @app.route("/api/unclaimed", methods=["GET"])
 def member_list_unclaimed():
     """會員端認領牆：單號末四碼 + 到倉天數（不回傳收件人姓名，避免外洩其他客戶資料）。
-    必須帶有效客編才給看，否則未登入路人可爬到全站無主包裹清單。"""
+    認領牆本來就是登入後的功能，這裡綁 session。"""
+    # ⚠️ 順序不可對調：_require_customer 必須是第一件事。
+    #    若先跑 _uc_valid_customer，未登入者會先拿到「客編不存在／已停用」這種
+    #    區別性錯誤，等於留下一個「這個客編存不存在」的線上查詢器。
+    ok, resp = _require_customer(request.args.get("g_code"))
+    if not ok:
+        return resp
     g_code, _source, _name, err = _uc_valid_customer(request.args.get("g_code"))
     if err:
         return jsonify({"success": False, "error": err}), 403
@@ -2792,6 +2885,12 @@ def verify_customer():
         g_code = "G" + g_code
     password_clean = normalize_phone(password)
 
+    # ===== 速率限制：視窗內失敗過多 → 一律擋下（不區分帳號存在與否、不回剩餘次數）=====
+    _ip = _client_ip()
+    if _login_locked(g_code, _ip):
+        print(f"[login_lock] g_code={g_code} ip={_ip}", flush=True)
+        return jsonify({"success": False, "error": "登入嘗試次數過多，請 15 分鐘後再試"}), 429
+
     # ===== 0) 停用名單檢查（集運系統層級）：被停用者一律擋下，整頁顯示停用訊息 =====
     try:
         _dconn = get_db()
@@ -2816,7 +2915,7 @@ def verify_customer():
             stored_phone = normalize_phone(m.get("phone") or "")
             if stored_phone != password_clean:
                 conn.close()
-                return jsonify({"success": False, "error": "密碼錯誤，請輸入您的手機號碼"})
+                return _login_fail(g_code, _ip, "密碼錯誤，請輸入您的手機號碼")
             # 找該代理（含品牌欄位）
             ag = conn.execute("SELECT * FROM agents WHERE id=?", (m["agent_id"],)).fetchone()
             conn.close()
@@ -2827,6 +2926,7 @@ def verify_customer():
             branding = _branding_dict(ag) if ag else _branding_dict(None)
             session["cust_g_code"] = g_code       # 客戶登入狀態（客戶端 API 守門用）
             session.permanent = True
+            _login_record(g_code, _ip, True)      # 成功 → 清掉該客編視窗內的失敗紀錄
             return jsonify({
                 "success": True,
                 "customer": {
@@ -2861,6 +2961,7 @@ def verify_customer():
                     rate_jpy = twd_to_jpy(rate_twd) if rate_twd else 0
                     session["cust_g_code"] = g_code       # 客戶登入狀態（客戶端 API 守門用）
                     session.permanent = True
+                    _login_record(g_code, _ip, True)      # 成功 → 清掉該客編視窗內的失敗紀錄
                     return jsonify({
                         "success": True,
                         "customer": {
@@ -2877,8 +2978,8 @@ def verify_customer():
                         }
                     })
                 else:
-                    return jsonify({"success": False, "error": "密碼錯誤，請輸入您的手機號碼"})
-        return jsonify({"success": False, "error": "找不到此會員編號，請確認後重試"})
+                    return _login_fail(g_code, _ip, "密碼錯誤，請輸入您的手機號碼")
+        return _login_fail(g_code, _ip, "找不到此會員編號，請確認後重試")
     except Exception as e:
         return jsonify({"success": False, "error": f"查詢失敗: {str(e)}"})
 
