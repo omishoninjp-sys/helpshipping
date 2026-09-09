@@ -2874,6 +2874,35 @@ def admin_delete_package(pkg_id):
     return jsonify({"success": True})
 
 
+# ============ 客服手冊（內容存 admin_settings，不另建表）============
+
+@app.route("/api/admin/handbook", methods=["GET"])
+def admin_get_handbook():
+    """客服手冊內容（老闆＋員工都能看）。"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    return jsonify({
+        "success": True,
+        "content": _get_setting("cs_handbook", ""),
+        "updated_at": _get_setting("cs_handbook_at", ""),
+    })
+
+
+@app.route("/api/admin/handbook", methods=["PUT"])
+def admin_save_handbook():
+    """儲存客服手冊（只有老闆能改；員工端也不顯示編輯鈕，兩層都擋）。"""
+    if not is_boss():
+        return jsonify({"success": False, "error": "只有老闆可以編輯客服手冊"}), 403
+    content = (request.json or {}).get("content")
+    if content is None:
+        return jsonify({"success": False, "error": "缺少內容"}), 400
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")   # TZ=Asia/Taipei
+    _set_setting("cs_handbook", str(content))
+    _set_setting("cs_handbook_at", now)
+    log_op("編輯客服手冊", "handbook", "")
+    return jsonify({"success": True, "updated_at": now})
+
+
 # ============ 客戶端 API ============
 
 @app.route("/api/verify_customer", methods=["POST"])

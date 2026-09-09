@@ -329,6 +329,7 @@
                 <div class="sidebar-item" onclick="switchAdminTab('forecasts')">📝 <span data-i18n="nav.forecasts">預報管理</span> <span id="forecast-badge" class="sidebar-badge" style="display:none;">0</span></div>
                 <div class="sidebar-item" onclick="switchAdminTab('schedule')">📅 <span data-i18n="nav.schedule">班表</span></div>
                 <div class="sidebar-item" onclick="switchAdminTab('internalann')">📢 <span data-i18n="nav.internalann">內部公告</span> <span id="internalann-badge" class="sidebar-badge" style="display:none;background:#e74c3c;">!</span></div>
+                <div class="sidebar-item" onclick="switchAdminTab('handbook')">📖 <span data-i18n="nav.handbook">客服手冊</span></div>
                 <div class="sidebar-item" id="sidebar-announcements" onclick="switchAdminTab('announcements')">📢 <span data-i18n="nav.announcements">公告管理</span></div>
                 <div class="sidebar-item" id="sidebar-stats" onclick="switchAdminTab('stats')">📊 <span data-i18n="nav.stats">統計</span></div>
                 <div class="sidebar-item" onclick="switchAdminTab('dailyops')">📅 <span data-i18n="nav.dailyops">每日營運</span></div>
@@ -563,6 +564,41 @@
                     <button class="btn" style="background:#f39c12;color:#fff;padding:8px 18px;font-weight:700;" onclick="createInternalAnn()">📢 發布</button>
                 </div>
                 <div id="internalann-list"></div>
+            </div>
+        </div>
+
+        <!-- 客服手冊 -->
+        <div class="admin-panel" id="panel-handbook">
+            <div class="card">
+                <div class="toolbar" style="margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+                    <h3>📖 <span data-i18n="title.handbook">客服手冊</span></h3>
+                    <div class="toolbar-actions" style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:8px 16px;font-size:13px;" onclick="loadHandbook()">🔄 <span data-i18n="btn.refresh">重新整理</span></button>
+                        <button class="btn" id="hb-edit-btn" style="display:none;background:#f39c12;color:#fff;padding:8px 16px;font-size:13px;font-weight:700;" onclick="editHandbook()">✏️ <span data-i18n="btn.edit">編輯</span></button>
+                    </div>
+                </div>
+                <div id="hb-updated" style="font-size:11px;color:#888;margin:0 0 12px;"></div>
+
+                <!-- 檢視模式 -->
+                <div id="hb-view">
+                    <div class="filter-bar">
+                        <input type="text" id="hb-search" data-i18n-ph="hb.search" placeholder="🔍 搜尋標題或內容…" oninput="filterHandbook()">
+                        <span class="pkg-count" id="hb-count"></span>
+                    </div>
+                    <div id="hb-content" style="line-height:1.85;overflow-wrap:anywhere;word-break:break-word;"></div>
+                </div>
+
+                <!-- 編輯模式（只有老闆看得到入口）-->
+                <div id="hb-edit" style="display:none;">
+                    <p style="font-size:12px;color:#888;margin:0 0 8px;line-height:1.8;" data-i18n="hb.mdhint">
+                        支援：# ## ### 標題、- 清單、**粗體**、--- 分隔線、空行分段。## 與 ### 的每個段落在檢視模式會有「複製」鈕。
+                    </p>
+                    <textarea id="hb-textarea" class="form-control" rows="22" style="width:100%;max-width:100%;box-sizing:border-box;resize:vertical;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.7;"></textarea>
+                    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+                        <button class="btn" style="background:#27ae60;color:#fff;padding:9px 20px;font-weight:700;" onclick="saveHandbook()">💾 <span data-i18n="btn.save">儲存</span></button>
+                        <button class="btn" style="background:rgba(255,255,255,.08);color:#fff;padding:9px 18px;" onclick="cancelEditHandbook()"><span data-i18n="btn.cancel">取消</span></button>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1551,6 +1587,13 @@ let twd_to_jpy_rate = 5.0;
 var I18N = {
   ja: {
     "nav.members":"会員管理","nav.arrivals":"入荷管理","nav.unclaimed":"持ち主不明荷物",
+    "nav.handbook":"カスタマーサポートマニュアル","title.handbook":"カスタマーサポートマニュアル",
+    "hb.search":"🔍 タイトル・本文を検索…",
+    "hb.mdhint":"対応：# ## ### 見出し、- 箇条書き、**太字**、--- 区切り線、空行で段落。## と ### の各セクションには閲覧時に「コピー」ボタンが付きます。",
+    "複製":"コピー","已複製":"コピーしました","複製失敗，請長按選取":"コピーできません。長押しで選択してください",
+    "最後更新":"最終更新","客服手冊已儲存":"マニュアルを保存しました",
+    "尚未建立客服手冊，請老闆點右上角編輯":"マニュアルは未作成です。オーナーが右上の「修正」から作成してください",
+    "載入失敗（網路問題），請按「🔄 重新整理」再試":"読み込みに失敗しました（通信エラー）。「🔄 更新」でお試しください",
     "nav.shipreqs":"出荷申請","nav.billing":"請求管理","nav.forecasts":"事前連絡",
     "nav.schedule":"シフト表","nav.internalann":"社内お知らせ","nav.announcements":"お知らせ管理",
     "nav.stats":"統計","nav.oplogs":"操作履歴","nav.recon":"入金照合","nav.exports":"データ出力",
@@ -1925,6 +1968,7 @@ function switchAdminTab(tab) {
     if (tab === 'custactivity') loadCustActivity(1);
     if (tab === 'schedule') loadSchedule();
     if (tab === 'internalann') loadInternalAnns();
+    if (tab === 'handbook') loadHandbook();
     if (tab === 'shipreqs') loadShipReqs();
     if (tab === 'billing') loadBilling();
     if (tab === 'forecasts') loadForecasts();
@@ -1934,6 +1978,197 @@ function switchAdminTab(tab) {
     if (tab === 'extraservices') loadExtraServiceCatalog();
     if (tab === 'agents') loadAgents();
     if (tab === 'mybranding') loadMyBranding();
+}
+
+// ===== 客服手冊（Markdown、搜尋、一鍵複製；只有老闆能編輯）=====
+var _hbRaw = '';        // Markdown 原文
+var _hbSections = [];   // [{level, title, text, html}]
+
+function _hbEsc(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// 行內：**粗體**（已 escape 過才進來）
+function _hbInline(t) {
+    return _hbEsc(t).replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#fff;">$1</strong>');
+}
+
+// 極簡 Markdown → 區塊。每個 # / ## / ### 開一段；## 與 ### 有複製鈕。
+// 不引入任何函式庫；一律先 escape 再組 HTML。
+function parseHandbook(md) {
+    var lines = String(md == null ? '' : md).replace(/\r\n?/g, '\n').split('\n');
+    var secs = [];
+    var cur = { level: 0, title: '', lines: [] };
+    lines.forEach(function(line) {
+        var m = /^(#{1,3})\s+(.*)$/.exec(line);
+        if (m) {
+            if (cur.title || cur.lines.length) secs.push(cur);
+            cur = { level: m[1].length, title: m[2].trim(), lines: [] };
+        } else {
+            cur.lines.push(line);
+        }
+    });
+    if (cur.title || cur.lines.length) secs.push(cur);
+
+    return secs.map(function(sec) {
+        var html = [];
+        var para = [];
+        var list = [];
+        var text = [];
+        function flushPara() {
+            if (!para.length) return;
+            html.push('<p style="margin:0 0 10px;color:#ccc;">' + para.map(_hbInline).join('<br>') + '</p>');
+            para = [];
+        }
+        function flushList() {
+            if (!list.length) return;
+            html.push('<ul style="margin:0 0 10px;padding-left:20px;color:#ccc;">'
+                + list.map(function(li) { return '<li style="margin-bottom:4px;">' + _hbInline(li) + '</li>'; }).join('')
+                + '</ul>');
+            list = [];
+        }
+        sec.lines.forEach(function(line) {
+            var t = line.trim();
+            if (!t) { flushPara(); flushList(); return; }
+            if (/^-{3,}$/.test(t)) {
+                flushPara(); flushList();
+                html.push('<hr style="border:none;border-top:1px solid rgba(255,255,255,.12);margin:14px 0;">');
+                return;
+            }
+            var li = /^[-*]\s+(.*)$/.exec(t);
+            if (li) { flushPara(); list.push(li[1]); text.push('・' + li[1].replace(/\*\*/g, '')); return; }
+            flushList(); para.push(t); text.push(t.replace(/\*\*/g, ''));
+        });
+        flushPara(); flushList();
+        return {
+            level: sec.level,
+            title: sec.title,
+            text: text.join('\n').trim(),   // 複製用的純文字（不含 HTML）
+            html: html.join('')
+        };
+    });
+}
+
+function renderHandbook() {
+    var box = document.getElementById('hb-content');
+    _hbSections = parseHandbook(_hbRaw);
+    if (!String(_hbRaw || '').trim()) {
+        box.innerHTML = '<div style="text-align:center;color:#888;padding:40px 16px;font-size:14px;line-height:1.9;">📖<br>'
+            + T('尚未建立客服手冊，請老闆點右上角編輯') + '</div>';
+        document.getElementById('hb-count').textContent = '';
+        return;
+    }
+    var titleStyle = { 1: 'font-size:19px;color:#f39c12;', 2: 'font-size:16px;color:#fff;', 3: 'font-size:14px;color:#5dade2;' };
+    box.innerHTML = _hbSections.map(function(sec, i) {
+        var head = '';
+        if (sec.title) {
+            var copyBtn = (sec.level >= 2)
+                ? '<button class="btn" style="background:rgba(52,152,219,.15);border:1px solid rgba(52,152,219,.3);color:#3498db;padding:4px 10px;font-size:11px;white-space:nowrap;flex-shrink:0;" onclick="copyHandbookSection(' + i + ')">📋 ' + T('複製') + '</button>'
+                : '';
+            head = '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 0 8px;flex-wrap:wrap;">'
+                 + '<div style="font-weight:700;line-height:1.5;' + (titleStyle[sec.level] || '') + '">' + _hbEsc(sec.title) + '</div>'
+                 + copyBtn + '</div>';
+        }
+        return '<div class="hb-section" data-idx="' + i + '" style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:9px;padding:14px;margin-bottom:10px;">'
+             + head + sec.html + '</div>';
+    }).join('');
+    filterHandbook();
+}
+
+function filterHandbook() {
+    var q = ((document.getElementById('hb-search') || {}).value || '').trim().toLowerCase();
+    var shown = 0;
+    document.querySelectorAll('#hb-content .hb-section').forEach(function(el) {
+        var sec = _hbSections[parseInt(el.getAttribute('data-idx'))] || {};
+        var hit = !q || ((sec.title || '') + '\n' + (sec.text || '')).toLowerCase().indexOf(q) >= 0;
+        el.style.display = hit ? '' : 'none';
+        if (hit) shown++;
+    });
+    var cnt = document.getElementById('hb-count');
+    if (cnt) cnt.textContent = q ? (shown + ' / ' + _hbSections.length) : '';
+}
+
+function copyHandbookSection(i) {
+    var sec = _hbSections[i];
+    if (!sec) return;
+    var txt = (sec.title ? sec.title + '\n' : '') + (sec.text || '');
+    _hbCopy(txt.trim());
+}
+
+function _hbCopy(txt) {
+    function ok() { showToast('✅ ' + T('已複製'), 'success'); }
+    function fallback() {
+        try {
+            var ta = document.createElement('textarea');
+            ta.value = txt;
+            ta.style.position = 'fixed'; ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            ok();
+        } catch (e) { showToast(T('複製失敗，請長按選取'), 'error'); }
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt).then(ok).catch(fallback);
+    } else { fallback(); }
+}
+
+async function loadHandbook() {
+    var box = document.getElementById('hb-content');
+    box.innerHTML = '<div style="text-align:center;color:#666;padding:30px;">' + T('載入中…') + '</div>';
+    // 編輯鈕只有老闆看得到（後端 PUT 也擋，兩層）
+    var editBtn = document.getElementById('hb-edit-btn');
+    if (editBtn) editBtn.style.display = _hbBoss() ? '' : 'none';
+    try {
+        var res = await fetch('/api/admin/handbook');
+        var d = await res.json();
+        if (!d.success) {
+            box.innerHTML = '<div style="text-align:center;color:#e74c3c;padding:30px;">' + (d.error || '載入失敗') + '</div>';
+            return;
+        }
+        _hbRaw = d.content || '';
+        var up = document.getElementById('hb-updated');
+        up.textContent = d.updated_at ? (T('最後更新') + ' ' + d.updated_at) : '';
+        cancelEditHandbook();
+        renderHandbook();
+    } catch (e) {
+        box.innerHTML = '<div style="text-align:center;color:#e67e22;padding:30px;">' + T('載入失敗（網路問題），請按「🔄 重新整理」再試') + '</div>';
+    }
+}
+
+function _hbBoss() { return currentAdmin && currentAdmin.user_type === 'admin' && currentAdmin.role === 'super'; }
+
+function editHandbook() {
+    if (!_hbBoss()) return;
+    document.getElementById('hb-textarea').value = _hbRaw;
+    document.getElementById('hb-view').style.display = 'none';
+    document.getElementById('hb-edit').style.display = '';
+}
+
+function cancelEditHandbook() {
+    document.getElementById('hb-view').style.display = '';
+    document.getElementById('hb-edit').style.display = 'none';
+}
+
+async function saveHandbook() {
+    if (!_hbBoss()) return;
+    var content = document.getElementById('hb-textarea').value;
+    try {
+        var res = await fetch('/api/admin/handbook', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: content })
+        });
+        var d = await res.json();
+        if (!d.success) { showToast('❌ ' + (d.error || '儲存失敗'), 'error'); return; }
+        _hbRaw = content;
+        document.getElementById('hb-updated').textContent = T('最後更新') + ' ' + (d.updated_at || '');
+        cancelEditHandbook();
+        renderHandbook();
+        showToast('✅ ' + T('客服手冊已儲存'), 'success');
+    } catch (e) { showToast('網路錯誤', 'error'); }
 }
 
 // ===== 加值服務目錄管理（主管理員）=====
