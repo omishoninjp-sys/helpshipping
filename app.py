@@ -2978,6 +2978,80 @@ def admin_last5_diag():
             "  AND length(replace(CAST(payment_last5 AS TEXT), '.0', '')) < 5 "
             "  AND replace(CAST(payment_last5 AS TEXT), '.0', '') GLOB '[0-9]*'"
         ).fetchone()["c"]
+
+        # 5) 從 operation_logs 還原原值（ground truth，優先於任何推斷）
+        #    欄位 affinity 是 REAL，寫入的字串被 SQLite 轉成數字、前導零被吃掉；
+        #    但 operation_logs.detail 是真正的 TEXT，管理員確認付款當下的原始輸入完整保存。
+        log_rows = conn.execute(
+            "SELECT target, detail, created_at, id FROM operation_logs "
+            "WHERE action='帳單確認付款' ORDER BY created_at ASC, id ASC"
+        ).fetchall()
+        by_req = {}          # req_id -> 該單最新一筆紀錄的原值（升冪掃過去，後面的覆蓋前面的）
+        parsed_logs = 0
+        for lr in log_rows:
+            m_id = re.search(r"\d+", str(lr["target"] or ""))          # 容忍「出貨單#123」以外的格式
+            if not m_id:
+                continue
+            m_val = re.match(r"^\s*後五碼\s*(.*)$", str(lr["detail"] or ""))
+            if not m_val:
+                continue
+            by_req[int(m_id.group(0))] = m_val.group(1).strip()
+            parsed_logs += 1
+
+        def _num_core(v):
+            """比對用：去掉 .0 尾巴與前導零，只留數字本身；非數字原樣。"""
+            t = str(v or "").strip()
+            mm = re.fullmatch(r"(\d+)\.0+", t)
+            if mm:
+                t = mm.group(1)
+            return t.lstrip("0") or "0" if t.isdigit() else t
+
+        cur_map = {}
+        req_ids = list(by_req.keys())
+        for i in range(0, len(req_ids), 500):     # 分批避開 SQLite 變數上限
+            chunk = req_ids[i:i + 500]
+            ph = ",".join(["?"] * len(chunk))
+            for cr in conn.execute(
+                f"SELECT id, g_code, CAST(payment_last5 AS TEXT) AS cur_text, "
+                f"       typeof(payment_last5) AS t "
+                f"FROM shipment_requests WHERE id IN ({ph})", chunk
+            ).fetchall():
+                cur_map[cr["id"]] = dict(cr)
+
+        would_recover, conflicts = [], []
+        for rid in sorted(by_req.keys(), reverse=True):
+            cur = cur_map.get(rid)
+            if not cur:
+                continue
+            logged = by_req[rid]
+            cur_text = cur["cur_text"] if cur["cur_text"] is not None else ""
+            item = {
+                "id": rid,
+                "g_code": cur["g_code"],
+                "current": cur_text,          # 已 CAST AS TEXT
+                "current_typeof": cur["t"],
+                "logged": logged,             # operation_logs 內的原始輸入
+                "same": cur_text == logged,
+            }
+            if len(would_recover) < 100:
+                would_recover.append(item)
+            if _num_core(cur_text) != _num_core(logged):
+                conflicts.append(item)
+
+        # 有末五碼、但完全找不到對應操作紀錄的單（客戶自報路徑，只能靠推斷）
+        no_log_total = 0
+        no_log_samples = []
+        for nr in conn.execute(
+            "SELECT id, g_code, CAST(payment_last5 AS TEXT) AS cur_text, typeof(payment_last5) AS t "
+            "FROM shipment_requests WHERE COALESCE(payment_last5,'') <> '' ORDER BY id DESC"
+        ).fetchall():
+            if nr["id"] in by_req:
+                continue
+            no_log_total += 1
+            if len(no_log_samples) < 50:
+                no_log_samples.append({"id": nr["id"], "g_code": nr["g_code"],
+                                       "current": nr["cur_text"], "current_typeof": nr["t"]})
+
         conn.close()
 
         return jsonify({
@@ -2987,6 +3061,15 @@ def admin_last5_diag():
             "storage_classes": storage,
             "timeline": timeline,
             "ambiguous": {"total": ambiguous_total, "shown": len(ambiguous), "samples": ambiguous},
+            "recovered": {
+                "total_logs": parsed_logs,
+                "unique_requests": len(by_req),
+                "matched": len(cur_map),
+                "differs": sum(1 for x in would_recover if not x["same"]),
+                "would_recover": would_recover,
+                "conflicts": {"total": len(conflicts), "samples": conflicts[:50]},
+            },
+            "no_log": {"total": no_log_total, "shown": len(no_log_samples), "samples": no_log_samples},
         })
     except Exception as e:
         try:
