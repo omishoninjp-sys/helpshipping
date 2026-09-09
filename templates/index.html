@@ -558,7 +558,7 @@
                         <div id="userContactInfo" style="display:none;font-size:12px;color:#888;margin-top:4px;line-height:1.6;">
                             <span id="userPhone"></span><br>
                             <span id="userAddress"></span>
-                            <button onclick="openAddressBook()" style="background:rgba(243,156,18,.15);border:1px solid rgba(243,156,18,.3);color:#f39c12;padding:3px 10px;border-radius:6px;font-size:11px;cursor:pointer;margin-left:6px;">📒 地址簿</button>
+                            <button onclick="openAddressBook()" style="background:rgba(243,156,18,.15);border:1px solid rgba(243,156,18,.3);color:#f39c12;padding:3px 10px;border-radius:6px;font-size:11px;cursor:pointer;margin-left:6px;">📒 地址簿</button><button onclick="openDeclarants()" style="background:rgba(230,126,34,.15);border:1px solid rgba(230,126,34,.35);color:#e67e22;padding:3px 10px;border-radius:6px;font-size:11px;cursor:pointer;margin-left:6px;">🧾 申報人</button>
                         </div>
                     </div>
                 </div>
@@ -879,6 +879,36 @@
         </div>
     </div>
 
+    <!-- 申報人管理 Modal（報單收貨人／納稅義務人，與地址簿無關）-->
+    <div id="declarantModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;justify-content:center;align-items:flex-start;padding-top:60px;">
+        <div style="background:#1a1a2e;border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:24px;width:92%;max-width:520px;max-height:80vh;overflow-y:auto;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                <h3 style="font-size:16px;font-weight:700;">🧾 我的申報人</h3>
+                <button onclick="closeDeclarants()" style="background:none;border:none;color:#fff;font-size:22px;cursor:pointer;">✕</button>
+            </div>
+            <div style="background:rgba(231,76,60,.08);border:1px solid rgba(231,76,60,.25);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:#ddd;line-height:1.9;">
+                申報人＝報單上的納稅義務人。海關的稅單、EZ WAY 的確認推播都會發給他，並占用他的半年進口次數。<br>
+                電話必須是該申報人本人 EZ WAY 實名認證綁定的手機門號，填錯將收不到推播、包裹會卡關。<br>
+                自 2026/03/01 起，每位申報人都必須自己在 EZ WAY 按下「申報相符」，該箱才能放行。<br>
+                <span style="color:#e74c3c;">本欄不需要、也請勿提供身分證字號。</span>
+            </div>
+            <div id="declarantList"></div>
+            <div style="margin-top:16px;padding:16px;background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.15);border-radius:10px;">
+                <div style="font-size:13px;font-weight:600;color:#f39c12;margin-bottom:12px;">➕ 新增申報人</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                    <div><label style="font-size:11px;color:#888;">申報人姓名 *</label><input type="text" id="dec-name" class="form-control" placeholder="與 EZ WAY 帳號相同的姓名" style="padding:8px 10px;font-size:13px;"></div>
+                    <div><label style="font-size:11px;color:#888;">EZ WAY 綁定手機 *</label><input type="text" id="dec-phone" class="form-control" placeholder="09xxxxxxxx，須為此人 EZ WAY 實名認證的門號" style="padding:8px 10px;font-size:13px;"></div>
+                </div>
+                <div style="margin-top:10px;"><label style="font-size:11px;color:#888;">申報人地址 *</label><input type="text" id="dec-address" class="form-control" placeholder="完整地址" style="padding:8px 10px;font-size:13px;"></div>
+                <div style="display:flex;align-items:center;gap:8px;margin-top:10px;">
+                    <input type="checkbox" id="dec-default" style="accent-color:#f39c12;width:16px;height:16px;">
+                    <label for="dec-default" style="font-size:12px;color:#ccc;">設為預設申報人</label>
+                    <button onclick="saveNewDeclarant()" style="margin-left:auto;padding:8px 20px;background:linear-gradient(135deg,#f39c12,#e67e22);border:none;border-radius:6px;color:#fff;font-weight:600;font-size:13px;cursor:pointer;">儲存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 出貨地址選擇 Modal -->
     <div id="shipAddressModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1001;justify-content:center;align-items:flex-start;padding-top:80px;">
         <div style="background:#1a1a2e;border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:24px;width:92%;max-width:480px;max-height:75vh;overflow-y:auto;">
@@ -895,6 +925,22 @@
                     <div style="color:#666;font-size:12px;text-align:center;padding:10px;">載入中…</div>
                 </div>
                 <div id="shipServicesTotal" style="text-align:right;font-size:12px;color:#9b59b6;font-weight:600;margin-top:6px;display:none;"></div>
+            </div>
+            <!-- 本次申報人（報單收貨人／納稅義務人，一箱一位）-->
+            <div style="margin-top:16px;">
+                <div style="font-size:13px;font-weight:700;color:#e67e22;margin-bottom:4px;">🧾 本次申報人</div>
+                <div style="font-size:11px;color:#888;margin-bottom:8px;line-height:1.8;">
+                    申報人＝報單上的納稅義務人，海關稅單與 EZ WAY 推播都會發給他，並占用他的半年進口次數。<br>
+                    台灣快遞進口一箱一份申報單，勾多位時我們會依箱數分配。
+                </div>
+                <div id="shipDeclarantList" style="max-height:190px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;">
+                    <div style="color:#666;font-size:12px;text-align:center;padding:10px;">載入中…</div>
+                </div>
+                <div id="shipDeclarantHint" style="font-size:11px;color:#e67e22;margin-top:6px;display:none;"></div>
+                <label id="shipDeclarantConsentRow" style="display:none;align-items:flex-start;gap:8px;margin-top:10px;cursor:pointer;">
+                    <input type="checkbox" id="shipDeclarantConsent" style="accent-color:#f39c12;width:16px;height:16px;margin-top:2px;flex-shrink:0;">
+                    <span style="font-size:12px;color:#ccc;line-height:1.7;">我確認以上申報人皆為本人或已取得其同意，且各自已完成 EZ WAY 實名認證。</span>
+                </label>
             </div>
             <div class="form-group" style="margin-top:14px;">
                 <label style="font-size:12px;color:#888;">備註（選填）</label>
@@ -1478,11 +1524,147 @@
             } catch(e) {}
         }
 
+        // ── 申報人管理（報單收貨人／納稅義務人）──
+        function openDeclarants() {
+            document.getElementById('declarantModal').style.display = 'flex';
+            loadDeclarants();
+        }
+        function closeDeclarants() {
+            document.getElementById('declarantModal').style.display = 'none';
+        }
+
+        async function loadDeclarants() {
+            if (!currentCustomer) return;
+            try {
+                const res = await fetch(`/api/declarants?g_code=${currentCustomer.g_code}`);
+                const data = await res.json();
+                const container = document.getElementById('declarantList');
+                if (data.success && data.declarants.length > 0) {
+                    container.innerHTML = data.declarants.map(d => `
+                        <div style="padding:12px;background:rgba(0,0,0,.2);border:1px solid ${d.is_default ? 'rgba(243,156,18,.4)' : 'rgba(255,255,255,.08)'};border-radius:8px;margin-bottom:8px;">
+                            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                                <div>
+                                    ${d.is_default ? '<span style="font-size:10px;padding:2px 8px;background:rgba(243,156,18,.2);color:#f39c12;border-radius:8px;font-weight:600;">預設</span> ' : ''}
+                                    <strong style="color:#fff;">${d.name}</strong>
+                                    <span style="color:#888;font-size:12px;margin-left:6px;">${d.phone}</span>
+                                </div>
+                                <div style="display:flex;gap:4px;">
+                                    ${!d.is_default ? '<button onclick="setDefaultDeclarant('+d.id+')" style="background:rgba(243,156,18,.15);border:none;color:#f39c12;padding:4px 8px;border-radius:4px;font-size:11px;cursor:pointer;">⭐ 預設</button>' : ''}
+                                    <button onclick="deleteDeclarant(${d.id})" style="background:rgba(231,76,60,.15);border:none;color:#e74c3c;padding:4px 8px;border-radius:4px;font-size:11px;cursor:pointer;">🗑</button>
+                                </div>
+                            </div>
+                            <div style="font-size:12px;color:#aaa;margin-top:4px;">${d.address}</div>
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = '<div style="text-align:center;color:#666;padding:20px;">尚無申報人，請新增</div>';
+                }
+            } catch(e) {}
+        }
+
+        async function saveNewDeclarant() {
+            const data = {
+                g_code: currentCustomer.g_code,
+                name: document.getElementById('dec-name').value.trim(),
+                phone: document.getElementById('dec-phone').value.trim(),
+                address: document.getElementById('dec-address').value.trim(),
+                is_default: document.getElementById('dec-default').checked
+            };
+            if (!data.name || !data.phone || !data.address) {
+                showToast('申報人姓名、EZ WAY 綁定手機、地址為必填', 'error'); return;
+            }
+            try {
+                const res = await fetch('/api/declarants', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify(data)
+                });
+                const result = await res.json();
+                if (result.success) {
+                    showToast('✅ 申報人已新增', 'success');
+                    ['dec-name','dec-phone','dec-address'].forEach(id => document.getElementById(id).value = '');
+                    document.getElementById('dec-default').checked = false;
+                    loadDeclarants();
+                } else { showToast('❌ ' + (result.error || '新增失敗'), 'error'); }
+            } catch(e) { showToast('網路錯誤', 'error'); }
+        }
+
+        async function setDefaultDeclarant(id) {
+            try {
+                await fetch('/api/declarants/'+id+'/default', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({g_code: currentCustomer.g_code})
+                });
+                loadDeclarants();
+                showToast('✅ 已設為預設申報人', 'success');
+            } catch(e) {}
+        }
+
+        async function deleteDeclarant(id) {
+            if (!confirm('確定刪除此申報人？')) return;
+            try {
+                await fetch('/api/declarants/'+id, {
+                    method:'DELETE', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({g_code: currentCustomer.g_code})
+                });
+                loadDeclarants();
+                showToast('已刪除', 'success');
+            } catch(e) {}
+        }
+
+        // ── 出貨申請：本次申報人多選（一箱一位，勾多位時後台依箱數分配）──
+        async function loadShipDeclarants() {
+            const box = document.getElementById('shipDeclarantList');
+            document.getElementById('shipDeclarantHint').style.display = 'none';
+            document.getElementById('shipDeclarantConsentRow').style.display = 'none';
+            document.getElementById('shipDeclarantConsent').checked = false;
+            try {
+                const res = await fetch(`/api/declarants?g_code=${currentCustomer.g_code}`);
+                const data = await res.json();
+                if (!data.success || !data.declarants.length) {
+                    box.innerHTML = '<div style="color:#888;font-size:12px;padding:10px;text-align:center;">尚未建立申報人，請先到 <a href="javascript:closeShipAddressModal();openDeclarants();" style="color:#e67e22;">🧾 申報人</a> 新增。未指定時，報單申報人將沿用收件人資料。</div>';
+                    return;
+                }
+                box.innerHTML = data.declarants.map(d => `
+                    <label style="display:flex;align-items:flex-start;gap:9px;padding:10px;background:rgba(0,0,0,.2);border:1px solid ${d.is_default ? 'rgba(243,156,18,.35)' : 'rgba(255,255,255,.08)'};border-radius:8px;cursor:pointer;">
+                        <input type="checkbox" class="ship-dec" value="${d.id}" ${d.is_default ? 'checked' : ''} onchange="updateShipDeclarantHint()" style="accent-color:#f39c12;width:16px;height:16px;margin-top:2px;flex-shrink:0;">
+                        <span>
+                            ${d.is_default ? '<span style="font-size:10px;padding:1px 7px;background:rgba(243,156,18,.2);color:#f39c12;border-radius:8px;font-weight:600;">預設</span> ' : ''}
+                            <strong style="color:#fff;">${d.name}</strong>
+                            <span style="color:#888;font-size:12px;margin-left:6px;">${d.phone}</span>
+                            <div style="font-size:11px;color:#999;margin-top:3px;">${d.address}</div>
+                        </span>
+                    </label>
+                `).join('');
+                updateShipDeclarantHint();
+            } catch(e) {
+                box.innerHTML = '<div style="color:#888;font-size:12px;padding:10px;text-align:center;">申報人載入失敗</div>';
+            }
+        }
+
+        function updateShipDeclarantHint() {
+            const checked = document.querySelectorAll('.ship-dec:checked');
+            const hint = document.getElementById('shipDeclarantHint');
+            const consentRow = document.getElementById('shipDeclarantConsentRow');
+            if (checked.length > 1) {
+                hint.textContent = '您選了 ' + checked.length + ' 位申報人，出貨時我們會依箱數分配，每位都需各自在 EZ WAY 確認。';
+                hint.style.display = 'block';
+            } else {
+                hint.style.display = 'none';
+            }
+            consentRow.style.display = checked.length > 0 ? 'flex' : 'none';
+            if (!checked.length) document.getElementById('shipDeclarantConsent').checked = false;
+        }
+
+        function getShipSelectedDeclarants() {
+            return [...document.querySelectorAll('.ship-dec:checked')].map(c => parseInt(c.value));
+        }
+
         // ── 出貨地址選擇 ──
         async function openShipAddressModal() {
             document.getElementById('shipAddressModal').style.display = 'flex';
             document.getElementById('shipNote').value = '';
             loadShipServices();
+            loadShipDeclarants();
             try {
                 const res = await fetch(`/api/addresses?g_code=${currentCustomer.g_code}`);
                 const data = await res.json();
@@ -1582,6 +1764,11 @@
         async function confirmShipRequest(addressConfirmed) {
             const selected = document.querySelector('input[name="ship-addr"]:checked');
             if (!selected) { showToast('請選擇寄送地址', 'error'); return; }
+            const declarantIds = getShipSelectedDeclarants();
+            // 有勾申報人就必須勾同意聲明（申報人＝納稅義務人，需本人同意且完成 EZ WAY 實名認證）
+            if (declarantIds.length > 0 && !document.getElementById('shipDeclarantConsent').checked) {
+                showToast('請勾選申報人同意聲明', 'error'); return;
+            }
             const note = document.getElementById('shipNote').value.trim();
             try {
                 const res = await fetch('/api/shipment_request', {
@@ -1596,6 +1783,7 @@
                         ship_phone: selected.dataset.phone,
                         ship_address: selected.dataset.address,
                         extra_services: getShipSelectedServices(),
+                        declarant_ids: declarantIds,
                         address_confirmed: !!addressConfirmed
                     })
                 });

@@ -1611,6 +1611,8 @@ var I18N = {
     // 箱子明細 placeholder（JS 動態，用 T()）
     "實際重量kg":"実重量kg","材積":"容積","長":"長さ","寬":"幅","高":"高さ","追蹤號碼":"追跡番号",
     "第":"箱 ","箱":"","實際 ":"実重量 ","材積 ":"容積 ","計費 ":"課金 ","運費 ":"送料 ",
+    // 申報人（報單収貨人／納税義務者）
+    "（同主申報人）":"主申告者と同じ","申報人":"申告者",
   }
 };
 // JS 動態文字翻譯：日文模式回日文、中文模式回原字（找不到 key 就原樣）
@@ -5153,7 +5155,8 @@ async function openBillingModal(reqId, gCode, name, summary) {
     document.getElementById('bill-tracking').value = '';
     document.getElementById('extraServicesContainer').innerHTML = '';
     // 預設一箱空白，管理員逐箱填
-    _billBoxes = [{ actual_weight:'', length:'', width:'', height:'', tracking_num:'' }];
+    _billBoxes = [emptyBox()];
+    setReqDeclarants(allShipReqsData.find(function(r) { return r.id === reqId; }));
     renderBoxes();
     // 查找會員運費
     var member = membersData.find(function(m) { return m.g_code === gCode; });
@@ -5267,7 +5270,10 @@ function openBillingEditModal(reqId) {
             _billBoxes = bx.map(function(b){ return {
                 actual_weight: b.actual_weight != null ? b.actual_weight : '',
                 length: b.length || '', width: b.width || '', height: b.height || '',
-                tracking_num: b.tracking_num || ''
+                tracking_num: b.tracking_num || '',
+                declarant_name: b.declarant_name || '',
+                declarant_phone: b.declarant_phone || '',
+                declarant_address: b.declarant_address || ''
             }; });
         }
     } catch(e) {}
@@ -5275,8 +5281,9 @@ function openBillingEditModal(reqId) {
         // 舊單/未排箱：用整串追蹤號拆成多箱骨架（重量/材積留空，計費重量顯示沿用舊值）
         var tks = (r.tracking_num || '').split(/[\n,，、]+/).map(function(t){return t.trim();}).filter(Boolean);
         if (!tks.length) tks = [''];
-        _billBoxes = tks.map(function(t){ return { actual_weight:'', length:'', width:'', height:'', tracking_num:t }; });
+        _billBoxes = tks.map(function(t){ var e = emptyBox(); e.tracking_num = t; return e; });
     }
+    setReqDeclarants(r);
     renderBoxes();
     calcBoxes();
 
@@ -5325,10 +5332,24 @@ function getExtraServices() {
 }
 
 // ── 多箱計費 ──
-var _billBoxes = [];   // [{actual_weight, length, width, height, tracking_num}]
+var _billBoxes = [];   // [{actual_weight, length, width, height, tracking_num, declarant_name, declarant_phone, declarant_address}]
+// 本張出貨申請客戶授權的申報人（來自 declarants_json）；空陣列＝舊單/未指定 → 每箱的申報人下拉整個隱藏
+var _reqDeclarants = [];
+function emptyBox() {
+    return { actual_weight:'', length:'', width:'', height:'', tracking_num:'',
+             declarant_name:'', declarant_phone:'', declarant_address:'' };
+}
+// 依 declarants_json 建立本次可選的申報人清單（載入計費 modal 時呼叫）
+function setReqDeclarants(req) {
+    _reqDeclarants = [];
+    try {
+        var ds = JSON.parse((req && req.declarants_json) || '[]');
+        if (Array.isArray(ds)) _reqDeclarants = ds.filter(function(d){ return d && d.name; });
+    } catch(e) {}
+}
 
 function addBox(box) {
-    _billBoxes.push(box || { actual_weight:'', length:'', width:'', height:'', tracking_num:'' });
+    _billBoxes.push(box || emptyBox());
     renderBoxes();
     calcBoxes();
 }
@@ -5341,18 +5362,45 @@ function removeBox(i) {
 function readBoxInputs() {
     _billBoxes = [];
     document.querySelectorAll('#bill-boxes .bill-box-row').forEach(function(row){
-        _billBoxes.push({
+        var box = {
             actual_weight: row.querySelector('.bx-w').value,
             length: row.querySelector('.bx-l').value,
             width:  row.querySelector('.bx-wd').value,
             height: row.querySelector('.bx-h').value,
             tracking_num: row.querySelector('.bx-t').value.trim(),
-        });
+            declarant_name: '', declarant_phone: '', declarant_address: ''
+        };
+        // 申報人：存姓名/電話/地址快照，不存 id（客戶事後改清單不會回溯汙染已報關的單）
+        var sel = row.querySelector('.bx-dec');
+        var d = (sel && sel.selectedIndex > 0) ? _reqDeclarants[sel.selectedIndex - 1] : null;
+        if (d) {
+            box.declarant_name = d.name || '';
+            box.declarant_phone = d.phone || '';
+            box.declarant_address = d.address || '';
+        }
+        _billBoxes.push(box);
     });
 }
 function renderBoxes() {
     var box = document.getElementById('bill-boxes');
     box.innerHTML = _billBoxes.map(function(b, i){
+        // 申報人下拉：只有客戶本次有授權申報人才顯示（舊單/單一申報人不干擾現行作業）
+        var decSelect = '';
+        if (_reqDeclarants.length) {
+            var sel = -1;
+            for (var k = 0; k < _reqDeclarants.length; k++) {
+                if (b.declarant_name && _reqDeclarants[k].name === b.declarant_name
+                    && (!b.declarant_phone || _reqDeclarants[k].phone === b.declarant_phone)) { sel = k; break; }
+            }
+            decSelect = '<select class="form-control bx-dec" onchange="calcBoxes()" style="min-width:150px;padding:6px;">'
+                + '<option' + (sel < 0 ? ' selected' : '') + '>' + T('（同主申報人）') + '</option>'
+                + _reqDeclarants.map(function(d, k){
+                    var nm = String(d.name || '').replace(/[<>]/g, '');
+                    var ph = String(d.phone || '').replace(/[<>]/g, '');
+                    return '<option' + (sel === k ? ' selected' : '') + '>' + T('申報人') + ' ' + nm + (ph ? ' / ' + ph : '') + '</option>';
+                  }).join('')
+                + '</select>';
+        }
         return '<div class="bill-box-row" style="background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:10px;margin-bottom:8px;">'
             + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
             +   '<span style="font-size:12px;font-weight:700;color:#c9a9e0;">' + T('第') + (i+1) + ' ' + T('箱') + '</span>'
@@ -5366,6 +5414,7 @@ function renderBoxes() {
             +   '<input type="number" class="form-control bx-wd" min="0" placeholder="'+T('寬')+'" value="'+(b.width||'')+'" oninput="calcBoxes()" style="width:58px;padding:6px;">×'
             +   '<input type="number" class="form-control bx-h" min="0" placeholder="'+T('高')+'" value="'+(b.height||'')+'" oninput="calcBoxes()" style="width:58px;padding:6px;">'
             +   '<input type="text" class="form-control bx-t" placeholder="'+T('追蹤號碼')+'" value="'+(b.tracking_num||'')+'" oninput="calcBoxes()" style="flex:1;min-width:140px;padding:6px;">'
+            +   decSelect
             + '</div>'
             + '<div class="bx-hint" style="font-size:11px;color:#888;margin-top:4px;"></div>'
             + '</div>';
@@ -5459,7 +5508,7 @@ async function submitBilling() {
     var trackingNum = document.getElementById('bill-tracking').value.trim();
     var extras = getExtraServices();
     readBoxInputs();
-    var boxes = _billBoxes.filter(function(b){ return b.actual_weight || b.tracking_num || b.length || b.width || b.height; });
+    var boxes = _billBoxes.filter(function(b){ return b.actual_weight || b.tracking_num || b.length || b.width || b.height || b.declarant_name; });
 
     if (!billedWeight || billedWeight <= 0) { showToast('請輸入重量', 'error'); return; }
 
