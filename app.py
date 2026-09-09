@@ -2905,6 +2905,35 @@ def _scan_dirty_last5(conn, table, sample_limit=30):
     return {"total": total, "would_change": len(changes), "samples": samples}, changes
 
 
+def _last5_num_core(v):
+    """比對用：去掉 .0 尾巴與前導零，只留數字本身；非數字原樣。"""
+    t = str(v or "").strip()
+    mm = re.fullmatch(r"(\d+)\.0+", t)
+    if mm:
+        t = mm.group(1)
+    return (t.lstrip("0") or "0") if t.isdigit() else t
+
+
+def _last5_log_originals(conn):
+    """從 operation_logs 解析「管理員確認付款」當下的原始輸入（含前導零的 ground truth）。
+    回傳 ({req_id: 原值}, 有解析到的紀錄數)。同一單多筆取 created_at 最新者。"""
+    rows = conn.execute(
+        "SELECT target, detail, created_at, id FROM operation_logs "
+        "WHERE action='帳單確認付款' ORDER BY created_at ASC, id ASC"
+    ).fetchall()
+    by_req, parsed = {}, 0
+    for lr in rows:
+        m_id = re.search(r"\d+", str(lr["target"] or ""))        # 容忍「出貨單#123」以外的格式
+        if not m_id:
+            continue
+        m_val = re.match(r"^\s*後五碼\s*(.*)$", str(lr["detail"] or ""))
+        if not m_val:
+            continue
+        by_req[int(m_id.group(0))] = m_val.group(1).strip()
+        parsed += 1
+    return by_req, parsed
+
+
 @app.route("/api/admin/maintenance/last5_diag", methods=["GET"])
 def admin_last5_diag():
     """payment_last5 儲存型別診斷（唯讀）。
@@ -2982,29 +3011,8 @@ def admin_last5_diag():
         # 5) 從 operation_logs 還原原值（ground truth，優先於任何推斷）
         #    欄位 affinity 是 REAL，寫入的字串被 SQLite 轉成數字、前導零被吃掉；
         #    但 operation_logs.detail 是真正的 TEXT，管理員確認付款當下的原始輸入完整保存。
-        log_rows = conn.execute(
-            "SELECT target, detail, created_at, id FROM operation_logs "
-            "WHERE action='帳單確認付款' ORDER BY created_at ASC, id ASC"
-        ).fetchall()
-        by_req = {}          # req_id -> 該單最新一筆紀錄的原值（升冪掃過去，後面的覆蓋前面的）
-        parsed_logs = 0
-        for lr in log_rows:
-            m_id = re.search(r"\d+", str(lr["target"] or ""))          # 容忍「出貨單#123」以外的格式
-            if not m_id:
-                continue
-            m_val = re.match(r"^\s*後五碼\s*(.*)$", str(lr["detail"] or ""))
-            if not m_val:
-                continue
-            by_req[int(m_id.group(0))] = m_val.group(1).strip()
-            parsed_logs += 1
-
-        def _num_core(v):
-            """比對用：去掉 .0 尾巴與前導零，只留數字本身；非數字原樣。"""
-            t = str(v or "").strip()
-            mm = re.fullmatch(r"(\d+)\.0+", t)
-            if mm:
-                t = mm.group(1)
-            return t.lstrip("0") or "0" if t.isdigit() else t
+        by_req, parsed_logs = _last5_log_originals(conn)
+        _num_core = _last5_num_core
 
         cur_map = {}
         req_ids = list(by_req.keys())
@@ -3070,6 +3078,335 @@ def admin_last5_diag():
                 "conflicts": {"total": len(conflicts), "samples": conflicts[:50]},
             },
             "no_log": {"total": no_log_total, "shown": len(no_log_samples), "samples": no_log_samples},
+        })
+    except Exception as e:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ============ 維運：shipment_requests.payment_last5 型別 REAL → TEXT ============
+# 線上 schema 的 payment_last5 是 REAL（程式碼的 ALTER 清單寫的是 TEXT，兩者不一致
+# → 線上 schema 不是這份程式碼建出來的）。REAL affinity 會把寫入的字串自動轉成數字，
+# 三條寫入路徑的 zfill(5) 全部失效。這裡重建表把型別改回 TEXT。
+# ★ 本端點只動 payment_last5 的「型別」與型別造成的 .0，不做 zfill、不碰 agent_payouts。
+
+FIX_TYPE_TABLE = "shipment_requests"
+FIX_TYPE_COL = "payment_last5"
+FIX_TYPE_TMP = "shipment_requests_new"
+# 型別 token 之後可能接的修飾字，讀到這些就停
+_TYPE_STOP_WORDS = {"DEFAULT", "NOT", "NULL", "PRIMARY", "UNIQUE", "CHECK",
+                    "COLLATE", "REFERENCES", "GENERATED", "AS", "CONSTRAINT"}
+
+
+def _extract_type_token(rest):
+    """從欄位名後面的字串取出型別 token，回傳 (start, end)；取不到回 None。
+    型別是連續的英文字（可含 (20) 這種長度），遇到修飾關鍵字／逗號／右括號就停。"""
+    n = len(rest)
+    i = 0
+    while i < n and rest[i].isspace():
+        i += 1
+    start = i
+    end = i          # 只在確認屬於型別時才推進；不可把後面的空白吃進來，
+    while i < n:     # 否則改寫會變成 "TEXTDEFAULT ''"（DEFAULT 被吃掉）
+        j = i
+        while j < n and (rest[j].isalpha() or rest[j] == "_"):
+            j += 1
+        word = rest[i:j]
+        if not word or word.upper() in _TYPE_STOP_WORDS:
+            break
+        end = j
+        i = j
+        k = i
+        while k < n and rest[k].isspace():
+            k += 1
+        if k < n and rest[k] == "(":            # VARCHAR(20) 這種
+            depth = 0
+            kk = k
+            while kk < n:
+                if rest[kk] == "(":
+                    depth += 1
+                elif rest[kk] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        kk += 1
+                        break
+                kk += 1
+            end = kk
+            break
+        if k >= n or rest[k] in ",)":           # 型別結束
+            break
+        i = k                                   # 多字型別（如 VARYING CHARACTER）繼續讀
+    return (start, end) if end > start else None
+
+
+def _rewrite_create_sql(create_sql):
+    """把建表 SQL 改寫成：表名 -> shipment_requests_new、payment_last5 型別 -> TEXT。
+    找不到或找到超過一處 → ValueError（中止，不猜）。回傳 (新 SQL, 原型別)。"""
+    if not create_sql:
+        raise ValueError("sqlite_master 取不到 shipment_requests 的建表 SQL")
+
+    name_re = re.compile(r'(?<![\w"])"?' + FIX_TYPE_COL + r'"?(?![\w"])', re.IGNORECASE)
+    hits = list(name_re.finditer(create_sql))
+    if len(hits) != 1:
+        raise ValueError(f"在建表 SQL 中找到 {len(hits)} 處 {FIX_TYPE_COL}，需剛好 1 處才安全")
+    m = hits[0]
+    span = _extract_type_token(create_sql[m.end():])
+    if not span:
+        raise ValueError(f"{FIX_TYPE_COL} 後面找不到型別 token，中止")
+    t_start, t_end = m.end() + span[0], m.end() + span[1]
+    old_type = create_sql[t_start:t_end]
+    # 只換型別那個 token，DEFAULT 與其他修飾一字不動
+    new_sql = create_sql[:t_start] + "TEXT" + create_sql[t_end:]
+
+    head_re = re.compile(r'^(\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?)'
+                         r'(["\'`\[]?)(' + FIX_TYPE_TABLE + r')(["\'`\]]?)', re.IGNORECASE)
+    hm = head_re.match(new_sql)
+    if not hm:
+        raise ValueError("建表 SQL 開頭不是預期的 CREATE TABLE shipment_requests，中止")
+    new_sql = (new_sql[:hm.start(3)] + FIX_TYPE_TMP + new_sql[hm.end(3):])
+    return new_sql, old_type
+
+
+# payment_last5 搬移運算式：只去掉型別造成的 .0，不做 zfill
+_MOVE_EXPR = """CASE
+  WHEN payment_last5 IS NULL THEN NULL
+  WHEN typeof(payment_last5) IN ('real','integer') THEN
+       CASE WHEN CAST(payment_last5 AS INTEGER) = payment_last5
+            THEN CAST(CAST(payment_last5 AS INTEGER) AS TEXT)
+            ELSE CAST(payment_last5 AS TEXT) END
+  ELSE CAST(payment_last5 AS TEXT)
+END"""
+
+
+def _strip_dot_zero(txt):
+    """'463.0' → '463'；其餘原樣。只處理型別造成的尾巴，不補零。"""
+    mm = re.fullmatch(r"(-?\d+)\.0+", str(txt))
+    return mm.group(1) if mm else str(txt)
+
+
+def _fix_last5_verify(conn, cols):
+    """在同一個 transaction 內驗證新表。回傳問題清單（空 = 通過）。"""
+    problems = []
+    old_n = conn.execute(f"SELECT COUNT(*) FROM {FIX_TYPE_TABLE}").fetchone()[0]
+    new_n = conn.execute(f"SELECT COUNT(*) FROM {FIX_TYPE_TMP}").fetchone()[0]
+    if old_n != new_n:
+        problems.append(f"(a) 列數不同：舊 {old_n} vs 新 {new_n}")
+
+    miss1 = conn.execute(
+        f"SELECT COUNT(*) FROM (SELECT id FROM {FIX_TYPE_TABLE} EXCEPT SELECT id FROM {FIX_TYPE_TMP})"
+    ).fetchone()[0]
+    miss2 = conn.execute(
+        f"SELECT COUNT(*) FROM (SELECT id FROM {FIX_TYPE_TMP} EXCEPT SELECT id FROM {FIX_TYPE_TABLE})"
+    ).fetchone()[0]
+    if miss1 or miss2:
+        problems.append(f"(b) id 集合不同：舊有新無 {miss1} 筆、新有舊無 {miss2} 筆")
+
+    others = [c for c in cols if c != FIX_TYPE_COL]
+    if others:
+        sel = ", ".join(f'"{c}"' for c in others)
+        ids = [r[0] for r in conn.execute(
+            f"SELECT id FROM {FIX_TYPE_TABLE} ORDER BY RANDOM() LIMIT 50").fetchall()]
+        for rid in ids:
+            a = conn.execute(f"SELECT {sel} FROM {FIX_TYPE_TABLE} WHERE id=?", (rid,)).fetchone()
+            b = conn.execute(f"SELECT {sel} FROM {FIX_TYPE_TMP} WHERE id=?", (rid,)).fetchone()
+            if tuple(a) != tuple(b):
+                problems.append(f"(c) id={rid} 其他欄位不一致")
+                break
+
+    bad_type = conn.execute(
+        f"SELECT COUNT(*) FROM {FIX_TYPE_TMP} WHERE typeof({FIX_TYPE_COL}) NOT IN ('text','null')"
+    ).fetchone()[0]
+    if bad_type:
+        problems.append(f"(d) 新表仍有 {bad_type} 筆 typeof 不是 text/null")
+
+    rows = conn.execute(
+        f"SELECT o.id AS id, CAST(o.{FIX_TYPE_COL} AS TEXT) AS old_text, "
+        f"       typeof(o.{FIX_TYPE_COL}) AS old_t, n.{FIX_TYPE_COL} AS new_val "
+        f"FROM {FIX_TYPE_TABLE} o JOIN {FIX_TYPE_TMP} n ON n.id = o.id"
+    ).fetchall()
+    for r in rows:
+        if r["old_t"] == "null":
+            if r["new_val"] is not None:
+                problems.append(f"(e) id={r['id']} 舊值 NULL 但新值不是 NULL")
+                break
+            continue
+        expect = _strip_dot_zero(r["old_text"])
+        new_val = r["new_val"] if r["new_val"] is not None else ""
+        if new_val != expect:
+            problems.append(f"(e) id={r['id']} 去 .0 結果不符：期望 {expect!r} 得到 {new_val!r}")
+            break
+        if re.sub(r"\D", "", new_val) != re.sub(r"\D", "", expect):
+            problems.append(f"(e) id={r['id']} 數字部分被增刪（疑似補零）：{r['old_text']!r} → {new_val!r}")
+            break
+    return problems
+
+
+@app.route("/api/admin/maintenance/fix_last5_type", methods=["POST"])
+def admin_fix_last5_type():
+    """把 shipment_requests.payment_last5 的欄位型別由 REAL 改回 TEXT（重建表）。
+    預設 dry run；confirm=true 才執行，且執行前一定先用 backup API 備份。
+    只動這一個欄位的型別與型別造成的 .0，不做 zfill、不刪列、不碰其他欄位與 agent_payouts。"""
+    if not is_boss():
+        return jsonify({"success": False, "error": "只有老闆可以執行維運作業"}), 403
+
+    confirm = (request.json or {}).get("confirm") is True
+    conn = get_db()
+    conn.isolation_level = None          # 交由本函式自行控制 transaction
+    try:
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (FIX_TYPE_TABLE,)
+        ).fetchone()
+        create_sql = row["sql"] if row else ""
+        try:
+            new_sql, old_type = _rewrite_create_sql(create_sql)
+        except ValueError as e:
+            conn.close()
+            return jsonify({"success": False, "error": str(e), "create_sql": create_sql}), 400
+
+        cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({FIX_TYPE_TABLE})").fetchall()]
+        if FIX_TYPE_COL not in cols:
+            conn.close()
+            return jsonify({"success": False, "error": f"{FIX_TYPE_TABLE} 沒有 {FIX_TYPE_COL} 欄位"}), 400
+
+        total = conn.execute(f"SELECT COUNT(*) FROM {FIX_TYPE_TABLE}").fetchone()[0]
+        typeof_before = [{"typeof": r["t"], "count": r["c"]} for r in conn.execute(
+            f"SELECT typeof({FIX_TYPE_COL}) AS t, COUNT(*) AS c FROM {FIX_TYPE_TABLE} "
+            f"GROUP BY t ORDER BY c DESC").fetchall()]
+
+        # 會被改寫的筆數 + 非整數 real（本來就不是末五碼，要人工看）+ before/after 樣本
+        detail_rows = conn.execute(
+            f"SELECT id, g_code, CAST({FIX_TYPE_COL} AS TEXT) AS old_text, "
+            f"       typeof({FIX_TYPE_COL}) AS old_t "
+            f"FROM {FIX_TYPE_TABLE} WHERE {FIX_TYPE_COL} IS NOT NULL ORDER BY id DESC"
+        ).fetchall()
+        would_change, non_integer_reals, samples = 0, [], []
+        for r in detail_rows:
+            old_text = r["old_text"] or ""
+            new_val = _strip_dot_zero(old_text)
+            if new_val != old_text:
+                would_change += 1
+            if r["old_t"] in ("real", "integer") and not re.fullmatch(r"-?\d+(\.0+)?", old_text):
+                non_integer_reals.append({"id": r["id"], "g_code": r["g_code"],
+                                          "old": old_text, "new": new_val, "typeof": r["old_t"]})
+            if len(samples) < 30:
+                samples.append({"id": r["id"], "g_code": r["g_code"], "typeof": r["old_t"],
+                                "before": old_text, "after": new_val})
+
+        base = {
+            "table": FIX_TYPE_TABLE,
+            "column": FIX_TYPE_COL,
+            "current_type": old_type,
+            "create_sql": create_sql,
+            "new_create_sql": new_sql,
+            "column_count": len(cols),
+            "row_count": total,
+            "typeof_before": typeof_before,
+            "would_change": would_change,
+            "non_integer_reals": non_integer_reals,
+            "samples": samples,
+        }
+
+        if not confirm:
+            conn.close()
+            return jsonify({"success": True, "dry_run": True, **base})
+
+        # ── 1) 備份（SQLite 官方 backup API，WAL 安全）──
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = os.path.abspath(DB_PATH) + ".bak-fixtype-" + stamp
+        try:
+            dest = sqlite3.connect(backup_path)
+            try:
+                conn.backup(dest)
+                dest.commit()
+            finally:
+                dest.close()
+            if not os.path.exists(backup_path) or os.path.getsize(backup_path) == 0:
+                raise IOError("備份檔不存在或為空")
+        except Exception as e:
+            conn.close()
+            print(f"[fix_last5_type] ❌ 備份失敗，已中止：{e}", flush=True)
+            return jsonify({"success": False, "error": f"備份失敗，未做任何寫入：{e}"}), 500
+
+        col_list = ", ".join(f'"{c}"' for c in cols)
+        sel_list = ", ".join((_MOVE_EXPR if c == FIX_TYPE_COL else f'"{c}"') for c in cols)
+        try:
+            conn.execute(f"DROP TABLE IF EXISTS {FIX_TYPE_TMP}")   # 前次失敗殘留（transaction 外）
+            conn.execute("BEGIN IMMEDIATE")                        # 取寫鎖，擋住另一個 worker
+            conn.execute(new_sql)
+            conn.execute(f"INSERT INTO {FIX_TYPE_TMP} ({col_list}) "
+                         f"SELECT {sel_list} FROM {FIX_TYPE_TABLE}")
+            problems = _fix_last5_verify(conn, cols)
+            if problems:
+                conn.execute("ROLLBACK")
+                conn.execute(f"DROP TABLE IF EXISTS {FIX_TYPE_TMP}")
+                conn.close()
+                print(f"[fix_last5_type] ❌ 驗證未過已回滾：{problems}", flush=True)
+                return jsonify({"success": False, "error": "驗證未通過，已回滾，資料未變動",
+                                "problems": problems, "backup": backup_path}), 500
+            conn.execute(f"DROP TABLE {FIX_TYPE_TABLE}")
+            conn.execute(f"ALTER TABLE {FIX_TYPE_TMP} RENAME TO {FIX_TYPE_TABLE}")
+            conn.execute("COMMIT")
+        except Exception as e:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            try:
+                conn.execute(f"DROP TABLE IF EXISTS {FIX_TYPE_TMP}")
+            except Exception:
+                pass
+            conn.close()
+            print(f"[fix_last5_type] ❌ 重建失敗已回滾：{e}", flush=True)
+            return jsonify({"success": False, "error": f"重建失敗已回滾：{e}",
+                            "backup": backup_path}), 500
+
+        # ── 執行後自我檢查 ──
+        new_type = None
+        for r in conn.execute(f"PRAGMA table_info({FIX_TYPE_TABLE})").fetchall():
+            if dict(r).get("name") == FIX_TYPE_COL:
+                new_type = dict(r).get("type")
+        typeof_after = [{"typeof": r["t"], "count": r["c"]} for r in conn.execute(
+            f"SELECT typeof({FIX_TYPE_COL}) AS t, COUNT(*) AS c FROM {FIX_TYPE_TABLE} "
+            f"GROUP BY t ORDER BY c DESC").fetchall()]
+        row_after = conn.execute(f"SELECT COUNT(*) FROM {FIX_TYPE_TABLE}").fetchone()[0]
+        integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+
+        # 用 operation_logs 的 ground truth 對照（去前導零後應相同）
+        by_req, _n = _last5_log_originals(conn)
+        gt_checked, gt_mismatch = 0, []
+        if by_req:
+            ids = list(by_req.keys())
+            for i in range(0, len(ids), 500):
+                chunk = ids[i:i + 500]
+                ph = ",".join(["?"] * len(chunk))
+                for cr in conn.execute(
+                    f"SELECT id, g_code, {FIX_TYPE_COL} AS v FROM {FIX_TYPE_TABLE} "
+                    f"WHERE id IN ({ph})", chunk
+                ).fetchall():
+                    gt_checked += 1
+                    if _last5_num_core(cr["v"]) != _last5_num_core(by_req[cr["id"]]):
+                        if len(gt_mismatch) < 50:
+                            gt_mismatch.append({"id": cr["id"], "g_code": cr["g_code"],
+                                                "now": str(cr["v"]), "logged": by_req[cr["id"]]})
+        conn.close()
+
+        log_op("修正末五碼欄位型別", FIX_TYPE_TABLE,
+               f"{old_type}→TEXT rows={row_after} backup={backup_path}")
+        print(f"[fix_last5_type] ✅ {old_type}→TEXT rows={row_after} backup={backup_path}", flush=True)
+        return jsonify({
+            "success": True, "dry_run": False,
+            **base,
+            "backup": backup_path,
+            "new_declared_type": new_type,
+            "typeof_after": typeof_after,
+            "row_count_after": row_after,
+            "row_count_unchanged": row_after == total,
+            "integrity_check": integrity,
+            "ground_truth": {"checked": gt_checked, "mismatch": len(gt_mismatch),
+                             "samples": gt_mismatch},
         })
     except Exception as e:
         try:
