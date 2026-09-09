@@ -2934,6 +2934,148 @@ def _last5_log_originals(conn):
     return by_req, parsed
 
 
+# ============ 維運：欄位 affinity 誤宣告的損害範圍診斷（唯讀）============
+# 線上 schema 有一批欄位被宣告成 REAL，但程式碼的 ALTER 清單裡它們都是 TEXT。
+# REAL affinity 會把「看起來像數字」的字串自動轉成數字，前導零被吃掉。
+# ship_phone 尤其嚴重：09 開頭的手機號被存成 9 碼，已流入交給清關行的出貨單。
+
+AFFINITY_SUSPECT_COLS = [
+    "payment_last5", "payment_at", "tracking_num", "extra_services",
+    "ship_recipient", "ship_phone", "ship_address",
+]
+# 宣告成這些型別 + DEFAULT '' 幾乎一定是誤宣告（空字串預設值配數字型別沒有意義）
+_NUMERIC_DECL_PREFIXES = ("REAL", "NUMERIC", "DOUBLE", "FLOAT", "DECIMAL")
+
+
+@app.route("/api/admin/maintenance/affinity_diag", methods=["GET"])
+def admin_affinity_diag():
+    """七個誤宣告為 REAL 的欄位，損害範圍診斷。
+
+    ⚠️ 只做 SELECT / PRAGMA，不含任何 UPDATE / INSERT / DELETE / ALTER / CREATE。
+    ⚠️ 所有值一律 CAST(... AS TEXT) 才輸出，避免 JSON 序列化再吃掉一次型別。"""
+    if not is_boss():
+        return jsonify({"success": False, "error": "只有老闆可以執行維運作業"}), 403
+
+    conn = get_db()
+    try:
+        table = "shipment_requests"
+        info = {dict(r)["name"]: dict(r) for r in
+                conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        total_rows = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+
+        columns = {}
+        for col in AFFINITY_SUSPECT_COLS:
+            if col not in info:
+                columns[col] = {"exists": False}
+                continue
+            meta = info[col]
+            dist = [{"typeof": r["t"], "count": r["c"]} for r in conn.execute(
+                f'SELECT typeof("{col}") AS t, COUNT(*) AS c FROM {table} GROUP BY t ORDER BY c DESC'
+            ).fetchall()]
+            damaged = conn.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE typeof(\"{col}\") IN ('real','integer')"
+            ).fetchone()[0]
+            samples = [
+                {"id": r["id"], "g_code": r["g_code"], "typeof": r["t"],
+                 "raw": r["raw"], "len": r["len"], "stripped": _strip_dot_zero(r["raw"] or "")}
+                for r in conn.execute(
+                    f'SELECT id, g_code, typeof("{col}") AS t, '
+                    f'       CAST("{col}" AS TEXT) AS raw, '
+                    f'       length(CAST("{col}" AS TEXT)) AS len '
+                    f"FROM {table} WHERE typeof(\"{col}\") IN ('real','integer') "
+                    f"ORDER BY id DESC LIMIT 30"
+                ).fetchall()
+            ]
+            columns[col] = {
+                "exists": True,
+                "declared_type": meta.get("type"),
+                "dflt_value": meta.get("dflt_value"),
+                "typeof_distribution": dist,
+                "damaged": damaged,
+                "samples": samples,
+            }
+
+        # ── ship_phone：去 .0 後的長度分布（預期大量 9 碼＝被吃掉前導 0）──
+        phone_len, phone_short = {}, []
+        if "ship_phone" in info:
+            for r in conn.execute(
+                f'SELECT id, g_code, CAST(ship_phone AS TEXT) AS raw, typeof(ship_phone) AS t '
+                f"FROM {table} WHERE COALESCE(ship_phone,'') <> '' ORDER BY id DESC"
+            ).fetchall():
+                v = _strip_dot_zero(r["raw"] or "")
+                k = str(len(v))
+                phone_len[k] = phone_len.get(k, 0) + 1
+                # 8 碼或更短 = 不只掉一個 0，或本來就不是手機 → 要特別看
+                if len(v) <= 8 and len(phone_short) < 50:
+                    phone_short.append({"id": r["id"], "g_code": r["g_code"], "typeof": r["t"],
+                                        "raw": r["raw"], "stripped": v, "len": len(v)})
+        ship_phone_extra = {
+            "length_distribution": dict(sorted(phone_len.items(), key=lambda kv: int(kv[0]))),
+            "expected_9_digits": phone_len.get("9", 0),      # 09xxxxxxxx 掉前導 0 → 9 碼
+            "intact_10_digits": phone_len.get("10", 0),
+            "short_le_8": {"total": sum(c for k, c in phone_len.items() if int(k) <= 8),
+                           "samples": phone_short},
+        }
+
+        # ── tracking_num：去 .0 後長度 > 15 → 進過 REAL 會失去精度，屬不可逆損壞 ──
+        long_tracking = []
+        long_total = 0
+        if "tracking_num" in info:
+            for r in conn.execute(
+                f'SELECT id, g_code, CAST(tracking_num AS TEXT) AS raw, typeof(tracking_num) AS t '
+                f"FROM {table} WHERE COALESCE(tracking_num,'') <> '' ORDER BY id DESC"
+            ).fetchall():
+                v = _strip_dot_zero(r["raw"] or "")
+                if len(v) > 15:
+                    long_total += 1
+                    if len(long_tracking) < 50:
+                        long_tracking.append({"id": r["id"], "g_code": r["g_code"], "typeof": r["t"],
+                                              "raw": r["raw"], "stripped": v, "len": len(v)})
+        tracking_extra = {
+            "over_15_chars": {"total": long_total, "samples": long_tracking},
+            "note": "超長數字進 REAL 會失去精度，這種損壞不可逆；typeof 為 real 且長度>15 者要特別確認",
+        }
+
+        # ── 全資料庫掃描：宣告為 REAL/NUMERIC 但預設值是空字串的欄位 ──
+        # 表名由 sqlite_master 取，欄位細節用 PRAGMA table_info（比 regex 解析 SQL 可靠）
+        suspects = []
+        for tr in conn.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name"
+        ).fetchall():
+            tname = tr["name"]
+            if tname.startswith("sqlite_"):
+                continue
+            try:
+                cinfo = conn.execute(f'PRAGMA table_info("{tname}")').fetchall()
+            except Exception:
+                continue
+            for c in cinfo:
+                cd = dict(c)
+                ctype = str(cd.get("type") or "").strip().upper()
+                dflt = str(cd.get("dflt_value") if cd.get("dflt_value") is not None else "")
+                if ctype.startswith(_NUMERIC_DECL_PREFIXES) and dflt in ("''", '""'):
+                    suspects.append({"table": tname, "column": cd.get("name"),
+                                     "declared_type": cd.get("type"), "dflt_value": cd.get("dflt_value")})
+        conn.close()
+
+        return jsonify({
+            "success": True,
+            "read_only": True,
+            "table": table,
+            "row_count": total_rows,
+            "columns": columns,
+            "ship_phone_extra": ship_phone_extra,
+            "tracking_num_extra": tracking_extra,
+            "db_wide_suspects": {"total": len(suspects), "items": suspects},
+        })
+    except Exception as e:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route("/api/admin/maintenance/last5_diag", methods=["GET"])
 def admin_last5_diag():
     """payment_last5 儲存型別診斷（唯讀）。
