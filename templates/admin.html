@@ -1780,6 +1780,13 @@ async function loadUnclaimed(_retry) {
         if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#e67e22;padding:30px;">⚠️ 讀取失敗（網路問題），請按「🔄 重新整理」再試（資料未遺失）</td></tr>';
     }
 }
+// 核對輔助：包裹收件人 vs 申請會員姓名。去空白後互相包含就算相符（只是參考，不硬擋）
+function ucNameMatch(a, b) {
+    var x = String(a || '').replace(/[\s　]/g, '').toUpperCase();
+    var y = String(b || '').replace(/[\s　]/g, '').toUpperCase();
+    if (!x || !y) return false;
+    return x.indexOf(y) >= 0 || y.indexOf(x) >= 0;
+}
 function renderUnclaimed() {
     var tbody = document.getElementById('unclaimedTable');
     var countEl = document.getElementById('unclaimed-count');
@@ -1798,6 +1805,25 @@ function renderUnclaimed() {
             if (!isNaN(d)) { var n = Math.floor((today - d) / 86400000); days = n + ' 天'; }
         }
         var daysColor = (parseInt(days) >= 7) ? '#e74c3c' : '#aaa';
+        // 會員在前台按「這是我的」的申請名單 → 點一下即可帶入客編認領
+        var claims = u.claims || [];
+        var rn = (u.recipient_name || '').replace(/[<>"']/g, '');
+        var claimBox = '';
+        if (claims.length) {
+            claimBox = '<div style="background:rgba(46,204,113,.1);border:1px solid rgba(46,204,113,.3);border-radius:6px;padding:5px 7px;margin-bottom:4px;">'
+                + '<div style="font-size:10px;color:#2ecc71;font-weight:700;margin-bottom:3px;">🙋 ' + claims.length + ' 人申請認領</div>'
+                + claims.map(function(c){
+                    var gc = (c.g_code || '').replace(/[^A-Za-z0-9]/g, '');
+                    var nm = (c.member_name || '').replace(/[<>"']/g, '');
+                    var tip = ((c.note || '') + ' ' + (c.created_at || '')).replace(/[<>"']/g, '');
+                    var same = ucNameMatch(u.recipient_name, c.member_name);
+                    var mark = same ? '<span style="color:#2ecc71;">✅</span>' : '<span style="color:#e67e22;">⚠️</span>';
+                    return '<div style="font-size:11px;color:#ddd;white-space:nowrap;cursor:pointer;" title="' + tip + '" onclick="claimUnclaimed(' + u.id + ', &quot;' + rn + '&quot;, &quot;' + gc + '&quot;, &quot;' + nm + '&quot;)">'
+                         + mark + ' <strong style="color:#f39c12;">' + gc + '</strong> ' + nm
+                         + (c.note ? ' <span style="color:#777;">📝</span>' : '') + '</div>';
+                  }).join('')
+                + '</div>';
+        }
         return '<tr>'
             + '<td style="font-weight:600;color:#fff;">' + (u.recipient_name || '-') + '</td>'
             + '<td style="font-size:12px;color:#aaa;">' + (u.logis_num || '-') + '</td>'
@@ -1805,10 +1831,10 @@ function renderUnclaimed() {
             + '<td style="font-size:12px;color:#aaa;max-width:180px;">' + (u.product_name || u.note || '-') + '</td>'
             + '<td style="font-size:12px;color:#aaa;white-space:nowrap;">' + (u.registered_date || '-') + '</td>'
             + '<td style="font-weight:700;color:' + daysColor + ';white-space:nowrap;">' + days + '</td>'
-            + '<td><div style="display:flex;gap:4px;">'
+            + '<td><div style="display:flex;gap:4px;flex-direction:column;">' + claimBox + '<div style="display:flex;gap:4px;">'
             +   '<button class="btn" style="background:#27ae60;color:#fff;padding:5px 10px;font-size:12px;font-weight:700;white-space:nowrap;" onclick="claimUnclaimed(' + u.id + ',\'' + (u.recipient_name||'').replace(/'/g,'') + '\')">✅ 認領</button>'
             +   '<button class="btn" style="background:rgba(231,76,60,.15);color:#e74c3c;padding:5px 8px;font-size:12px;border:1px solid rgba(231,76,60,.3);" onclick="deleteUnclaimed(' + u.id + ')">🗑️</button>'
-            + '</div></td>'
+            + '</div></div></td>'
             + '</tr>';
     }).join('');
 }
@@ -1833,8 +1859,18 @@ async function addUnclaimed() {
         } else { showToast(d.error || '登記失敗', 'error'); }
     } catch(e) { showToast('網路錯誤', 'error'); }
 }
-async function claimUnclaimed(id, name) {
-    var g_code = prompt('認領包裹' + (name ? '（' + name + '）' : '') + '\n\n請輸入客戶編號（如 G0123）：\n認領後會轉入到貨管理，並保留原始到倉日。');
+async function claimUnclaimed(id, name, prefill, memberName) {
+    // 核對輔助：包裹收件人姓名 vs 申請會員姓名並排顯示，管理員一眼比對（僅供參考，不硬擋認領）
+    var cmp = '';
+    if (memberName) {
+        var same = ucNameMatch(name, memberName);
+        cmp = '\n\n📋 核對：'
+            + '\n包裹收件人：' + (name || '(未填)')
+            + ' ｜ 申請會員 ' + (prefill || '') + '：' + memberName
+            + '\n→ ' + (same ? '相符 ✅' : '不相符 ⚠️（僅供參考，仍可認領）');
+    }
+    var g_code = prompt('認領包裹' + (name ? '（' + name + '）' : '') + cmp
+        + '\n\n請輸入客戶編號（如 G0123）：\n認領後會轉入到貨管理，並保留原始到倉日。', prefill || '');
     if (g_code === null) return;
     g_code = (g_code || '').trim();
     if (!g_code) { showToast('請輸入客戶編號', 'error'); return; }

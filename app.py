@@ -359,6 +359,19 @@ def init_db():
             created_at      TEXT NOT NULL
         )
     """)
+    # ── 無主包裹認領申請（會員在認領牆按「這是我的」→ 留紀錄等管理員確認，不直接轉入）──
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS unclaimed_claims (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            unclaimed_id INTEGER NOT NULL,
+            g_code       TEXT NOT NULL,
+            member_name  TEXT DEFAULT '',
+            note         TEXT DEFAULT '',
+            created_at   TEXT NOT NULL,
+            UNIQUE(unclaimed_id, g_code)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_unclaimed_claims_uid ON unclaimed_claims(unclaimed_id)")
     # ── 停用會員名單（集運系統層級，不動 Shopify；g_code 為鍵）──
     conn.execute("""
         CREATE TABLE IF NOT EXISTS disabled_members (
@@ -2369,14 +2382,158 @@ def admin_list_packages():
 
 # ===== 無主包裹認領牆 =====
 
+def _uc_days(date_str):
+    """到倉天數（登記日算起）。日期壞掉或沒填就回 None，前端顯示 '-'。"""
+    try:
+        d = datetime.strptime((date_str or "")[:10], "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return None
+    return max(0, (datetime.now().date() - d).days)
+
+
+def _uc_mask_logis(logis_num, keep=4):
+    """物流單號只給末四碼，避免整組單號被任意會員拿去查詢。"""
+    s = (logis_num or "").strip()
+    if not s:
+        return ""
+    return s[-keep:] if len(s) > keep else s
+
+
+def _uc_valid_customer(g_code):
+    """判斷 g_code 是不是有效客戶（不驗密碼），來源與 verify_customer() 完全一致：
+    停用名單 → 擋；先查本地 members（代理建的會員），查不到再回退 Shopify 客戶清單。
+    回傳 (normalized_g_code, source, name, error)；error 非 None 代表不放行。"""
+    g_code = (g_code or "").strip().upper()
+    if not g_code:
+        return "", "", "", "請先登入"
+    # 沒有英文前綴 → 預設加 G（與 verify_customer 相同）
+    if not g_code[:1].isalpha():
+        g_code = "G" + g_code
+
+    # 0) 停用名單（集運系統層級）
+    try:
+        conn = get_db()
+        if conn.execute("SELECT 1 FROM disabled_members WHERE g_code=?", (g_code,)).fetchone():
+            conn.close()
+            return g_code, "", "", "您的帳號已停用，請聯繫客服"
+        # 1) 本地 members 表
+        row = conn.execute("SELECT name, status FROM members WHERE g_code=?", (g_code,)).fetchone()
+        conn.close()
+        if row:
+            if (row["status"] or "") == "disabled":
+                return g_code, "", "", "此會員帳號已停用，請聯絡您的代理"
+            return g_code, "agent", (row["name"] or ""), None
+    except Exception as e:
+        print(f"[_uc_valid_customer] 本地查詢失敗：{e}", flush=True)
+
+    # 2) 回退 Shopify 客戶（只在本地查不到時才走，走快取不打 API）
+    try:
+        for c in get_all_goyoutati_customers():
+            if c.get("g_code") == g_code:
+                return g_code, "shopify", (c.get("name") or ""), None
+    except Exception as e:
+        print(f"[_uc_valid_customer] Shopify 查詢失敗：{e}", flush=True)
+
+    return g_code, "", "", "查無此會員編號"
+
+
+@app.route("/api/unclaimed", methods=["GET"])
+def member_list_unclaimed():
+    """會員端認領牆：單號末四碼 + 到倉天數（不回傳收件人姓名，避免外洩其他客戶資料）。
+    必須帶有效客編才給看，否則未登入路人可爬到全站無主包裹清單。"""
+    g_code, _source, _name, err = _uc_valid_customer(request.args.get("g_code"))
+    if err:
+        return jsonify({"success": False, "error": err}), 403
+
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM unclaimed_packages ORDER BY id DESC").fetchall()
+    counts = {r["unclaimed_id"]: r["c"] for r in conn.execute(
+        "SELECT unclaimed_id, COUNT(*) AS c FROM unclaimed_claims GROUP BY unclaimed_id").fetchall()}
+    mine = {r["unclaimed_id"] for r in conn.execute(
+        "SELECT unclaimed_id FROM unclaimed_claims WHERE g_code=?", (g_code,)).fetchall()}
+    conn.close()
+
+    items = []
+    for row in rows:
+        r = dict(row)
+        items.append({
+            "id":              r["id"],
+            "logis_tail":      _uc_mask_logis(r.get("logis_num")),
+            "product_name":    r.get("product_name") or "",
+            "weight":          r.get("weight") or "",
+            "note":            r.get("note") or "",
+            "registered_date": r.get("registered_date") or "",
+            "days":            _uc_days(r.get("registered_date")),
+            "claim_count":     counts.get(r["id"], 0),
+            "claimed_by_me":   r["id"] in mine,
+        })
+    return jsonify({"success": True, "items": items, "total": len(items)})
+
+
+@app.route("/api/unclaimed/<int:uid>/claim_request", methods=["POST"])
+def member_request_unclaimed(uid):
+    """會員申請認領：只留申請紀錄，包裹仍留在牆上，由管理員確認後才轉入。"""
+    data = request.json or {}
+    note = (data.get("note") or "").strip()[:200]
+    g_code, _source, member_name, err = _uc_valid_customer(data.get("g_code"))
+    if err:
+        return jsonify({"success": False, "error": err}), 403
+
+    conn = get_db()
+    if not conn.execute("SELECT 1 FROM unclaimed_packages WHERE id=?", (uid,)).fetchone():
+        conn.close()
+        return jsonify({"success": False, "error": "此包裹已被認領或已移除"}), 404
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        conn.execute(
+            """INSERT INTO unclaimed_claims (unclaimed_id, g_code, member_name, note, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (uid, g_code, member_name, note, now)
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({"success": True, "duplicated": True,
+                        "message": "你已經申請過這件了，請等候倉庫確認"})
+    conn.close()
+    log_op("申請認領無主件", g_code, f"無主件 #{uid}" + (f"／{note}" if note else ""))
+    return jsonify({"success": True, "message": "已送出認領申請，倉庫確認後會轉入你的包裹"})
+
+
+@app.route("/api/unclaimed/<int:uid>/claim_request", methods=["DELETE"])
+def member_cancel_unclaimed(uid):
+    """會員自行撤回認領申請（按錯了）。"""
+    raw = (request.json or {}).get("g_code") or request.args.get("g_code")
+    g_code, _source, _name, err = _uc_valid_customer(raw)
+    if err:
+        return jsonify({"success": False, "error": err}), 403
+    conn = get_db()
+    conn.execute("DELETE FROM unclaimed_claims WHERE unclaimed_id=? AND g_code=?", (uid, g_code))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
 @app.route("/api/admin/unclaimed", methods=["GET"])
 def admin_list_unclaimed():
     if not is_super_admin():
         return jsonify({"success": False, "error": "權限不足"}), 403
     conn = get_db()
     rows = conn.execute("SELECT * FROM unclaimed_packages ORDER BY id DESC").fetchall()
+    claim_rows = conn.execute(
+        "SELECT unclaimed_id, g_code, member_name, note, created_at "
+        "FROM unclaimed_claims ORDER BY id ASC").fetchall()
     conn.close()
-    return jsonify({"success": True, "items": [dict(r) for r in rows]})
+    claims = {}
+    for c in claim_rows:
+        claims.setdefault(c["unclaimed_id"], []).append(dict(c))
+    items = []
+    for r in rows:
+        d = dict(r)
+        d["claims"] = claims.get(d["id"], [])   # 會員申請認領的名單（可能多人搶同一件）
+        items.append(d)
+    return jsonify({"success": True, "items": items})
 
 
 @app.route("/api/admin/unclaimed", methods=["POST"])
@@ -2408,6 +2565,7 @@ def admin_delete_unclaimed(uid):
         return jsonify({"success": False, "error": "權限不足"}), 403
     conn = get_db()
     conn.execute("DELETE FROM unclaimed_packages WHERE id=?", (uid,))
+    conn.execute("DELETE FROM unclaimed_claims WHERE unclaimed_id=?", (uid,))
     conn.commit()
     conn.close()
     return jsonify({"success": True})
@@ -2440,6 +2598,7 @@ def admin_claim_unclaimed(uid):
          u.get("note", ""), in_date, now, pkg_agent_id)
     )
     conn.execute("DELETE FROM unclaimed_packages WHERE id=?", (uid,))
+    conn.execute("DELETE FROM unclaimed_claims WHERE unclaimed_id=?", (uid,))
     conn.commit()
     conn.close()
     log_op("認領無主件", g_code, f"{u.get('recipient_name','')} → 到倉日 {in_date}")

@@ -583,6 +583,7 @@
                 <button class="tab" onclick="switchTab('forecast')">📝 預報包裹 <span id="badge-forecast" style="display:none;background:#e74c3c;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;min-width:20px;text-align:center;"></span></button>
                 <button class="tab" onclick="switchTab('packages')">📦 我的包裹 <span id="badge-packages" style="display:none;background:#e74c3c;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;min-width:20px;text-align:center;"></span></button>
                 <button class="tab" onclick="switchTab('orders')">🚚 運單查詢 <span id="badge-orders" style="display:none;background:#e74c3c;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;min-width:20px;text-align:center;"></span></button>
+                <button class="tab" onclick="switchTab('unclaimed')">🔍 無主包裹 <span id="badge-unclaimed" style="display:none;background:#e67e22;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;min-width:20px;text-align:center;"></span></button>
             </div>
 
             <!-- 集運介紹（登入後） -->
@@ -817,6 +818,23 @@
                         <h3>📋 我的出貨申請</h3>
                     </div>
                     <div id="shipRequestsList"></div>
+                </div>
+            </div>
+
+            <!-- 無主包裹認領牆 -->
+            <div class="tab-content" id="tab-unclaimed">
+                <div class="card">
+                    <div class="list-header">
+                        <h3>🔍 無主包裹認領牆</h3>
+                        <button class="btn btn-secondary" onclick="loadUnclaimed()">🔄 重新整理</button>
+                    </div>
+                    <div style="background:rgba(230,126,34,0.08);border:1px solid rgba(230,126,34,0.25);border-radius:10px;padding:14px;margin-bottom:16px;font-size:13px;color:#ccc;line-height:1.8;">
+                        以下包裹<strong style="color:#e67e22;">沒有寫客編</strong>或姓名無法辨識，倉庫暫時無法歸戶。<br>
+                        看到疑似自己的包裹，請按「🙋 這是我的」提出認領申請，倉庫核對後會轉入你的「我的包裹」，
+                        <strong style="color:#f39c12;">並保留原始到倉日</strong>，不會多算你的等待天數。<br>
+                        <span style="color:#e74c3c;">⚠️ 為保護客戶隱私，這裡不顯示收件人姓名，單號只顯示末四碼。認不出來的話，請帶著寄件資訊聯繫客服。</span>
+                    </div>
+                    <div id="unclaimedList"><div class="empty-state"><div class="icon">📭</div><p>載入中...</p></div></div>
                 </div>
             </div>
         </div>
@@ -1199,6 +1217,7 @@
             document.getElementById('badge-packages').style.display = 'none';
             document.getElementById('badge-orders').style.display = 'none';
             document.getElementById('badge-forecast').style.display = 'none';
+            document.getElementById('badge-unclaimed').style.display = 'none';
         }
 
         function switchTab(tab) {
@@ -1209,6 +1228,7 @@
             if (tab === 'packages') loadPackages();
             if (tab === 'orders') loadShipRequests();
             if (tab === 'forecast') loadForecastHistory();
+            if (tab === 'unclaimed') loadUnclaimed();
         }
 
         function addFcItem_init() {
@@ -1807,6 +1827,76 @@
             } catch(e) {}
         }
 
+        // ── 無主包裹認領牆（會員端）──
+        async function loadUnclaimed() {
+            const container = document.getElementById('unclaimedList');
+            const g = currentCustomer ? currentCustomer.g_code : '';
+            try {
+                const res = await fetch(`/api/unclaimed?g_code=${encodeURIComponent(g)}`);
+                const data = await res.json();
+                if (!data.success || !data.items || !data.items.length) {
+                    container.innerHTML = '<div class="empty-state"><div class="icon">✅</div><p>目前沒有無主包裹</p></div>';
+                    return;
+                }
+                container.innerHTML = data.items.map(u => {
+                    // 到倉天數：滿 7 天轉紅，提醒盡快認領（久放可能產生倉租／退運）
+                    const days = (u.days === null || u.days === undefined) ? null : u.days;
+                    const dayColor = (days !== null && days >= 7) ? '#e74c3c' : '#f39c12';
+                    const dayText = (days === null) ? '-' : (days + ' 天');
+                    const others = u.claim_count - (u.claimed_by_me ? 1 : 0);
+                    const btn = u.claimed_by_me
+                        ? `<button class="btn btn-secondary" style="padding:8px 14px;font-size:12px;" onclick="cancelUnclaimedClaim(${u.id})">✅ 已申請｜撤回</button>`
+                        : `<button class="btn btn-primary" style="padding:8px 14px;font-size:12px;" onclick="claimUnclaimedPkg(${u.id})">🙋 這是我的</button>`;
+                    return `
+                    <div class="package-item" style="position:relative;">
+                        <div><div class="label">單號末四碼</div><div class="value" style="font-size:13px;">${u.logis_tail || '-'}</div></div>
+                        <div><div class="label">重量</div><div class="value">${u.weight ? u.weight + ' kg' : '待秤重'}</div></div>
+                        <div><div class="label">到倉日期</div><div class="value" style="font-size:13px;">${u.registered_date || '-'}</div></div>
+                        <div><div class="label">到倉天數</div><div class="value" style="color:${dayColor};font-weight:700;">${dayText}</div></div>
+                        <div><div class="label">認領</div><div class="value">${btn}</div></div>
+                    </div>
+                    ${(u.product_name || u.note) ? `<div style="margin:-6px 0 6px 0;padding:8px 14px;background:rgba(255,255,255,0.03);border-radius:8px;font-size:12px;color:#bbb;">📝 品名／外觀：${u.product_name || ''}${(u.product_name && u.note) ? '｜' : ''}${u.note || ''}</div>` : ''}
+                    ${others > 0 ? `<div style="margin:-2px 0 10px 0;padding:6px 14px;font-size:12px;color:#e67e22;">⚠️ 已有 ${others} 位會員申請認領這件，倉庫會核對後處理</div>` : '<div style="margin-bottom:10px;"></div>'}
+                `}).join('');
+            } catch (e) {
+                container.innerHTML = '<div class="empty-state"><div class="icon">⚠️</div><p>載入失敗，請按「🔄 重新整理」再試</p></div>';
+            }
+        }
+
+        async function claimUnclaimedPkg(id) {
+            if (!currentCustomer) { showToast('請先登入', 'error'); return; }
+            const note = prompt('補充說明（選填）：例如「日本 Amazon 寄出，內容是保養品」，有助倉庫核對');
+            if (note === null) return;   // 按取消 → 不送出
+            try {
+                const res = await fetch(`/api/unclaimed/${id}/claim_request`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ g_code: currentCustomer.g_code, note: note.trim() })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.duplicated ? data.message : '✅ ' + data.message, data.duplicated ? 'error' : 'success');
+                    loadUnclaimed();
+                    updateCustomerBadges();
+                } else { showToast('❌ ' + (data.error || '申請失敗'), 'error'); }
+            } catch (e) { showToast('網路錯誤', 'error'); }
+        }
+
+        async function cancelUnclaimedClaim(id) {
+            if (!currentCustomer) return;
+            if (!confirm('確定撤回這件的認領申請？')) return;
+            try {
+                const res = await fetch(`/api/unclaimed/${id}/claim_request`, {
+                    method: 'DELETE',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ g_code: currentCustomer.g_code })
+                });
+                const data = await res.json();
+                if (data.success) { showToast('已撤回申請', 'success'); loadUnclaimed(); updateCustomerBadges(); }
+                else { showToast('❌ ' + (data.error || '撤回失敗'), 'error'); }
+            } catch (e) { showToast('網路錯誤', 'error'); }
+        }
+
         async function updateCustomerBadges() {
             if (!currentCustomer) return;
             try {
@@ -1853,6 +1943,20 @@
                         badgeForecast.style.display = 'none';
                     }
                 } else { badgeForecast.style.display = 'none'; }
+
+                // 無主包裹：牆上還沒被自己申請的件數（提醒去看看有沒有自己的）
+                const ucRes = await fetch(`/api/unclaimed?g_code=${currentCustomer.g_code}`);
+                const ucData = await ucRes.json();
+                const badgeUc = document.getElementById('badge-unclaimed');
+                if (ucData.success && ucData.items) {
+                    const openCount = ucData.items.filter(u => !u.claimed_by_me).length;
+                    if (openCount > 0) {
+                        badgeUc.textContent = openCount;
+                        badgeUc.style.display = 'inline';
+                    } else {
+                        badgeUc.style.display = 'none';
+                    }
+                } else { badgeUc.style.display = 'none'; }
             } catch(e) { console.log('badge update error', e); }
         }
 
