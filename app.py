@@ -407,6 +407,21 @@ def init_db():
             created_at  TEXT    NOT NULL
         )
     """)
+    # ── 申報人（報單收貨人／納稅義務人）：會員層級 1..N，與地址簿無關 ──
+    #    粒度是「箱」：台灣快遞進口一箱一份簡易申報單，一箱一位申報人。
+    #    phone 必須是該人 EZ WAY 實名認證綁定的門號；依規定不收身分證字號。
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS declarants (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            g_code      TEXT    NOT NULL,
+            name        TEXT    NOT NULL,
+            phone       TEXT    NOT NULL,
+            address     TEXT    NOT NULL,
+            is_default  INTEGER DEFAULT 0,
+            created_at  TEXT    NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_declarants_gcode ON declarants(g_code)")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS announcements (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -495,7 +510,12 @@ def init_db():
         ("ship_address", "TEXT", "''"),
         ("consolidation_fee", "REAL", "0"),
         ("letter_fee", "REAL", "0"),
-        ("boxes_json", "TEXT", "''"),   # 多箱明細 [{actual_weight,length,width,height,tracking_num,billed_weight}]
+        ("boxes_json", "TEXT", "''"),   # 多箱明細 [{actual_weight,length,width,height,tracking_num,billed_weight,declarant_name,declarant_phone,declarant_address}]
+        # 申報人：前三欄＝主申報人快照（後台每箱未指定時的預設值）
+        ("declarant_name", "TEXT", "''"),
+        ("declarant_phone", "TEXT", "''"),
+        ("declarant_address", "TEXT", "''"),
+        ("declarants_json", "TEXT", "''"),   # 本次授權可用的申報人快照 [{name,phone,address}]
         # 出檔案給廠商（Nigel / JpD）追蹤欄位
         ("exported_at", "TEXT", "''"),
         ("exported_vendor", "TEXT", "''"),
@@ -3986,6 +4006,160 @@ def set_default_address(addr_id):
     return jsonify({"success": True})
 
 
+# ============ 申報人 API（報單收貨人／納稅義務人，會員層級 1..N）============
+
+DECLARANT_MAX = 10
+DECLARANT_PHONE_ERR = ("申報人電話必須是台灣手機門號（09 開頭 10 碼），"
+                       "且須為 EZ WAY 實名認證綁定的號碼")
+
+
+def _normalize_tw_mobile(raw):
+    """台灣手機門號正規化：去空白與 -、+886/886 前綴 → 09xxxxxxxx。
+    不合法（市話、位數不足、含英文…）回空字串，由呼叫端擋下。"""
+    p = re.sub(r"[\s\-()]", "", str(raw or ""))
+    if p.startswith("+886"):
+        p = "0" + p[4:]
+    elif p.startswith("886"):
+        p = "0" + p[3:]
+    return p if re.fullmatch(r"09\d{8}", p) else ""
+
+
+@app.route("/api/declarants", methods=["GET"])
+def get_declarants():
+    """取得客戶的申報人清單"""
+    g_code = request.args.get("g_code", "").strip().upper()
+    if not g_code:
+        return jsonify({"success": False, "error": "缺少會員編號"})
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM declarants WHERE g_code=? ORDER BY is_default DESC, id DESC", (g_code,)
+    ).fetchall()
+    conn.close()
+    return jsonify({"success": True, "declarants": [dict(r) for r in rows]})
+
+
+@app.route("/api/declarants", methods=["POST"])
+def add_declarant():
+    """新增申報人（第一筆自動成為預設）"""
+    data = request.json or {}
+    g_code = (data.get("g_code") or "").strip().upper()
+    name = (data.get("name") or "").strip()
+    address = (data.get("address") or "").strip()
+    is_default = 1 if data.get("is_default") else 0
+
+    if not g_code or not name or not address or not (data.get("phone") or "").strip():
+        return jsonify({"success": False, "error": "申報人姓名、EZ WAY 綁定手機、地址為必填"})
+    phone = _normalize_tw_mobile(data.get("phone"))
+    if not phone:
+        return jsonify({"success": False, "error": DECLARANT_PHONE_ERR})
+
+    conn = get_db()
+    count = conn.execute("SELECT COUNT(*) AS c FROM declarants WHERE g_code=?", (g_code,)).fetchone()["c"]
+    if count >= DECLARANT_MAX:
+        conn.close()
+        return jsonify({"success": False, "error": f"申報人最多只能新增 {DECLARANT_MAX} 位"})
+    # 一個門號只能對應一個 EZ WAY 帳號 → 同一會員底下不得重複
+    if conn.execute("SELECT 1 FROM declarants WHERE g_code=? AND phone=?", (g_code, phone)).fetchone():
+        conn.close()
+        return jsonify({"success": False, "error": f"門號 {phone} 已經在你的申報人清單中"})
+
+    if is_default:
+        conn.execute("UPDATE declarants SET is_default=0 WHERE g_code=?", (g_code,))
+    if count == 0:
+        is_default = 1
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute(
+        """INSERT INTO declarants (g_code, name, phone, address, is_default, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (g_code, name, phone, address, is_default, now)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "message": "申報人已新增"})
+
+
+@app.route("/api/declarants/<int:dec_id>", methods=["PUT"])
+def update_declarant(dec_id):
+    """更新申報人（先驗歸屬）"""
+    data = request.json or {}
+    g_code = (data.get("g_code") or "").strip().upper()
+    conn = get_db()
+    row = conn.execute("SELECT g_code FROM declarants WHERE id=?", (dec_id,)).fetchone()
+    if not row or row["g_code"] != g_code:
+        conn.close()
+        return jsonify({"success": False, "error": "找不到該申報人"})
+
+    fields = {}
+    for key in ["name", "address"]:
+        if key in data:
+            v = (data[key] or "").strip()
+            if not v:
+                conn.close()
+                return jsonify({"success": False, "error": "申報人姓名、地址不可留空"})
+            fields[key] = v
+    if "phone" in data:
+        phone = _normalize_tw_mobile(data.get("phone"))
+        if not phone:
+            conn.close()
+            return jsonify({"success": False, "error": DECLARANT_PHONE_ERR})
+        dup = conn.execute(
+            "SELECT 1 FROM declarants WHERE g_code=? AND phone=? AND id!=?", (g_code, phone, dec_id)
+        ).fetchone()
+        if dup:
+            conn.close()
+            return jsonify({"success": False, "error": f"門號 {phone} 已經在你的申報人清單中"})
+        fields["phone"] = phone
+    if data.get("is_default"):
+        conn.execute("UPDATE declarants SET is_default=0 WHERE g_code=?", (g_code,))
+        fields["is_default"] = 1
+
+    if fields:
+        sets = ", ".join(f"{k}=?" for k in fields)
+        conn.execute(f"UPDATE declarants SET {sets} WHERE id=?", list(fields.values()) + [dec_id])
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route("/api/declarants/<int:dec_id>", methods=["DELETE"])
+def delete_declarant(dec_id):
+    """刪除申報人；刪掉預設時由最舊一筆遞補"""
+    data = request.json or {}
+    g_code = (data.get("g_code") or request.args.get("g_code", "")).strip().upper()
+    conn = get_db()
+    row = conn.execute("SELECT g_code, is_default FROM declarants WHERE id=?", (dec_id,)).fetchone()
+    if not row or row["g_code"] != g_code:
+        conn.close()
+        return jsonify({"success": False, "error": "找不到該申報人"})
+    conn.execute("DELETE FROM declarants WHERE id=?", (dec_id,))
+    if row["is_default"]:
+        first = conn.execute(
+            "SELECT id FROM declarants WHERE g_code=? ORDER BY id LIMIT 1", (g_code,)).fetchone()
+        if first:
+            conn.execute("UPDATE declarants SET is_default=1 WHERE id=?", (first["id"],))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route("/api/declarants/<int:dec_id>/default", methods=["POST"])
+def set_default_declarant(dec_id):
+    """設為預設申報人"""
+    data = request.json or {}
+    g_code = (data.get("g_code") or "").strip().upper()
+    conn = get_db()
+    row = conn.execute("SELECT g_code FROM declarants WHERE id=?", (dec_id,)).fetchone()
+    if not row or row["g_code"] != g_code:
+        conn.close()
+        return jsonify({"success": False, "error": "找不到該申報人"})
+    conn.execute("UPDATE declarants SET is_default=0 WHERE g_code=?", (g_code,))
+    conn.execute("UPDATE declarants SET is_default=1 WHERE id=?", (dec_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
 # ============ 加值服務目錄 API ============
 
 @app.route("/api/extra_services/catalog", methods=["GET"])
@@ -4243,10 +4417,36 @@ def create_shipment_request():
         })
     extra_services_json = json.dumps(customer_extras, ensure_ascii=False)
 
+    # 申報人：只用 id 去 DB 撈（不信任前端傳的姓名/電話），且必須屬於本會員。
+    # 撈不到或沒傳 → 四欄留空，出檔案時由 vendors 的三層 fallback 回收件人（維持現況）。
+    declarant_ids = []
+    for d in (data.get("declarant_ids") or []):
+        try:
+            declarant_ids.append(int(d))
+        except (ValueError, TypeError):
+            pass
+    declarants = []
+    if declarant_ids:
+        ph = ",".join(["?"] * len(declarant_ids))
+        drows = conn.execute(
+            f"SELECT name, phone, address, is_default FROM declarants "
+            f"WHERE id IN ({ph}) AND g_code=? ORDER BY is_default DESC, id",
+            declarant_ids + [g_code]
+        ).fetchall()
+        declarants = [{"name": d["name"], "phone": d["phone"], "address": d["address"]} for d in drows]
+    declarants_json = json.dumps(declarants, ensure_ascii=False) if declarants else ""
+    # 主申報人＝清單中的預設者（上面已 is_default DESC 排序），無則第一筆
+    dec_main = declarants[0] if declarants else {}
+    declarant_name = dec_main.get("name", "")
+    declarant_phone = dec_main.get("phone", "")
+    declarant_address = dec_main.get("address", "")
+
     conn.execute(
-        """INSERT INTO shipment_requests (g_code, customer_name, package_ids, package_summary, status, note, ship_recipient, ship_phone, ship_address, extra_services, created_at, agent_id)
-           VALUES (?, ?, ?, ?, '待處理', ?, ?, ?, ?, ?, ?, ?)""",
-        (g_code, customer_name, ids_str, summary, note, ship_recipient, ship_phone, ship_address, extra_services_json, now, sr_agent_id)
+        """INSERT INTO shipment_requests (g_code, customer_name, package_ids, package_summary, status, note, ship_recipient, ship_phone, ship_address, extra_services, created_at, agent_id,
+                                          declarant_name, declarant_phone, declarant_address, declarants_json)
+           VALUES (?, ?, ?, ?, '待處理', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (g_code, customer_name, ids_str, summary, note, ship_recipient, ship_phone, ship_address, extra_services_json, now, sr_agent_id,
+         declarant_name, declarant_phone, declarant_address, declarants_json)
     )
     conn.commit()
     conn.close()
@@ -4644,6 +4844,10 @@ def _admin_exports_pending_impl():
             "ship_recipient":   ship_recipient,
             "ship_phone":       ship_phone,
             "ship_address":     ship_address,
+            "declarant_name":   rd.get("declarant_name") or "",
+            "declarant_phone":  rd.get("declarant_phone") or "",
+            "declarant_address": rd.get("declarant_address") or "",
+            "declarants_json":  rd.get("declarants_json") or "",
             "billed_weight":    rd.get("billed_weight") or 0,
             "total_fee":        rd.get("total_fee") or 0,
             "payment_at":       rd.get("payment_at") or "",
@@ -4789,6 +4993,10 @@ def _admin_exports_generate_impl():
             "created_at":           rd.get("created_at") or "",
             "packages":             pkgs,
             "boxes":                _parse_boxes(rd.get("boxes_json")),
+            # 主申報人（每箱未指定時的預設值）；空 → vendors 內 fallback 回收件人
+            "declarant_name":       _safe_str(rd.get("declarant_name")),
+            "declarant_phone":      _safe_str(rd.get("declarant_phone")),
+            "declarant_address":    _safe_str(rd.get("declarant_address")),
         })
 
     if not shipments:

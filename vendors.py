@@ -123,9 +123,9 @@ NIGEL = {
         ("收件人",         lambda ctx: ctx["ship_recipient"]),
         ("收件人詳細地址", lambda ctx: ctx["ship_address"]),
         ("收件人電話號碼", lambda ctx: ctx["ship_phone"]),
-        ("申報人",         lambda ctx: ctx["ship_recipient"]),         # 預設 = 收件人
-        ("申報人詳細地址", lambda ctx: ctx["ship_address"]),
-        ("申報人電話號碼", lambda ctx: ctx["ship_phone"]),
+        ("申報人",         lambda ctx: ctx["declarant_name"]),         # 未指定時 fallback = 收件人
+        ("申報人詳細地址", lambda ctx: ctx["declarant_address"]),
+        ("申報人電話號碼", lambda ctx: ctx["declarant_phone"]),
         ("品名",           lambda ctx: ctx["item"]["name"]),
         ("數量",           lambda ctx: ctx["item"]["qty"]),
         ("金額",           lambda ctx: ctx["item"]["price"]),
@@ -158,10 +158,10 @@ JPD = {
         ("備註",            lambda ctx: ""),
         ("特殊服务",         lambda ctx: ""),
         ("渠道ID",          lambda ctx: 40),  # JpD 固定 40
-        ("申報人",          lambda ctx: ctx["ship_recipient"]),
-        ("申報人身份證ID",   lambda ctx: ""),
-        ("申報人詳細地址",   lambda ctx: ctx["ship_address"]),
-        ("申報人电话号码",   lambda ctx: ctx["ship_phone"]),
+        ("申報人",          lambda ctx: ctx["declarant_name"]),
+        ("申報人身份證ID",   lambda ctx: ""),   # EZ WAY 實名認證後免附身分證號 → 永遠留空
+        ("申報人詳細地址",   lambda ctx: ctx["declarant_address"]),
+        ("申報人电话号码",   lambda ctx: ctx["declarant_phone"]),
         ("品名",            lambda ctx: ctx["item"]["name"]),
         ("数量",            lambda ctx: ctx["item"]["qty"]),
         ("金额",            lambda ctx: ctx["item"]["price"]),
@@ -270,6 +270,23 @@ def build_rows(vendor_id: str, shipments: list[dict]) -> tuple[list[str], list[l
                 "box_width":            b.get("width", ""),
                 "box_height":           b.get("height", ""),
             }
+            # 申報人（報單收貨人／納稅義務人）三層 fallback：
+            #   ① 該箱指定 → ② 該出貨申請的主申報人 → ③ 收件人（舊資料照舊，輸出與過去完全一致）
+            ctx["declarant_name"] = (
+                str(b.get("declarant_name") or "").strip()
+                or str(s.get("declarant_name") or "").strip()
+                or ctx["ship_recipient"]
+            )
+            ctx["declarant_address"] = (
+                str(b.get("declarant_address") or "").strip()
+                or str(s.get("declarant_address") or "").strip()
+                or ctx["ship_address"]
+            )
+            ctx["declarant_phone"] = (
+                str(b.get("declarant_phone") or "").strip()
+                or str(s.get("declarant_phone") or "").strip()
+                or ctx["ship_phone"]
+            )
             row = [getter(ctx) for _, getter in vendor["columns"]]
             rows.append(row)
 
