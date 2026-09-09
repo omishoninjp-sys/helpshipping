@@ -534,6 +534,11 @@ def init_db():
         ("declarant_phone", "TEXT", "''"),
         ("declarant_address", "TEXT", "''"),
         ("declarants_json", "TEXT", "''"),   # 本次授權可用的申報人快照 [{name,phone,address}]
+        # 申報人同意聲明存證：申報人是報單上的納稅義務人，發生冒名報關爭議或本人否認授權時，
+        # 必須舉證「客戶在什麼時間、對哪幾位申報人做過聲明」。對象即同一筆的 declarants_json。
+        ("declarant_consent", "INTEGER", "0"),
+        ("declarant_consent_at", "TEXT", "''"),
+        ("declarant_consent_ip", "TEXT", "''"),
         # 出檔案給廠商（Nigel / JpD）追蹤欄位
         ("exported_at", "TEXT", "''"),
         ("exported_vendor", "TEXT", "''"),
@@ -4491,6 +4496,23 @@ def create_shipment_request():
     if not ship_recipient or not ship_phone or not ship_address:
         return jsonify({"success": False, "error": "請選擇寄送地址"})
 
+    # 申報人同意聲明：只在客戶自己指定申報人時要求（沒指定 = fallback 回收件人本人，不需聲明）。
+    # 前端 checkbox 只是體驗，繞過前端直接打 API 也必須擋，且要留下時間戳與來源 IP 當證據。
+    declarant_ids = []
+    for d in (data.get("declarant_ids") or []):
+        try:
+            declarant_ids.append(int(d))
+        except (ValueError, TypeError):
+            pass
+    declarant_consent = 1 if (declarant_ids and data.get("declarant_consent")) else 0
+    declarant_consent_at = ""
+    declarant_consent_ip = ""
+    if declarant_ids:
+        if not declarant_consent:
+            return jsonify({"success": False, "error": "請先確認已取得申報人同意"}), 400
+        declarant_consent_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # TZ=Asia/Taipei
+        declarant_consent_ip = _client_ip()
+
     # 組合包裹摘要
     conn = get_db()
 
@@ -4602,12 +4624,6 @@ def create_shipment_request():
 
     # 申報人：只用 id 去 DB 撈（不信任前端傳的姓名/電話），且必須屬於本會員。
     # 撈不到或沒傳 → 四欄留空，出檔案時由 vendors 的三層 fallback 回收件人（維持現況）。
-    declarant_ids = []
-    for d in (data.get("declarant_ids") or []):
-        try:
-            declarant_ids.append(int(d))
-        except (ValueError, TypeError):
-            pass
     declarants = []
     if declarant_ids:
         ph = ",".join(["?"] * len(declarant_ids))
@@ -4626,10 +4642,12 @@ def create_shipment_request():
 
     conn.execute(
         """INSERT INTO shipment_requests (g_code, customer_name, package_ids, package_summary, status, note, ship_recipient, ship_phone, ship_address, extra_services, created_at, agent_id,
-                                          declarant_name, declarant_phone, declarant_address, declarants_json)
-           VALUES (?, ?, ?, ?, '待處理', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                          declarant_name, declarant_phone, declarant_address, declarants_json,
+                                          declarant_consent, declarant_consent_at, declarant_consent_ip)
+           VALUES (?, ?, ?, ?, '待處理', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (g_code, customer_name, ids_str, summary, note, ship_recipient, ship_phone, ship_address, extra_services_json, now, sr_agent_id,
-         declarant_name, declarant_phone, declarant_address, declarants_json)
+         declarant_name, declarant_phone, declarant_address, declarants_json,
+         declarant_consent, declarant_consent_at, declarant_consent_ip)
     )
     conn.commit()
     conn.close()
@@ -5037,6 +5055,8 @@ def _admin_exports_pending_impl():
             "declarant_phone":  rd.get("declarant_phone") or "",
             "declarant_address": rd.get("declarant_address") or "",
             "declarants_json":  rd.get("declarants_json") or "",
+            "declarant_consent":    rd.get("declarant_consent") or 0,
+            "declarant_consent_at": rd.get("declarant_consent_at") or "",
             "billed_weight":    rd.get("billed_weight") or 0,
             "total_fee":        rd.get("total_fee") or 0,
             "payment_at":       rd.get("payment_at") or "",
@@ -5186,6 +5206,9 @@ def _admin_exports_generate_impl():
             "declarant_name":       _safe_str(rd.get("declarant_name")),
             "declarant_phone":      _safe_str(rd.get("declarant_phone")),
             "declarant_address":    _safe_str(rd.get("declarant_address")),
+            # 同意聲明只是隨行資料，vendors 的欄位表是固定的，不會進到給廠商的檔案
+            "declarant_consent":    rd.get("declarant_consent") or 0,
+            "declarant_consent_at": _safe_str(rd.get("declarant_consent_at")),
         })
 
     if not shipments:

@@ -1807,6 +1807,8 @@
                         ship_address: selected.dataset.address,
                         extra_services: getShipSelectedServices(),
                         declarant_ids: declarantIds,
+                        // 同意聲明送到後端存證（前端擋是體驗，後端擋才是防線）
+                        declarant_consent: document.getElementById('shipDeclarantConsent').checked,
                         address_confirmed: !!addressConfirmed
                     })
                 });

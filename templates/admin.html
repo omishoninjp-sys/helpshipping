@@ -1613,6 +1613,9 @@ var I18N = {
     "第":"箱 ","箱":"","實際 ":"実重量 ","材積 ":"容積 ","計費 ":"課金 ","運費 ":"送料 ",
     // 申報人（報單収貨人／納税義務者）
     "（同主申報人）":"主申告者と同じ","申報人":"申告者",
+    // 申報人同意聲明（存證）
+    "🧾 申報人同意":"🧾 申告者の同意","客戶已於":"お客様が","聲明取得申報人同意":"に同意取得を宣言",
+    "申報人同意聲明：無紀錄（本功能上線前的申請）":"申告者の同意：記録なし（本機能公開前の申請）",
   }
 };
 // JS 動態文字翻譯：日文模式回日文、中文模式回原字（找不到 key 就原樣）
@@ -1781,6 +1784,19 @@ async function loadUnclaimed(_retry) {
         if (!_retry) return loadUnclaimed(true);       // 網路錯誤也自動重試一次
         if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#e67e22;padding:30px;">⚠️ 讀取失敗（網路問題），請按「🔄 重新整理」再試（資料未遺失）</td></tr>';
     }
+}
+// 申報人同意聲明（存證）：有紀錄顯示時間，本功能上線前的舊單顯示「無紀錄」。
+// IP 只存 DB 不顯示在畫面上。
+function declarantConsentLine(r) {
+    if (!r) return '';
+    if (r.declarant_consent) {
+        return '<span style="color:#2ecc71;">\u2705 ' + T('🧾 申報人同意') + '：'
+             + T('客戶已於') + ' ' + (r.declarant_consent_at || '-') + ' ' + T('聲明取得申報人同意') + '</span>';
+    }
+    if (r.declarants_json) {   // 有指定申報人但沒有聲明紀錄 → 上線前的舊單
+        return '<span style="color:#999;">' + T('申報人同意聲明：無紀錄（本功能上線前的申請）') + '</span>';
+    }
+    return '';
 }
 // 核對輔助：包裹收件人 vs 申請會員姓名。去空白後互相包含就算相符（只是參考，不硬擋）
 function ucNameMatch(a, b) {
@@ -3196,6 +3212,7 @@ function renderShipReqs(list) {
                 + '<div style="font-size:14px;color:#fff;font-weight:700;line-height:1.4;">' + r.ship_recipient + '</div>'
                 + '<div style="font-size:13px;color:#5dade2;margin-top:3px;">📞 ' + (r.ship_phone || '-') + '</div>'
                 + '<div style="font-size:12px;color:#c5c5c5;margin-top:3px;line-height:1.5;">📍 ' + (r.ship_address || '-') + '</div>'
+                + (declarantConsentLine(r) ? '<div style="font-size:11px;margin-top:5px;line-height:1.5;">' + declarantConsentLine(r) + '</div>' : '')
                 + '</div>'
             : '<span style="color:#666;">無收件資訊</span>';
 
@@ -5168,6 +5185,8 @@ async function openBillingModal(reqId, gCode, name, summary) {
     if (req && req.ship_recipient) {
         contactParts.push('📦 寄送至：<strong>' + req.ship_recipient + '</strong> ' + (req.ship_phone || ''));
         if (req.ship_address) contactParts.push('📍 ' + req.ship_address);
+        var _cl = declarantConsentLine(req);
+        if (_cl) contactParts.push('<span style="font-size:11px;">' + _cl + '</span>');
     } else {
         if (member && member.phone) contactParts.push('📞 ' + member.phone);
         if (member && member.address) contactParts.push('📍 ' + member.address);
@@ -5236,6 +5255,8 @@ function openBillingEditModal(reqId) {
     if (r.ship_recipient) {
         contactParts.push('📦 寄送至：<strong>' + r.ship_recipient + '</strong> ' + (r.ship_phone || ''));
         if (r.ship_address) contactParts.push('📍 ' + r.ship_address);
+        var _cl2 = declarantConsentLine(r);
+        if (_cl2) contactParts.push('<span style="font-size:11px;">' + _cl2 + '</span>');
     }
     document.getElementById('bill-contact').innerHTML = contactParts.join('<br>');
 
