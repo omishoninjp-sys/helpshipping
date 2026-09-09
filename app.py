@@ -2905,6 +2905,97 @@ def _scan_dirty_last5(conn, table, sample_limit=30):
     return {"total": total, "would_change": len(changes), "samples": samples}, changes
 
 
+@app.route("/api/admin/maintenance/last5_diag", methods=["GET"])
+def admin_last5_diag():
+    """payment_last5 儲存型別診斷（唯讀）。
+
+    矛盾點：三條寫入路徑都寫 zfill 過的字串，照理不該產生 REAL，
+    但 API 回傳看起來是數字、clean_last5 又掃出大量浮點髒值。先取事實，不動資料。
+
+    ⚠️ 本端點只做 SELECT / PRAGMA，不含任何 UPDATE / INSERT / DELETE / ALTER。
+    ⚠️ 所有值一律 CAST(... AS TEXT) 才輸出：JSON 序列化會把 REAL 變成數字、
+       型別資訊就消失了（這正是我們現在踩到的坑，診斷工具不能重蹈覆轍）。"""
+    if not is_boss():
+        return jsonify({"success": False, "error": "只有老闆可以執行維運作業"}), 403
+
+    conn = get_db()
+    try:
+        # 1) schema：兩張表的 payment_last5 欄位定義
+        schema = {}
+        for t in ("shipment_requests", "agent_payouts"):
+            col = None
+            for r in conn.execute(f"PRAGMA table_info({t})").fetchall():
+                d = dict(r)
+                if d.get("name") == "payment_last5":
+                    col = {"name": d.get("name"), "type": d.get("type"),
+                           "notnull": d.get("notnull"), "dflt_value": d.get("dflt_value")}
+                    break
+            schema[t] = col
+
+        # 2) 儲存類別分布（SQLite 的實際 storage class，不是宣告型別）
+        storage = {}
+        for t in ("shipment_requests", "agent_payouts"):
+            storage[t] = [
+                {"typeof": r["t"], "count": r["c"]}
+                for r in conn.execute(
+                    f"SELECT typeof(payment_last5) AS t, COUNT(*) AS c "
+                    f"FROM {t} GROUP BY t ORDER BY c DESC"
+                ).fetchall()
+            ]
+
+        # 3) 時間軸：按月看儲存類別 → 一直都髒？還是某個時間點開始髒？
+        timeline = [
+            {"ym": r["ym"], "typeof": r["t"], "count": r["c"]}
+            for r in conn.execute(
+                "SELECT substr(payment_at,1,7) AS ym, typeof(payment_last5) AS t, COUNT(*) AS c "
+                "FROM shipment_requests "
+                "WHERE COALESCE(payment_at,'') <> '' "
+                "GROUP BY ym, t ORDER BY ym DESC LIMIT 60"
+            ).fetchall()
+        ]
+
+        # 4) 模糊樣本：純數字、去掉小數後不足 5 位 → 清理時唯一靠「末五碼必為 5 位」推斷補 0 的部分
+        ambiguous = [
+            {"id": r["id"], "g_code": r["g_code"],
+             "raw_text": r["raw_text"], "typeof": r["t"],
+             "stripped": r["stripped"], "payment_at": r["payment_at"]}
+            for r in conn.execute(
+                "SELECT id, g_code, "
+                "       CAST(payment_last5 AS TEXT) AS raw_text, "
+                "       typeof(payment_last5) AS t, "
+                "       replace(CAST(payment_last5 AS TEXT), '.0', '') AS stripped, "
+                "       payment_at "
+                "FROM shipment_requests "
+                "WHERE COALESCE(payment_last5,'') <> '' "
+                "  AND length(replace(CAST(payment_last5 AS TEXT), '.0', '')) < 5 "
+                "  AND replace(CAST(payment_last5 AS TEXT), '.0', '') GLOB '[0-9]*' "
+                "ORDER BY id DESC LIMIT 50"
+            ).fetchall()
+        ]
+        ambiguous_total = conn.execute(
+            "SELECT COUNT(*) AS c FROM shipment_requests "
+            "WHERE COALESCE(payment_last5,'') <> '' "
+            "  AND length(replace(CAST(payment_last5 AS TEXT), '.0', '')) < 5 "
+            "  AND replace(CAST(payment_last5 AS TEXT), '.0', '') GLOB '[0-9]*'"
+        ).fetchone()["c"]
+        conn.close()
+
+        return jsonify({
+            "success": True,
+            "read_only": True,
+            "schema": schema,
+            "storage_classes": storage,
+            "timeline": timeline,
+            "ambiguous": {"total": ambiguous_total, "shown": len(ambiguous), "samples": ambiguous},
+        })
+    except Exception as e:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route("/api/admin/maintenance/clean_last5", methods=["POST"])
 def admin_clean_last5():
     """末五碼髒值清理。預設 dry run；confirm=true 才寫入，且寫入前一定先備份整個 DB。
