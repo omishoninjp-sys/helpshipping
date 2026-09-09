@@ -961,6 +961,28 @@
         let currentCustomer = null;
         let currentBranding = null;
 
+        // ── 客戶端 API 統一入口：攔 401 / need_login（伺服器端 session 過期）──
+        //    客戶端 API 現在都綁 Flask session（見 app.py _require_customer），
+        //    session 掉了就把前端登入狀態一起清掉，不要讓畫面停在「已登入」的假象。
+        let _suppressToastUntil = 0;
+
+        async function apiFetch(url, opts) {
+            const res = await fetch(url, opts);
+            if (res.status === 401) {
+                let body = null;
+                try { body = await res.clone().json(); } catch (e) {}
+                if (!body || body.need_login) handleSessionExpired();
+            }
+            return res;
+        }
+
+        function handleSessionExpired() {
+            if (Date.now() < _suppressToastUntil) return;   // 同一波多支 API 只提示一次
+            showToast('登入階段已過期，請重新登入', 'error');
+            _suppressToastUntil = Date.now() + 2000;        // 壓掉各處 catch 疊上來的「網路錯誤」
+            logout();
+        }
+
         function toggleCollapse(el) {
             el.classList.toggle('open');
             el.nextElementSibling.classList.toggle('open');
@@ -1101,7 +1123,7 @@
                 var params = new URLSearchParams(window.location.search);
                 var ref = params.get('a') || '';
                 if (!ref) return;  // 一般訪客
-                var res = await fetch('/api/branding?a=' + encodeURIComponent(ref));
+                var res = await apiFetch('/api/branding?a=' + encodeURIComponent(ref));
                 var b = await res.json();
                 if (b && b.success && b.is_agent) applyBranding(b);
             } catch(e) { /* 靜默失敗 */ }
@@ -1114,7 +1136,7 @@
             var bodies = document.querySelectorAll('.paid-services-body');
             if (!bodies.length) return;
             try {
-                var res = await fetch('/api/extra_services/catalog?full=1');
+                var res = await apiFetch('/api/extra_services/catalog?full=1');
                 var data = await res.json();
                 var svc = (data.success && data.services) ? data.services : [];
                 var html = svc.map(function(s){
@@ -1190,7 +1212,7 @@
             btn.textContent = '登入中...';
 
             try {
-                const res = await fetch('/api/verify_customer', {
+                const res = await apiFetch('/api/verify_customer', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ customer_id: gCode, password: password })
@@ -1251,6 +1273,7 @@
         }
 
         function logout() {
+            try { window.fetch('/api/customer_logout', { method: 'POST' }); } catch (e) {}
             currentCustomer = null;
             localStorage.removeItem('gCode');
             document.getElementById('loginSection').style.display = '';
@@ -1315,7 +1338,7 @@
             if (!items.length) { showToast('請至少填寫一個商品名稱', 'error'); return; }
             const note = document.getElementById('fcNote').value.trim();
             try {
-                const res = await fetch('/api/forecast_simple', {
+                const res = await apiFetch('/api/forecast_simple', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
@@ -1348,7 +1371,7 @@
         async function loadForecastHistory() {
             if (!currentCustomer) return;
             try {
-                const res = await fetch(`/api/my_forecasts?g_code=${currentCustomer.g_code}`);
+                const res = await apiFetch(`/api/my_forecasts?g_code=${currentCustomer.g_code}`);
                 const result = await res.json();
                 const card = document.getElementById('forecastHistoryCard');
                 const container = document.getElementById('forecastHistoryList');
@@ -1373,7 +1396,7 @@
         async function loadPackages() {
             if (!currentCustomer) return;
             try {
-                const res = await fetch(`/api/packages?g_code=${currentCustomer.g_code}`);
+                const res = await apiFetch(`/api/packages?g_code=${currentCustomer.g_code}`);
                 const result = await res.json();
                 const container = document.getElementById('packagesList');
                 if (result.success && result.packages && result.packages.length > 0) {
@@ -1446,7 +1469,7 @@
         async function loadAddresses() {
             if (!currentCustomer) return;
             try {
-                const res = await fetch(`/api/addresses?g_code=${currentCustomer.g_code}`);
+                const res = await apiFetch(`/api/addresses?g_code=${currentCustomer.g_code}`);
                 const data = await res.json();
                 const container = document.getElementById('addressList');
                 if (data.success && data.addresses.length > 0) {
@@ -1487,7 +1510,7 @@
                 showToast('收件人、電話、地址為必填', 'error'); return;
             }
             try {
-                const res = await fetch('/api/addresses', {
+                const res = await apiFetch('/api/addresses', {
                     method: 'POST', headers: {'Content-Type':'application/json'},
                     body: JSON.stringify(data)
                 });
@@ -1503,7 +1526,7 @@
 
         async function setDefaultAddr(id) {
             try {
-                await fetch('/api/addresses/'+id+'/default', {
+                await apiFetch('/api/addresses/'+id+'/default', {
                     method:'POST', headers:{'Content-Type':'application/json'},
                     body: JSON.stringify({g_code: currentCustomer.g_code})
                 });
@@ -1515,7 +1538,7 @@
         async function deleteAddr(id) {
             if (!confirm('確定刪除此地址？')) return;
             try {
-                await fetch('/api/addresses/'+id, {
+                await apiFetch('/api/addresses/'+id, {
                     method:'DELETE', headers:{'Content-Type':'application/json'},
                     body: JSON.stringify({g_code: currentCustomer.g_code})
                 });
@@ -1536,7 +1559,7 @@
         async function loadDeclarants() {
             if (!currentCustomer) return;
             try {
-                const res = await fetch(`/api/declarants?g_code=${currentCustomer.g_code}`);
+                const res = await apiFetch(`/api/declarants?g_code=${currentCustomer.g_code}`);
                 const data = await res.json();
                 const container = document.getElementById('declarantList');
                 if (data.success && data.declarants.length > 0) {
@@ -1574,7 +1597,7 @@
                 showToast('申報人姓名、EZ WAY 綁定手機、地址為必填', 'error'); return;
             }
             try {
-                const res = await fetch('/api/declarants', {
+                const res = await apiFetch('/api/declarants', {
                     method: 'POST', headers: {'Content-Type':'application/json'},
                     body: JSON.stringify(data)
                 });
@@ -1590,7 +1613,7 @@
 
         async function setDefaultDeclarant(id) {
             try {
-                await fetch('/api/declarants/'+id+'/default', {
+                await apiFetch('/api/declarants/'+id+'/default', {
                     method:'POST', headers:{'Content-Type':'application/json'},
                     body: JSON.stringify({g_code: currentCustomer.g_code})
                 });
@@ -1602,7 +1625,7 @@
         async function deleteDeclarant(id) {
             if (!confirm('確定刪除此申報人？')) return;
             try {
-                await fetch('/api/declarants/'+id, {
+                await apiFetch('/api/declarants/'+id, {
                     method:'DELETE', headers:{'Content-Type':'application/json'},
                     body: JSON.stringify({g_code: currentCustomer.g_code})
                 });
@@ -1618,7 +1641,7 @@
             document.getElementById('shipDeclarantConsentRow').style.display = 'none';
             document.getElementById('shipDeclarantConsent').checked = false;
             try {
-                const res = await fetch(`/api/declarants?g_code=${currentCustomer.g_code}`);
+                const res = await apiFetch(`/api/declarants?g_code=${currentCustomer.g_code}`);
                 const data = await res.json();
                 if (!data.success || !data.declarants.length) {
                     box.innerHTML = '<div style="color:#888;font-size:12px;padding:10px;text-align:center;">尚未建立申報人，請先到 <a href="javascript:closeShipAddressModal();openDeclarants();" style="color:#e67e22;">🧾 申報人</a> 新增。未指定時，報單申報人將沿用收件人資料。</div>';
@@ -1666,7 +1689,7 @@
             loadShipServices();
             loadShipDeclarants();
             try {
-                const res = await fetch(`/api/addresses?g_code=${currentCustomer.g_code}`);
+                const res = await apiFetch(`/api/addresses?g_code=${currentCustomer.g_code}`);
                 const data = await res.json();
                 const container = document.getElementById('shipAddressList');
                 if (data.success && data.addresses.length > 0) {
@@ -1700,7 +1723,7 @@
             document.getElementById('shipServicesTotal').style.display = 'none';
             try {
                 if (!_shipServicesCache) {
-                    const res = await fetch('/api/extra_services/catalog');
+                    const res = await apiFetch('/api/extra_services/catalog');
                     const data = await res.json();
                     _shipServicesCache = (data.success && data.services) ? data.services : [];
                 }
@@ -1771,7 +1794,7 @@
             }
             const note = document.getElementById('shipNote').value.trim();
             try {
-                const res = await fetch('/api/shipment_request', {
+                const res = await apiFetch('/api/shipment_request', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
@@ -1819,7 +1842,7 @@
             const last5 = (input?.value || '').trim();
             if (!last5 || last5.length !== 5) { showToast('請輸入帳號後五碼（5位數字）', 'error'); return; }
             try {
-                const res = await fetch('/api/shipment_requests/' + reqId + '/payment', {
+                const res = await apiFetch('/api/shipment_requests/' + reqId + '/payment', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ last5: last5, g_code: currentCustomer.g_code })
@@ -1838,7 +1861,7 @@
         async function loadShipRequests() {
             if (!currentCustomer) return;
             try {
-                const res = await fetch(`/api/shipment_requests?g_code=${currentCustomer.g_code}`);
+                const res = await apiFetch(`/api/shipment_requests?g_code=${currentCustomer.g_code}`);
                 const result = await res.json();
                 const card = document.getElementById('shipRequestsCard');
                 const container = document.getElementById('shipRequestsList');
@@ -2020,7 +2043,7 @@
             const container = document.getElementById('unclaimedList');
             const g = currentCustomer ? currentCustomer.g_code : '';
             try {
-                const res = await fetch(`/api/unclaimed?g_code=${encodeURIComponent(g)}`);
+                const res = await apiFetch(`/api/unclaimed?g_code=${encodeURIComponent(g)}`);
                 const data = await res.json();
                 if (!data.success || !data.items || !data.items.length) {
                     container.innerHTML = '<div class="empty-state"><div class="icon">✅</div><p>目前沒有無主包裹</p></div>';
@@ -2056,7 +2079,7 @@
             const note = prompt('補充說明（選填）：例如「日本 Amazon 寄出，內容是保養品」，有助倉庫核對');
             if (note === null) return;   // 按取消 → 不送出
             try {
-                const res = await fetch(`/api/unclaimed/${id}/claim_request`, {
+                const res = await apiFetch(`/api/unclaimed/${id}/claim_request`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ g_code: currentCustomer.g_code, note: note.trim() })
@@ -2074,7 +2097,7 @@
             if (!currentCustomer) return;
             if (!confirm('確定撤回這件的認領申請？')) return;
             try {
-                const res = await fetch(`/api/unclaimed/${id}/claim_request`, {
+                const res = await apiFetch(`/api/unclaimed/${id}/claim_request`, {
                     method: 'DELETE',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ g_code: currentCustomer.g_code })
@@ -2089,7 +2112,7 @@
             if (!currentCustomer) return;
             try {
                 // 我的包裹：倉庫中的數量（已到貨/已入庫）
-                const pkgRes = await fetch(`/api/packages?g_code=${currentCustomer.g_code}`);
+                const pkgRes = await apiFetch(`/api/packages?g_code=${currentCustomer.g_code}`);
                 const pkgData = await pkgRes.json();
                 const badgePkg = document.getElementById('badge-packages');
                 if (pkgData.success && pkgData.packages) {
@@ -2103,7 +2126,7 @@
                 } else { badgePkg.style.display = 'none'; }
 
                 // 運單查詢：有帳單待付款的數量
-                const reqRes = await fetch(`/api/shipment_requests?g_code=${currentCustomer.g_code}`);
+                const reqRes = await apiFetch(`/api/shipment_requests?g_code=${currentCustomer.g_code}`);
                 const reqData = await reqRes.json();
                 const badgeOrders = document.getElementById('badge-orders');
                 if (reqData.success && reqData.requests) {
@@ -2119,7 +2142,7 @@
                 } else { badgeOrders.style.display = 'none'; }
 
                 // 預報包裹：待處理中的預報
-                const fcRes = await fetch(`/api/my_forecasts?g_code=${currentCustomer.g_code}`);
+                const fcRes = await apiFetch(`/api/my_forecasts?g_code=${currentCustomer.g_code}`);
                 const fcData = await fcRes.json();
                 const badgeForecast = document.getElementById('badge-forecast');
                 if (fcData.success && fcData.forecasts) {
@@ -2133,7 +2156,7 @@
                 } else { badgeForecast.style.display = 'none'; }
 
                 // 無主包裹：牆上還沒被自己申請的件數（提醒去看看有沒有自己的）
-                const ucRes = await fetch(`/api/unclaimed?g_code=${currentCustomer.g_code}`);
+                const ucRes = await apiFetch(`/api/unclaimed?g_code=${currentCustomer.g_code}`);
                 const ucData = await ucRes.json();
                 const badgeUc = document.getElementById('badge-unclaimed');
                 if (ucData.success && ucData.items) {
@@ -2151,7 +2174,7 @@
         // ── 公告 ──（每次登入都顯示，可勾選「不要再顯示這則」單獨靜音）
         async function checkAnnouncements() {
             try {
-                const res = await fetch('/api/announcements');
+                const res = await apiFetch('/api/announcements');
                 const data = await res.json();
                 if (!data.success || !data.announcements || !data.announcements.length) return;
                 // 過濾被勾選「不要再顯示」的公告
@@ -2204,6 +2227,9 @@
         }
 
         function showToast(message, type = 'success') {
+            // session 過期已提示過 → 壓掉緊接著冒出來的一串連帶錯誤
+            if (typeof _suppressToastUntil !== 'undefined' && Date.now() < _suppressToastUntil
+                && message !== '登入階段已過期，請重新登入') return;
             const toast = document.createElement('div');
             toast.className = `toast toast-${type}`;
             toast.textContent = message;

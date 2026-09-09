@@ -1067,6 +1067,25 @@ def is_super_admin():
     """是否為管理員（admin_users 表的人＝老闆或員工，日常作業都可）"""
     return session.get("user_type") == "admin"
 
+def _require_customer(g_code):
+    """驗證請求的 g_code 是否為目前登入者。
+    回傳 (ok: bool, resp)。ok=False 時直接 return resp。
+    後台 admin session 一律放行（後台有代客戶操作的流程）。
+
+    背景：客戶端 API 原本只拿 request 傳來的 g_code 比對資料列的 g_code，
+    客編連號（G0001…），一支迴圈就能把全站客戶的地址簿、申報人、包裹、帳單撈走。
+    真正的帳密驗證在 /api/verify_customer，這裡把它的結果（session）接上來。"""
+    if session.get("user_type") == "admin":
+        return True, None
+    cur = (session.get("cust_g_code") or "").upper()
+    if not cur:
+        return False, (jsonify({"success": False, "need_login": True,
+                                "error": "登入階段已過期，請重新登入"}), 401)
+    if cur != (g_code or "").strip().upper():
+        return False, (jsonify({"success": False, "error": "無權存取"}), 403)
+    return True, None
+
+
 def is_boss():
     """是否為老闆（super）：可看營收統計、代理管理、管理員管理、變更密碼等敏感功能"""
     return session.get("user_type") == "admin" and session.get("role") == "super"
@@ -1162,11 +1181,12 @@ def _parse_pkg_ids(raw):
 
 @app.route("/api/me", methods=["GET"])
 def api_me():
-    """前端查當前身份"""
+    """前端查當前身份（只讀自己的 session，不吃 g_code → 無跨帳號存取問題）"""
+    cust = session.get("cust_g_code") or ""
     u = current_user()
     if not u:
-        return jsonify({"logged_in": False})
-    return jsonify({"logged_in": True, **u})
+        return jsonify({"logged_in": bool(cust), "cust_g_code": cust})
+    return jsonify({"logged_in": True, "cust_g_code": cust, **u})
 
 
 @app.route("/api/admin/logout", methods=["POST"])
@@ -2501,6 +2521,9 @@ def member_request_unclaimed(uid):
     g_code, _source, member_name, err = _uc_valid_customer(data.get("g_code"))
     if err:
         return jsonify({"success": False, "error": err}), 403
+    ok, resp = _require_customer(g_code)
+    if not ok:
+        return resp
 
     conn = get_db()
     if not conn.execute("SELECT 1 FROM unclaimed_packages WHERE id=?", (uid,)).fetchone():
@@ -2531,6 +2554,9 @@ def member_cancel_unclaimed(uid):
     g_code, _source, _name, err = _uc_valid_customer(raw)
     if err:
         return jsonify({"success": False, "error": err}), 403
+    ok, resp = _require_customer(g_code)
+    if not ok:
+        return resp
     conn = get_db()
     conn.execute("DELETE FROM unclaimed_claims WHERE unclaimed_id=? AND g_code=?", (uid, g_code))
     conn.commit()
@@ -2799,6 +2825,8 @@ def verify_customer():
             member_rate = float(m.get("shipping_rate") or 0)
             rate_twd = int(member_rate if member_rate > 0 else agent_min)
             branding = _branding_dict(ag) if ag else _branding_dict(None)
+            session["cust_g_code"] = g_code       # 客戶登入狀態（客戶端 API 守門用）
+            session.permanent = True
             return jsonify({
                 "success": True,
                 "customer": {
@@ -2831,6 +2859,8 @@ def verify_customer():
                     except (ValueError, TypeError):
                         rate_twd = DEFAULT_SHIPPING_RATE
                     rate_jpy = twd_to_jpy(rate_twd) if rate_twd else 0
+                    session["cust_g_code"] = g_code       # 客戶登入狀態（客戶端 API 守門用）
+                    session.permanent = True
                     return jsonify({
                         "success": True,
                         "customer": {
@@ -2853,6 +2883,13 @@ def verify_customer():
         return jsonify({"success": False, "error": f"查詢失敗: {str(e)}"})
 
 
+@app.route("/api/customer_logout", methods=["POST"])
+def customer_logout():
+    """客戶登出：只清客戶登入狀態，不動後台 session。"""
+    session.pop("cust_g_code", None)
+    return jsonify({"success": True})
+
+
 @app.route("/api/forecast", methods=["POST"])
 def create_forecast():
     data = request.json
@@ -2864,6 +2901,9 @@ def create_forecast():
         return jsonify({"success": False, "error": "缺少客戶編號"})
     if not packages:
         return jsonify({"success": False, "error": "請至少填寫一個包裹"})
+    ok, resp = _require_customer(g_code)
+    if not ok:
+        return resp
 
     results = []
     for idx, pkg in enumerate(packages):
@@ -2919,6 +2959,9 @@ def get_packages():
         return jsonify({"success": False, "error": "缺少會員編號"})
 
     g_code = g_code.upper()
+    ok, resp = _require_customer(g_code)
+    if not ok:
+        return resp
     conn = get_db()
     rows = conn.execute(
         "SELECT * FROM packages WHERE g_code=? ORDER BY id DESC",
@@ -2964,6 +3007,9 @@ def get_packages():
 def get_orders():
     """（已停用）原 JPD 運單查詢。已不與 JPD 合作，不再對其發送 API 請求。
     客戶端的運單查詢分頁改為只顯示「我的出貨申請」（含台灣配送貨況）。"""
+    ok, resp = _require_customer(request.args.get("g_code") or request.args.get("customer_id"))
+    if not ok:
+        return resp
     return jsonify({"success": True, "orders": []})
 
 
@@ -3899,6 +3945,9 @@ def get_addresses():
     g_code = request.args.get("g_code", "").upper()
     if not g_code:
         return jsonify({"success": False, "error": "缺少會員編號"})
+    ok, resp = _require_customer(g_code)
+    if not ok:
+        return resp
     conn = get_db()
     rows = conn.execute(
         "SELECT * FROM addresses WHERE g_code=? ORDER BY is_default DESC, id DESC", (g_code,)
@@ -3921,6 +3970,9 @@ def add_address():
 
     if not g_code or not recipient or not phone or not address:
         return jsonify({"success": False, "error": "收件人、電話、地址為必填"})
+    ok, resp = _require_customer(g_code)
+    if not ok:
+        return resp
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = get_db()
@@ -3947,6 +3999,9 @@ def update_address(addr_id):
     """更新地址"""
     data = request.json
     g_code = (data.get("g_code") or "").strip().upper()
+    ok, resp = _require_customer(g_code)
+    if not ok:
+        return resp
     conn = get_db()
     # 驗證是本人的
     row = conn.execute("SELECT g_code FROM addresses WHERE id=?", (addr_id,)).fetchone()
@@ -3976,6 +4031,9 @@ def delete_address(addr_id):
     """刪除地址"""
     data = request.json or {}
     g_code = (data.get("g_code") or request.args.get("g_code", "")).strip().upper()
+    ok, resp = _require_customer(g_code)
+    if not ok:
+        return resp
     conn = get_db()
     row = conn.execute("SELECT g_code, is_default FROM addresses WHERE id=?", (addr_id,)).fetchone()
     if not row or row["g_code"] != g_code:
@@ -3997,6 +4055,9 @@ def set_default_address(addr_id):
     """設為預設地址"""
     data = request.json
     g_code = (data.get("g_code") or "").strip().upper()
+    ok, resp = _require_customer(g_code)
+    if not ok:
+        return resp
     conn = get_db()
     row = conn.execute("SELECT g_code FROM addresses WHERE id=?", (addr_id,)).fetchone()
     if not row or row["g_code"] != g_code:
@@ -4033,6 +4094,9 @@ def get_declarants():
     g_code = request.args.get("g_code", "").strip().upper()
     if not g_code:
         return jsonify({"success": False, "error": "缺少會員編號"})
+    ok, resp = _require_customer(g_code)
+    if not ok:
+        return resp
     conn = get_db()
     rows = conn.execute(
         "SELECT * FROM declarants WHERE g_code=? ORDER BY is_default DESC, id DESC", (g_code,)
@@ -4052,6 +4116,9 @@ def add_declarant():
 
     if not g_code or not name or not address or not (data.get("phone") or "").strip():
         return jsonify({"success": False, "error": "申報人姓名、EZ WAY 綁定手機、地址為必填"})
+    ok, resp = _require_customer(g_code)
+    if not ok:
+        return resp
     phone = _normalize_tw_mobile(data.get("phone"))
     if not phone:
         return jsonify({"success": False, "error": DECLARANT_PHONE_ERR})
@@ -4087,6 +4154,9 @@ def update_declarant(dec_id):
     """更新申報人（先驗歸屬）"""
     data = request.json or {}
     g_code = (data.get("g_code") or "").strip().upper()
+    ok, resp = _require_customer(g_code)
+    if not ok:
+        return resp
     conn = get_db()
     row = conn.execute("SELECT g_code FROM declarants WHERE id=?", (dec_id,)).fetchone()
     if not row or row["g_code"] != g_code:
@@ -4130,6 +4200,9 @@ def delete_declarant(dec_id):
     """刪除申報人；刪掉預設時由最舊一筆遞補"""
     data = request.json or {}
     g_code = (data.get("g_code") or request.args.get("g_code", "")).strip().upper()
+    ok, resp = _require_customer(g_code)
+    if not ok:
+        return resp
     conn = get_db()
     row = conn.execute("SELECT g_code, is_default FROM declarants WHERE id=?", (dec_id,)).fetchone()
     if not row or row["g_code"] != g_code:
@@ -4151,6 +4224,9 @@ def set_default_declarant(dec_id):
     """設為預設申報人"""
     data = request.json or {}
     g_code = (data.get("g_code") or "").strip().upper()
+    ok, resp = _require_customer(g_code)
+    if not ok:
+        return resp
     conn = get_db()
     row = conn.execute("SELECT g_code FROM declarants WHERE id=?", (dec_id,)).fetchone()
     if not row or row["g_code"] != g_code:
@@ -4306,6 +4382,9 @@ def create_shipment_request():
 
     if not g_code:
         return jsonify({"success": False, "error": "缺少會員編號"})
+    ok, resp = _require_customer(g_code)
+    if not ok:
+        return resp
     if not package_ids:
         return jsonify({"success": False, "error": "請選擇要出貨的包裹"})
     if not ship_recipient or not ship_phone or not ship_address:
@@ -4463,6 +4542,9 @@ def get_my_shipment_requests():
     g_code = request.args.get("g_code", "").upper()
     if not g_code:
         return jsonify({"success": False, "error": "缺少會員編號"})
+    ok, resp = _require_customer(g_code)
+    if not ok:
+        return resp
     conn = get_db()
     rows = conn.execute(
         "SELECT * FROM shipment_requests WHERE g_code=? ORDER BY id DESC", (g_code,)
@@ -4523,6 +4605,9 @@ def submit_payment_info(req_id):
         return jsonify({"success": False, "error": "請輸入帳號後五碼（5位數字）"})
     if not last5.isdigit():
         return jsonify({"success": False, "error": "請輸入數字"})
+    ok, resp = _require_customer(g_code)
+    if not ok:
+        return resp
     last5 = last5.zfill(5)   # 純數字補滿5位，保住前導0（00000/00123 不被截）
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -5370,6 +5455,9 @@ def create_forecast_simple():
 
     if not g_code:
         return jsonify({"success": False, "error": "缺少會員編號"})
+    ok, resp = _require_customer(g_code)
+    if not ok:
+        return resp
     if not items:
         return jsonify({"success": False, "error": "請至少填寫一個商品"})
 
@@ -5397,6 +5485,9 @@ def get_my_forecasts():
     g_code = request.args.get("g_code", "").upper()
     if not g_code:
         return jsonify({"success": False, "error": "缺少會員編號"})
+    ok, resp = _require_customer(g_code)
+    if not ok:
+        return resp
     conn = get_db()
     rows = conn.execute(
         "SELECT * FROM forecasts WHERE g_code=? ORDER BY id DESC LIMIT 20", (g_code,)
