@@ -9,7 +9,6 @@ import requests
 import json
 import os
 import sqlite3
-import shutil
 import csv
 import tw_zip
 import io
@@ -2930,8 +2929,16 @@ def admin_clean_last5():
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_path = os.path.abspath(DB_PATH) + ".bak-" + stamp
         try:
-            conn.commit()          # 確保 WAL 內容落地後再複製
-            shutil.copy2(DB_PATH, backup_path)
+            # 用 SQLite 官方 backup API，不要自己複製檔案：
+            # DB 是 WAL 模式，commit() 只保證寫進 -wal 旁檔、不保證 checkpoint 回主檔，
+            # 單純 copy2 主檔會得到缺最近交易的備份（而且照樣開得起來，很難察覺）。
+            # backup API 取的是一致快照，產出的也是不依賴 -wal/-shm 的完整單檔。
+            dest = sqlite3.connect(backup_path)
+            try:
+                conn.backup(dest)
+                dest.commit()
+            finally:
+                dest.close()
             if not os.path.exists(backup_path) or os.path.getsize(backup_path) == 0:
                 raise IOError("備份檔不存在或為空")
         except Exception as e:
