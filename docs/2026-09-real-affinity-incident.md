@@ -91,12 +91,10 @@ DEFAULT 與其他修飾一字不動；搬資料時只去除型別造成的 `.0`�
 | `ship_phone` id=490 | 全形數字電話 | 需人工確認 |
 | `ship_phone` id=725 | 含空格的電話 | 需人工確認 |
 
-Schema 層面尚未處理：
+Schema 層面沒有其他待辦。
 
-- `contact_book.mobile_no` 宣告為 REAL
-- `contact_book.misc` 無型別宣告（BLOB affinity）
-
-這兩個目前沒有實際損害，但同樣是誤宣告，日後若要存字串進去會踩同一個坑。
+`contact_book` 在正式站不存在；先前列入待辦是誤把測試 DB 的掃描結果當成正式站事實
+（正式站實測回 404 已確認）。用來釐清它的 `table_peek` 端點也一併移除了。
 
 ## 留下的工具
 
