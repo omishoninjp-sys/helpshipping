@@ -2947,6 +2947,172 @@ AFFINITY_SUSPECT_COLS = [
 _NUMERIC_DECL_PREFIXES = ("REAL", "NUMERIC", "DOUBLE", "FLOAT", "DECIMAL")
 
 
+# ============ 維運：電話欄位 affinity 全庫檢查（唯讀）============
+# 客戶登入密碼就是手機號碼。若存手機的欄位是 REAL affinity，
+# '0912345678' 會被存成 912345678.0，登入比對就會出問題。
+# 任務 K 的掃描條件是「REAL/NUMERIC 且 DEFAULT ''」，會漏掉「REAL 但無 DEFAULT
+# 或 DEFAULT NULL」的欄位，所以這裡放寬條件重掃一次。
+
+_PHONE_NAME_HINTS = ("phone", "tel", "mobile", "電話")
+# 放寬後要列出的宣告型別（含「無型別」→ BLOB affinity）
+_LOOSE_NUMERIC_PREFIXES = ("REAL", "NUMERIC", "INTEGER", "INT", "DOUBLE", "FLOAT", "DECIMAL")
+
+# 客戶登入比對的實際邏輯（見 /api/verify_customer；此處僅為文字說明，不影響行為）
+_LOGIN_COMPARE_NOTE = {
+    "endpoint": "/api/verify_customer",
+    "local_members": (
+        "stored_phone = normalize_phone(m.get('phone') or '')；"
+        "if stored_phone != password_clean → 密碼錯誤。"
+        "比對欄位＝members.phone"
+    ),
+    "shopify": (
+        "if c['phone'] and c['phone'] == password_clean → 通過。"
+        "比對欄位＝Shopify 客戶資料的 phone（不經過本地 DB）"
+    ),
+    "normalize_phone": (
+        "只做 replace(' ','') 與 replace('-','')，再把 +886 / +81 前綴換成 0。"
+        "★ 沒有 strip()、沒有 zfill、沒有去 .0、沒有任何型別轉換。"
+    ),
+    "risk_if_real_affinity": (
+        "若 members.phone 是 REAL affinity，讀回來會是 float（例如 912345678.0），"
+        "normalize_phone 對 float 呼叫 .replace 會拋 AttributeError，"
+        "被 verify_customer 的 except 吞掉並印出「本地查詢失敗」，"
+        "接著 fallback 去查 Shopify → 本地會員將完全登不進去。"
+    ),
+}
+
+
+@app.route("/api/admin/maintenance/phone_affinity_diag", methods=["GET"])
+def admin_phone_affinity_diag():
+    """電話欄位 affinity 全庫檢查（唯讀）。
+
+    ⚠️ 只做 SELECT / PRAGMA，不含任何 UPDATE / INSERT / DELETE / ALTER / CREATE。
+    ⚠️ 所有值一律 CAST(... AS TEXT) 才輸出。"""
+    if not is_boss():
+        return jsonify({"success": False, "error": "只有老闆可以執行維運作業"}), 403
+
+    conn = get_db()
+    try:
+        tables = [r["name"] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        ).fetchall() if not r["name"].startswith("sqlite_")]
+
+        def _cols(t):
+            try:
+                return [dict(r) for r in conn.execute(f'PRAGMA table_info("{t}")').fetchall()]
+            except Exception:
+                return []
+
+        def _pk_expr(cinfo):
+            """回傳可當識別欄位的運算式與別名；沒有主鍵就用 rowid。"""
+            pks = [c["name"] for c in cinfo if c.get("pk")]
+            return (f'"{pks[0]}"', pks[0]) if len(pks) == 1 else ("rowid", "rowid")
+
+        # ── 1) 全庫放寬重掃：宣告為數值型別或無型別的欄位，不論 DEFAULT ──
+        loose = []
+        for t in tables:
+            for c in _cols(t):
+                ctype = str(c.get("type") or "").strip()
+                up = ctype.upper()
+                if (not ctype) or up.startswith(_LOOSE_NUMERIC_PREFIXES):
+                    loose.append({
+                        "table": t, "column": c.get("name"),
+                        "declared_type": ctype or "(無型別)",
+                        "dflt_value": c.get("dflt_value"),
+                        "notnull": c.get("notnull"), "pk": c.get("pk"),
+                    })
+
+        # ── 2) 欄位名含 phone / tel / mobile / 電話 者，逐一檢查 ──
+        phone_cols = []
+        for t in tables:
+            cinfo = _cols(t)
+            pk_expr, pk_name = _pk_expr(cinfo)
+            for c in cinfo:
+                cname = str(c.get("name") or "")
+                if not any(h in cname.lower() for h in _PHONE_NAME_HINTS[:3]) \
+                        and "電話" not in cname:
+                    continue
+                dist = [{"typeof": r["t"], "count": r["c"]} for r in conn.execute(
+                    f'SELECT typeof("{cname}") AS t, COUNT(*) AS c FROM "{t}" '
+                    f"GROUP BY t ORDER BY c DESC").fetchall()]
+                damaged = conn.execute(
+                    f'SELECT COUNT(*) FROM "{t}" WHERE typeof("{cname}") IN (\'real\',\'integer\')'
+                ).fetchone()[0]
+                samples = [
+                    {"pk_column": pk_name, "pk": str(r["pk_val"]), "typeof": r["t"],
+                     "raw": r["raw"], "len": r["len"], "stripped": _strip_dot_zero(r["raw"] or "")}
+                    for r in conn.execute(
+                        f'SELECT {pk_expr} AS pk_val, typeof("{cname}") AS t, '
+                        f'       CAST("{cname}" AS TEXT) AS raw, '
+                        f'       length(CAST("{cname}" AS TEXT)) AS len '
+                        f'FROM "{t}" WHERE COALESCE("{cname}",\'\') <> \'\' '
+                        f'ORDER BY (typeof("{cname}") IN (\'real\',\'integer\')) DESC, {pk_expr} DESC '
+                        f"LIMIT 20"
+                    ).fetchall()
+                ]
+                phone_cols.append({
+                    "table": t, "column": cname,
+                    "declared_type": c.get("type"), "dflt_value": c.get("dflt_value"),
+                    "typeof_distribution": dist, "damaged": damaged, "samples": samples,
+                })
+
+        # ── 3) members 表細看（登入密碼比對用的就是這張表的 phone）──
+        members_detail = None
+        if "members" in tables:
+            cinfo = _cols("members")
+            pk_expr, pk_name = _pk_expr(cinfo)
+            login_col = "phone" if any(c["name"] == "phone" for c in cinfo) else None
+            detail = {
+                "table_info": [{"name": c.get("name"), "type": c.get("type"),
+                                "dflt_value": c.get("dflt_value"), "notnull": c.get("notnull"),
+                                "pk": c.get("pk")} for c in cinfo],
+                "login_compare_column": login_col,
+            }
+            if login_col:
+                detail["typeof_distribution"] = [
+                    {"typeof": r["t"], "count": r["c"]} for r in conn.execute(
+                        f'SELECT typeof("{login_col}") AS t, COUNT(*) AS c FROM members '
+                        f"GROUP BY t ORDER BY c DESC").fetchall()
+                ]
+                len_dist, bad = {}, []
+                for r in conn.execute(
+                    f'SELECT {pk_expr} AS pk_val, typeof("{login_col}") AS t, '
+                    f'       CAST("{login_col}" AS TEXT) AS raw '
+                    f'FROM members WHERE COALESCE("{login_col}",\'\') <> \'\' '
+                    f"ORDER BY {pk_expr}"
+                ).fetchall():
+                    raw = r["raw"] or ""
+                    k = str(len(raw))
+                    len_dist[k] = len_dist.get(k, 0) + 1
+                    if len(raw) != 10 and len(bad) < 20:
+                        bad.append({"pk_column": pk_name, "pk": str(r["pk_val"]), "typeof": r["t"],
+                                    "raw": raw, "len": len(raw),
+                                    "stripped": _strip_dot_zero(raw)})
+                detail["length_distribution"] = dict(sorted(len_dist.items(), key=lambda kv: int(kv[0])))
+                detail["not_10_chars"] = {
+                    "total": sum(c for k, c in len_dist.items() if int(k) != 10),
+                    "shown": len(bad), "samples": bad,
+                }
+            members_detail = detail
+        conn.close()
+
+        return jsonify({
+            "success": True,
+            "read_only": True,
+            "tables_scanned": len(tables),
+            "loose_numeric_columns": {"total": len(loose), "items": loose},
+            "phone_like_columns": phone_cols,
+            "members": members_detail,
+            "note": _LOGIN_COMPARE_NOTE,
+        })
+    except Exception as e:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route("/api/admin/maintenance/affinity_diag", methods=["GET"])
 def admin_affinity_diag():
     """七個誤宣告為 REAL 的欄位，損害範圍診斷。
