@@ -569,6 +569,23 @@
 
         <!-- 客服手冊 -->
         <div class="admin-panel" id="panel-handbook">
+            <div class="card" id="box-limit-card" style="display:none;">
+                <div class="toolbar" style="margin-bottom:8px;">
+                    <h3>📦 <span data-i18n="nav.boxlimit">申報人單日件數上限</span></h3>
+                </div>
+                <p style="font-size:12px;color:#888;margin:-4px 0 12px;line-height:1.7;" data-i18n="bl.limithint">
+                    清關行規定同一位申報人、同一天可報關的件數上限。各家不同且會變動，改這裡即可，不需要改程式。
+                    出檔案時會把「本批 ＋ 同日已出檔案的批次」一起算，超過會跳確認。
+                </p>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <input type="number" id="box-limit-input" class="form-control" min="1" max="50"
+                           style="width:110px;padding:8px;font-size:14px;">
+                    <span style="font-size:12px;color:#888;" data-i18n="bl.limitunit">箱／人／日（1~50）</span>
+                    <button class="btn" style="background:#27ae60;color:#fff;padding:8px 18px;font-weight:700;"
+                            onclick="saveBoxLimit()">💾 <span data-i18n="btn.save">儲存</span></button>
+                    <span id="box-limit-msg" style="font-size:12px;color:#888;"></span>
+                </div>
+            </div>
             <div class="card">
                 <div class="toolbar" style="margin-bottom:10px;flex-wrap:wrap;gap:8px;">
                     <h3>📖 <span data-i18n="title.handbook">客服手冊</span></h3>
@@ -1241,7 +1258,7 @@
                     <label style="margin-left:auto;color:#fff;font-size:13px;"><span data-i18n="ex.vendor">廠商：</span>
                         <select id="exports-vendor-select" class="form-control" style="width:auto;display:inline-block;padding:6px 12px;font-size:13px;margin-left:6px;"></select>
                     </label>
-                    <button class="btn btn-primary" style="padding:8px 20px;font-weight:700;" onclick="generateExport()" data-i18n="btn.gen">📥 下載 Excel + 標記已出檔案</button>
+                    <button class="btn btn-primary" id="exports-gen-btn" style="padding:8px 20px;font-weight:700;" onclick="generateExport()" data-i18n="btn.gen">📥 下載 Excel + 標記已出檔案</button>
                 </div>
 
                 <div style="display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-bottom:10px;">
@@ -1503,6 +1520,7 @@
                     <span data-i18n="bl.boxes">📦 箱子明細（每箱各自計費）</span>
                     <button type="button" class="btn" style="background:#9b59b6;color:#fff;padding:4px 12px;font-size:12px;" onclick="addBox()" data-i18n="bl.addbox">➕ 新增箱子</button>
                 </label>
+                <div id="bill-declarant-tally" style="display:none;font-size:12px;line-height:1.7;margin:0 0 8px;padding:8px 10px;background:rgba(52,152,219,.08);border:1px solid rgba(52,152,219,.25);border-radius:8px;"></div>
                 <div id="bill-boxes"></div>
             </div>
             <div class="form-group" style="margin:0;">
@@ -1656,6 +1674,18 @@ var I18N = {
     "第":"箱 ","箱":"","實際 ":"実重量 ","材積 ":"容積 ","計費 ":"課金 ","運費 ":"送料 ",
     // 申報人（報單収貨人／納税義務者）
     "（同主申報人）":"主申告者と同じ","申報人":"申告者",
+    // 申報人單日報關件數上限
+    "nav.boxlimit":"申告者の1日あたり件数上限","申報人單日件數上限":"申告者の1日あたり件数上限",
+    "bl.limithint":"通関業者が定める、同一申告者・同一日の通関件数上限です。業者ごとに異なり変更されるため、ここで変更できます（プログラム修正不要）。出力時は「今回分＋同日出力済み分」を合算して判定し、超過時は確認ダイアログが出ます。",
+    "bl.limitunit":"箱／人／日（1~50）","上限必須是 1~50 的整數":"上限は 1~50 の整数で入力してください",
+    "已儲存":"保存しました",
+    "本單申報人箱數":"この伝票の申告者別箱数","上限":"上限","（未指定）":"（未指定）",
+    "已超過上限，請分給其他申報人":"上限を超えています。他の申告者に分けてください",
+    "以下申報人超過單日報關件數上限：":"以下の申告者が1日あたりの通関件数上限を超えています：",
+    "本批":"今回","同日已報":"同日申告済み","箱":"箱",
+    "建議取消後重新分箱，分給其他申報人。":"キャンセルして箱を分け直し、他の申告者に振り分けることを推奨します。",
+    "若確定要繼續（例外情況），按「確定」—— 系統會留下操作紀錄。":"例外として続行する場合は「OK」を押してください。操作履歴が記録されます。",
+    "已取消，請重新分箱":"キャンセルしました。箱を分け直してください",
     // 申報人同意聲明（存證）
     "🧾 申報人同意":"🧾 申告者の同意","客戶已於":"お客様が","聲明取得申報人同意":"に同意取得を宣言",
     "申報人同意聲明：無紀錄（本功能上線前的申請）":"申告者の同意：記録なし（本機能公開前の申請）",
@@ -2116,7 +2146,38 @@ function _hbCopy(txt) {
     } else { fallback(); }
 }
 
+async function loadBoxLimitCard() {
+    var card = document.getElementById('box-limit-card');
+    if (!card) return;
+    card.style.display = _hbBoss() ? '' : 'none';   // 只有老闆能改（後端 PUT 也擋，兩層）
+    var v = await loadBoxLimit();
+    var input = document.getElementById('box-limit-input');
+    if (input) input.value = v;
+    var msg = document.getElementById('box-limit-msg');
+    if (msg) msg.textContent = '';
+}
+
+async function saveBoxLimit() {
+    if (!_hbBoss()) return;
+    var input = document.getElementById('box-limit-input');
+    var msg = document.getElementById('box-limit-msg');
+    var v = parseInt(input.value, 10);
+    if (!(v >= 1 && v <= 50)) { showToast(T('上限必須是 1~50 的整數'), 'error'); return; }
+    try {
+        var res = await fetch('/api/admin/settings/box_limit', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ limit: v })
+        });
+        var d = await res.json();
+        if (!d.success) { showToast('❌ ' + (d.error || '儲存失敗'), 'error'); return; }
+        _boxLimit = d.limit;
+        if (msg) msg.textContent = T('已儲存') + '（' + d.old + ' → ' + d.limit + '）';
+        showToast('✅ ' + T('已儲存'), 'success');
+    } catch (e) { showToast('網路錯誤', 'error'); }
+}
+
 async function loadHandbook() {
+    loadBoxLimitCard();
     var box = document.getElementById('hb-content');
     box.innerHTML = '<div style="text-align:center;color:#666;padding:30px;">' + T('載入中…') + '</div>';
     // 編輯鈕只有老闆看得到（後端 PUT 也擋，兩層）
@@ -4583,22 +4644,43 @@ function updateExportSelection() {
     document.getElementById('exports-toolbar').style.display = count > 0 ? 'flex' : 'none';
 }
 
-async function generateExport() {
+async function generateExport(confirmOverLimit) {
     var checks = document.querySelectorAll('.exp-chk:checked');
     if (!checks.length) { showToast('請先勾選要出檔案的單', 'error'); return; }
     var ids = Array.from(checks).map(function(c){ return parseInt(c.dataset.id); });
     var vendor = document.getElementById('exports-vendor-select').value;
 
     try {
-        var btn = event.target;
+        var btn = document.getElementById('exports-gen-btn')
+                || (typeof event !== 'undefined' && event && event.target) || { style: {} };
+        var btnText = btn.textContent;
         btn.disabled = true;
         btn.textContent = '⏳ 產生中…';
 
         var r = await fetch('/api/admin/exports/generate', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ vendor: vendor, ids: ids })
+            body: JSON.stringify({ vendor: vendor, ids: ids,
+                                   confirm_over_limit: !!confirmOverLimit })
         });
+
+        // 有申報人超過單日報關件數上限 → 列出明細，讓員工決定回去改分箱或強制繼續
+        if (r.status === 409) {
+            var ov = await r.json().catch(function(){ return {}; });
+            btn.disabled = false; btn.textContent = btnText;
+            var lines = (ov.over_limit || []).map(function(o) {
+                return '　• ' + o.declarant_name + (o.declarant_phone ? '（' + o.declarant_phone + '）' : '')
+                     + '：' + T('本批') + ' ' + o.batch_boxes + ' ' + T('箱')
+                     + ' ＋ ' + T('同日已報') + ' ' + o.same_day_boxes + ' ' + T('箱')
+                     + ' ＝ ' + o.total + '（' + T('上限') + ' ' + o.limit + '）';
+            }).join('\n');
+            var msg = T('以下申報人超過單日報關件數上限：') + '\n\n' + lines
+                + '\n\n' + T('建議取消後重新分箱，分給其他申報人。')
+                + '\n' + T('若確定要繼續（例外情況），按「確定」—— 系統會留下操作紀錄。');
+            if (confirm(msg)) { return generateExport(true); }
+            showToast(T('已取消，請重新分箱'), 'error');
+            return;
+        }
 
         if (!r.ok) {
             var errJson = await r.json().catch(function(){ return {error: 'HTTP ' + r.status}; });
@@ -5596,7 +5678,15 @@ function emptyBox() {
              declarant_name:'', declarant_phone:'', declarant_address:'' };
 }
 // 依 declarants_json 建立本次可選的申報人清單（載入計費 modal 時呼叫）
+var _billMainDeclarant = { name: '', phone: '' };
+var _billShipRecipient = '';
+var _billShipPhone = '';
+
 function setReqDeclarants(req) {
+    // fallback 用的主申報人與收件人（與後端三層 fallback 對齊）
+    _billMainDeclarant = { name: (req && req.declarant_name) || '', phone: (req && req.declarant_phone) || '' };
+    _billShipRecipient = (req && req.ship_recipient) || '';
+    _billShipPhone = (req && req.ship_phone) || '';
     _reqDeclarants = [];
     try {
         var ds = JSON.parse((req && req.declarants_json) || '[]');
@@ -5637,6 +5727,52 @@ function readBoxInputs() {
         _billBoxes.push(box);
     });
 }
+// ── 申報人單日件數上限（軟提示用；門檻由後台設定值決定，不寫死）──
+var _boxLimit = 3;
+async function loadBoxLimit() {
+    try {
+        var res = await fetch('/api/admin/settings/box_limit');
+        var d = await res.json();
+        if (d.success && d.limit) _boxLimit = d.limit;
+    } catch (e) {}
+    return _boxLimit;
+}
+
+// 分箱當下的即時統計。只看這張單，不查同日其他單
+// （完整檢查在出檔案時做）。純提示，不阻擋任何操作。
+function renderDeclarantTally() {
+    var el = document.getElementById('bill-declarant-tally');
+    if (!el) return;
+    readBoxInputs();
+    var tally = [];
+    _billBoxes.forEach(function(b) {
+        // 取值順序與後端／vendors 的三層 fallback 一致：箱層級 → 主申報人 → 收件人
+        var name = (b.declarant_name || '').trim() || (_billMainDeclarant.name || '').trim()
+                 || (_billShipRecipient || '');
+        var phone = (b.declarant_phone || '').trim() || (_billMainDeclarant.phone || '').trim()
+                  || (_billShipPhone || '');
+        var key = name + '\u0000' + phone;
+        var hit = null;
+        for (var i = 0; i < tally.length; i++) { if (tally[i].key === key) { hit = tally[i]; break; } }
+        if (hit) { hit.n++; } else { tally.push({ key: key, name: name, phone: phone, n: 1 }); }
+    });
+    if (!tally.length || (tally.length === 1 && !tally[0].name)) { el.style.display = 'none'; return; }
+    var over = false;
+    var parts = tally.map(function(t) {
+        var bad = t.n > _boxLimit;
+        if (bad) over = true;
+        var nm = String(t.name || T('（未指定）')).replace(/[<>]/g, '');
+        return bad
+            ? '<strong style="color:#e74c3c;">' + nm + ' ' + t.n + '</strong>'
+            : '<span style="color:#ddd;">' + nm + ' ' + t.n + '</span>';
+    });
+    el.innerHTML = '<span style="color:#5dade2;">\ud83e\uddfe ' + T('本單申報人箱數') + '：</span>'
+        + parts.join('<span style="color:#666;"> / </span>')
+        + '<span style="color:#888;">（' + T('上限') + ' ' + _boxLimit + '）</span>'
+        + (over ? '<div style="color:#e74c3c;margin-top:4px;">\u26a0\ufe0f ' + T('已超過上限，請分給其他申報人') + '</div>' : '');
+    el.style.display = '';
+}
+
 function renderBoxes() {
     var box = document.getElementById('bill-boxes');
     box.innerHTML = _billBoxes.map(function(b, i){
@@ -5675,9 +5811,11 @@ function renderBoxes() {
             + '<div class="bx-hint" style="font-size:11px;color:#888;margin-top:4px;"></div>'
             + '</div>';
     }).join('');
+    renderDeclarantTally();
 }
 function calcBoxes() {
     readBoxInputs();
+    renderDeclarantTally();
     var rate = parseInt(document.getElementById('bill-rate').value) || 0;
     var rows = document.querySelectorAll('#bill-boxes .bill-box-row');
     var totalBilled = 0, totalShipping = 0, trackings = [];

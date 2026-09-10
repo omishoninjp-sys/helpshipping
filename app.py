@@ -3376,6 +3376,119 @@ def admin_last5_diag():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+# ============ 申報人單日報關件數上限 ============
+# 清關行規定同一位申報人、同一天可報關的件數有上限。各家不同且會變動，
+# 所以存 admin_settings 由老闆調整，程式碼裡不寫死數字。
+# 報關的單位是「出檔案批次」——一批交給清關行的就是同一天報的，
+# 所以硬檢查點在出檔案，不在分箱。
+
+BOX_LIMIT_KEY = "max_boxes_per_declarant_per_day"
+BOX_LIMIT_DEFAULT = 3
+
+
+def _get_box_limit():
+    """申報人單日件數上限；設定值壞掉時回預設值，不讓出檔案卡住。"""
+    try:
+        v = int(str(_get_setting(BOX_LIMIT_KEY, "") or BOX_LIMIT_DEFAULT).strip())
+        return v if 1 <= v <= 50 else BOX_LIMIT_DEFAULT
+    except (ValueError, TypeError):
+        return BOX_LIMIT_DEFAULT
+
+
+def _declarant_key(box, ship):
+    """(申報人姓名, 申報人電話)。取值順序與 vendors.build_rows 的三層 fallback
+    完全一致：箱層級 → 出貨單主申報人 → 收件人。
+    只用姓名會把同名不同人合併，所以 key 帶電話。"""
+    name = (str(box.get("declarant_name") or "").strip()
+            or str(ship.get("declarant_name") or "").strip()
+            or (str(ship.get("ship_recipient")) if ship.get("ship_recipient") else ""))
+    phone = (str(box.get("declarant_phone") or "").strip()
+             or str(ship.get("declarant_phone") or "").strip()
+             or (str(ship.get("ship_phone")) if ship.get("ship_phone") else ""))
+    return name, phone
+
+
+def _count_declarant_boxes(ships):
+    """統計每位申報人的箱數。沒有箱資料的舊制單視為 1 箱
+    （與 vendors.build_rows 合成一箱的行為一致）。"""
+    counts = {}
+    for sp in ships:
+        boxes = sp.get("boxes") or [{}]
+        for b in boxes:
+            k = _declarant_key(b if isinstance(b, dict) else {}, sp)
+            counts[k] = counts.get(k, 0) + 1
+    return counts
+
+
+def _same_day_declarant_counts(conn, day, exclude_ids=()):
+    """同一天已出檔案的批次，每位申報人各報了幾箱。
+    同一天出兩批、各自沒超過但加起來爆掉 —— 這一步就是為了抓那種情況。"""
+    rows = conn.execute(
+        "SELECT id, ship_recipient, ship_phone, declarant_name, declarant_phone, boxes_json "
+        "FROM shipment_requests "
+        "WHERE exported_at IS NOT NULL AND exported_at != '' AND date(exported_at) = ?",
+        (day,)
+    ).fetchall()
+    ships = []
+    for r in rows:
+        rd = dict(r)
+        if rd["id"] in exclude_ids:
+            continue
+        ships.append({
+            "ship_recipient": _safe_str(rd.get("ship_recipient")),
+            "ship_phone": _safe_str(rd.get("ship_phone")),
+            "declarant_name": _safe_str(rd.get("declarant_name")),
+            "declarant_phone": _safe_str(rd.get("declarant_phone")),
+            "boxes": _parse_boxes(rd.get("boxes_json")),
+        })
+    return _count_declarant_boxes(ships)
+
+
+def _check_declarant_box_limit(conn, shipments, limit=None, day=None):
+    """回傳超過上限的申報人明細（空 list = 沒問題）。"""
+    limit = _get_box_limit() if limit is None else limit
+    day = day or datetime.now().strftime("%Y-%m-%d")
+    batch = _count_declarant_boxes(shipments)
+    already = _same_day_declarant_counts(conn, day, exclude_ids={sp.get("id") for sp in shipments})
+    over = []
+    for k, n in batch.items():
+        prior = already.get(k, 0)
+        if n + prior > limit:
+            over.append({
+                "declarant_name": k[0], "declarant_phone": k[1],
+                "batch_boxes": n, "same_day_boxes": prior,
+                "total": n + prior, "limit": limit,
+            })
+    over.sort(key=lambda x: (-x["total"], x["declarant_name"]))
+    return over
+
+
+@app.route("/api/admin/settings/box_limit", methods=["GET"])
+def admin_get_box_limit():
+    """申報人單日件數上限（老闆＋員工都能看，前端軟提示要用）。"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    return jsonify({"success": True, "limit": _get_box_limit(), "default": BOX_LIMIT_DEFAULT})
+
+
+@app.route("/api/admin/settings/box_limit", methods=["PUT"])
+def admin_set_box_limit():
+    """修改上限（只有老闆）。各清關行規定不同且會變動，所以做成可調設定值。"""
+    if not is_boss():
+        return jsonify({"success": False, "error": "只有老闆可以修改此設定"}), 403
+    raw = (request.json or {}).get("limit")
+    try:
+        v = int(str(raw).strip())
+    except (ValueError, TypeError, AttributeError):
+        return jsonify({"success": False, "error": "上限必須是 1~50 的整數"}), 400
+    if not (1 <= v <= 50):
+        return jsonify({"success": False, "error": "上限必須是 1~50 的整數"}), 400
+    old = _get_box_limit()
+    _set_setting(BOX_LIMIT_KEY, str(v))
+    log_op("修改申報人單日件數上限", "box_limit", f"{old} → {v}")
+    return jsonify({"success": True, "limit": v, "old": old})
+
+
 # ============ 客服手冊（內容存 admin_settings，不另建表）============
 
 @app.route("/api/admin/handbook", methods=["GET"])
@@ -5749,6 +5862,20 @@ def _admin_exports_generate_impl():
         conn.close()
         return jsonify({"success": False, "error": "選定的單沒有包裹資料"}), 400
 
+    # ── 申報人單日報關件數上限檢查 ──
+    # 報關單位是「出檔案批次」，所以硬檢查點在這裡。本批 + 同日已出檔案的批次一起算，
+    # 否則同一天出兩批、各自沒超過、加起來就爆了。
+    over_limit = _check_declarant_box_limit(conn, shipments)
+    if over_limit and not data.get("confirm_over_limit"):
+        conn.close()
+        return jsonify({
+            "success": False,
+            "need_confirm": True,
+            "error": "有申報人超過單日報關件數上限，請重新分箱或確認後繼續",
+            "limit": _get_box_limit(),
+            "over_limit": over_limit,
+        }), 409
+
     # 產生 Excel
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -5813,6 +5940,16 @@ def _admin_exports_generate_impl():
         print(f"[export] fallback 補回 ship_* 欄位 {len(fallback_updates)} 筆", flush=True)
     conn.commit()
     conn.close()
+
+    # 強制略過上限檢查一定要留紀錄（可能有正當例外，但要查得到是誰在什麼時候放行的）
+    if over_limit:
+        detail = "；".join(
+            f"{o['declarant_name']}({o['declarant_phone']}) 本批{o['batch_boxes']}"
+            f"+同日{o['same_day_boxes']}={o['total']}>上限{o['limit']}"
+            for o in over_limit
+        )
+        log_op("超出申報人件數上限出檔案", f"批次{batch_id}", detail)
+        print(f"[export] ⚠️ 超出申報人單日件數上限仍出檔案：{detail}", flush=True)
 
     # 輸出檔案
     filename = vendor_templates.filename_for(vendor_id)
