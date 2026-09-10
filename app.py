@@ -574,24 +574,27 @@ def init_db():
     # ===== M1 會員主檔同步：Shopify 會員的本地副本，獨立一張表 =====
     # 為什麼不寫進 members：登入、會員列表、搜尋、出檔案 fallback 都直接讀 members，
     # 且都假設 members 只有代理/本地會員。Shopify 的 G 會員若混進去，讀取行為就變了。
-    # 本階段（M1）只建立同步、不改任何讀取路徑，所以放獨立表；M2 切讀取時再合併。
-    # 欄位刻意與 members 對齊（多 source / shopify_customer_id / synced_at），日後可直接 INSERT…SELECT。
+    # 獨立表 = 物理上不可能影響既有讀取路徑，不用靠「每個查詢都記得加過濾條件」。
+    # M1 只寫不讀；M2 切讀取時再決定怎麼合併。
+    # 這張表是純 Shopify 副本（沒有本地獨有欄位），舊版欄位不同時直接重建（下次同步會補齊）。
+    try:
+        ms_cols = [r["name"] for r in conn.execute("PRAGMA table_info(members_shopify)").fetchall()]
+        if ms_cols and ("shopify_created_at" not in ms_cols or "password" in ms_cols):
+            conn.execute("DROP TABLE members_shopify")
+            print("[migrate] members_shopify 舊結構已移除，將重建（純副本，同步會補齊）", flush=True)
+    except Exception as e:
+        print(f"[migrate] ⚠️ 檢查 members_shopify 結構失敗: {e}", flush=True)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS members_shopify (
             g_code              TEXT PRIMARY KEY,
-            agent_id            INTEGER NOT NULL DEFAULT 0,
-            name                TEXT NOT NULL DEFAULT '',
-            password            TEXT DEFAULT '',
+            name                TEXT DEFAULT '',
             phone               TEXT DEFAULT '',
-            address             TEXT DEFAULT '',
-            line_id             TEXT DEFAULT '',
             email               TEXT DEFAULT '',
-            note                TEXT DEFAULT '',
-            status              TEXT DEFAULT 'active',
-            created_at          TEXT NOT NULL,
+            address             TEXT DEFAULT '',
             shipping_rate       REAL DEFAULT 0,
-            source              TEXT DEFAULT 'shopify',
             shopify_customer_id TEXT DEFAULT '',
+            shopify_created_at  TEXT DEFAULT '',
+            status              TEXT DEFAULT 'active',
             synced_at           TEXT DEFAULT ''
         )
     """)
@@ -969,8 +972,8 @@ def _fetch_customers_from_shopify():
 # 安全規則（硬規則，改動前先讀）：
 #   • 只寫 members_shopify。members 表只讀來偵測衝突，永遠不寫。
 #   • Shopify 編號若已存在於 members（代理/本地會員，例如貼錯的 B0049）→ 不寫入，記入 conflicts。
-#   • 更新只覆蓋 name / phone / email / address / shipping_rate 五欄；
-#     password / line_id / note / status / agent_id 是本地獨有資料，絕不覆蓋。
+#   • 更新覆蓋 name / phone / email / address / shipping_rate + synced_at（這張表全部都是 Shopify 來源）；
+#     五欄都沒變就不寫（冪等）。status 只有同步自己會動（shopify_missing ↔ active）。
 #   • 不刪會員。Shopify 上消失的只標 status='shopify_missing'，資料留著（歷史出貨憑證）。
 #   • 同一個 goyoutati_id 掛在兩個以上 Shopify 客戶身上 → 該編號整個跳過，記入 duplicates。
 #   • Shopify 回空或拋例外 → 一筆都不寫，回報失敗。
@@ -1019,18 +1022,6 @@ def _member_sync_is_running():
     except (ValueError, TypeError):
         v = 0
     return v > 0 and (time.time() - v) < MEMBER_SYNC_LEASE_SEC
-
-
-def _shopify_created_at_to_local(iso_str, fallback):
-    """Shopify createdAt（ISO 8601，如 2024-01-31T08:15:00Z）→ 與 members.created_at 同格式。
-    解析不了就用 fallback（現在時間）。"""
-    s = (iso_str or "").strip()
-    if not s:
-        return fallback
-    try:
-        return datetime.strptime(s[:19], "%Y-%m-%dT%H:%M:%S").strftime("%Y-%m-%d %H:%M:%S")
-    except ValueError:
-        return fallback
 
 
 def _shopify_rate_to_float(v):
@@ -1104,6 +1095,7 @@ def sync_members_from_shopify(customers=None):
             if code in agent_codes:
                 # 【衝突】編號已是代理/本地會員 → 完全不寫入（members 與 members_shopify 都不動）
                 report["conflicts"].append(code)
+                print(f"[member_sync] ⚠️ 衝突 {code}：已存在於 members（代理/本地會員），不寫入", flush=True)
                 continue
             c = by_code[code][0]
             vals = {
@@ -1117,19 +1109,18 @@ def sync_members_from_shopify(customers=None):
             row = local_rows.get(code)
 
             if row is None:
-                # 【新增】本地沒有 → INSERT，agent_id=0，本地獨有欄位（password/line_id/note）留空
+                # 【新增】本地沒有 → INSERT（shopify_created_at 存 Shopify 原始 ISO 字串）
                 conn.execute(
-                    "INSERT INTO members_shopify (g_code, agent_id, name, password, phone, address, line_id, "
-                    "email, note, status, created_at, shipping_rate, source, shopify_customer_id, synced_at) "
-                    "VALUES (?, 0, ?, '', ?, ?, '', ?, '', 'active', ?, ?, 'shopify', ?, ?)",
-                    (code, vals["name"], vals["phone"], vals["address"], vals["email"],
-                     _shopify_created_at_to_local(c.get("created_at"), now),
-                     vals["shipping_rate"], customer_id, now)
+                    "INSERT INTO members_shopify (g_code, name, phone, email, address, shipping_rate, "
+                    "shopify_customer_id, shopify_created_at, status, synced_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)",
+                    (code, vals["name"], vals["phone"], vals["email"], vals["address"], vals["shipping_rate"],
+                     customer_id, str(c.get("created_at") or ""), now)
                 )
                 report["inserted"] += 1
                 continue
 
-            # 【更新】只比對/覆蓋五個欄位；password / line_id / note / status / agent_id 絕不動
+            # 【更新】比對五個欄位 + customer_id，有變才覆蓋（連同 synced_at）
             changed = False
             for f in MEMBER_SYNC_FIELDS:
                 cur = row[f]
