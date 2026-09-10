@@ -361,6 +361,15 @@
                     <div class="label">下一個可用編號</div>
                 </div>
             </div>
+            <!-- 會員主檔同步（M1：Shopify → members_shopify 表，只寫不讀；登入/列表仍走 Shopify 快取、members 表不動）-->
+            <div class="card" id="memberSyncCard" style="display:none;margin-bottom:14px;border:1px solid rgba(155,89,182,0.25);">
+                <div class="toolbar" style="justify-content:space-between;flex-wrap:wrap;gap:10px;">
+                    <h3 style="color:#9b59b6;">🗂️ 本地會員主檔同步</h3>
+                    <button class="btn btn-primary" id="memberSyncBtn" style="padding:8px 16px;" onclick="syncMembersNow()">🔄 立即同步</button>
+                </div>
+                <p style="font-size:12px;color:#888;margin:6px 0 8px;">把 Shopify 會員（goyoutati_id）複製到本系統的會員主檔（members_shopify 表），每 30 分鐘自動跑一次；手貼完 metafield 後可按「立即同步」。只寫入不讀取：登入、會員列表、統計仍走 Shopify，同步失敗不影響營運。代理會員（B/C 開頭）永遠不會被同步碰到。</p>
+                <div id="memberSyncStatus" style="font-size:12px;color:#aaa;">載入中…</div>
+            </div>
             <div class="card">
                 <div class="toolbar">
                     <h3>📋 會員列表</h3>
@@ -1790,6 +1799,9 @@ async function adminLogin() {
             if (sbExtra) sbExtra.style.display = currentAdmin.user_type === 'admin' ? '' : 'none';
             var sbAnn = document.getElementById('sidebar-announcements');
             if (sbAnn) sbAnn.style.display = currentAdmin.user_type === 'admin' ? '' : 'none';
+            var msc = document.getElementById('memberSyncCard');
+            if (msc) msc.style.display = currentAdmin.user_type === 'admin' ? '' : 'none';
+            if (currentAdmin.user_type === 'admin') loadMemberSyncStatus();
             // 代理專屬：我的品牌設定
             var sbMB = document.getElementById('sidebar-my-branding');
             if (sbMB) sbMB.style.display = currentAdmin.user_type === 'agent' ? '' : 'none';
@@ -1991,6 +2003,7 @@ function switchAdminTab(tab) {
     if (activeItem) activeItem.classList.add('active');
     var panel = document.getElementById(`panel-${tab}`);
     if (panel) panel.classList.add('active');
+    if (tab === 'members' && currentAdmin && currentAdmin.user_type === 'admin') loadMemberSyncStatus();
     if (tab === 'arrivals') loadPackages();
     if (tab === 'unclaimed') loadUnclaimed();
     if (tab === 'oplogs') loadOpLogs();
@@ -4499,6 +4512,51 @@ async function loadStats() {
 
 var _exportsCache = [];   // 後端回來的 items 快取
 var _exportsVendors = []; // 廠商清單
+
+// ===== 會員主檔同步（M1）=====
+async function loadMemberSyncStatus() {
+    var el = document.getElementById('memberSyncStatus');
+    if (!el) return;
+    try {
+        var res = await fetch('/api/admin/members/sync_status');
+        var d = await res.json();
+        if (!d.success) { el.textContent = d.error || '無法載入'; return; }
+        var dist = d.source_dist || {};
+        var r = d.last_report || {};
+        var html = 'Shopify 主檔副本 <strong style="color:#fff;">' + (dist.shopify || 0) + '</strong> 筆'
+            + '｜members 表：代理 <strong style="color:#fff;">' + (dist.agent || 0) + '</strong>'
+            + '、本地 <strong style="color:#fff;">' + (dist.local || 0) + '</strong>'
+            + '｜上次同步：<strong style="color:#fff;">' + (d.last_sync_at || '尚未同步') + '</strong>'
+            + (d.running ? ' <span style="color:#f1c40f;">（同步進行中…）</span>' : '');
+        if (r.synced_at) {
+            html += '<div style="margin-top:4px;">上次結果：'
+                + (r.success ? '<span style="color:#27ae60;">成功</span>' : '<span style="color:#e74c3c;">失敗 ' + (r.error || '') + '</span>')
+                + '｜新增 ' + (r.inserted || 0) + '｜更新 ' + (r.updated || 0) + '｜未變 ' + (r.unchanged || 0)
+                + '｜Shopify 消失 ' + (r.shopify_missing || 0) + '（累計 ' + (d.shopify_missing_total || 0) + '）'
+                + '｜Shopify 共 ' + (r.shopify_total || 0) + ' 筆｜' + (r.elapsed_sec || 0) + 's</div>';
+            if ((r.conflicts || []).length) html += '<div style="margin-top:4px;color:#e67e22;">⚠️ 衝突（編號已是代理/本地會員、未寫入）：' + r.conflicts.join('、') + '</div>';
+            if ((r.duplicates || []).length) html += '<div style="margin-top:4px;color:#e74c3c;">⚠️ 重複編號（多個 Shopify 客戶同一 goyoutati_id、已跳過）：' + r.duplicates.join('、') + '</div>';
+        }
+        el.innerHTML = html;
+    } catch(e) { el.textContent = '無法載入同步狀態'; }
+}
+async function syncMembersNow() {
+    var el = document.getElementById('memberSyncStatus');
+    var btn = document.getElementById('memberSyncBtn');
+    if (el) el.textContent = '同步中…（Shopify 撈取約需數秒）';
+    if (btn) btn.disabled = true;
+    try {
+        var res = await fetch('/api/admin/members/sync', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+        var d = await res.json();
+        if (d.success) {
+            showToast('✅ 同步完成：新增 ' + d.inserted + '、更新 ' + d.updated + '、消失 ' + d.shopify_missing
+                + ((d.conflicts || []).length ? '、衝突 ' + d.conflicts.length : '')
+                + ((d.duplicates || []).length ? '、重複 ' + d.duplicates.length : ''), 'success');
+        } else { showToast(d.error || '同步失敗', 'error'); }
+    } catch(e) { showToast('同步失敗（網路錯誤）', 'error'); }
+    if (btn) btn.disabled = false;
+    loadMemberSyncStatus();
+}
 
 // ===== 台灣配送貨況同步 =====
 async function loadTrackingStatus() {

@@ -571,6 +571,31 @@ def init_db():
     except:
         pass
 
+    # ===== M1 會員主檔同步：Shopify 會員的本地副本，獨立一張表 =====
+    # 為什麼不寫進 members：登入、會員列表、搜尋、出檔案 fallback 都直接讀 members，
+    # 且都假設 members 只有代理/本地會員。Shopify 的 G 會員若混進去，讀取行為就變了。
+    # 本階段（M1）只建立同步、不改任何讀取路徑，所以放獨立表；M2 切讀取時再合併。
+    # 欄位刻意與 members 對齊（多 source / shopify_customer_id / synced_at），日後可直接 INSERT…SELECT。
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS members_shopify (
+            g_code              TEXT PRIMARY KEY,
+            agent_id            INTEGER NOT NULL DEFAULT 0,
+            name                TEXT NOT NULL DEFAULT '',
+            password            TEXT DEFAULT '',
+            phone               TEXT DEFAULT '',
+            address             TEXT DEFAULT '',
+            line_id             TEXT DEFAULT '',
+            email               TEXT DEFAULT '',
+            note                TEXT DEFAULT '',
+            status              TEXT DEFAULT 'active',
+            created_at          TEXT NOT NULL,
+            shipping_rate       REAL DEFAULT 0,
+            source              TEXT DEFAULT 'shopify',
+            shopify_customer_id TEXT DEFAULT '',
+            synced_at           TEXT DEFAULT ''
+        )
+    """)
+
     # ===== 包裹類型欄位：區分「包裹」與「信件」（信件計費一件 +NT$20，見帳單邏輯）=====
     try:
         conn.execute("ALTER TABLE packages ADD COLUMN pkg_type TEXT DEFAULT '包裹'")
@@ -933,6 +958,292 @@ def _fetch_customers_from_shopify():
                 "created_at": owner.get("createdAt", "")
             })
     return customers
+
+
+# ============ 會員主檔同步（M1：只寫不讀）============
+# 目的：讓集運系統有自己的會員主檔，為日後搬離 Shopify 做準備。
+# 本階段只建立「Shopify → members_shopify」的單向同步，★ 不改任何讀取路徑：
+# 登入、會員列表、統計全部照舊走 Shopify 快取（get_all_goyoutati_customers 與 7 個呼叫點一字未改），
+# members 表（代理/本地會員）一個欄位、一筆資料都不動。同步出錯時對營運零影響。
+#
+# 安全規則（硬規則，改動前先讀）：
+#   • 只寫 members_shopify。members 表只讀來偵測衝突，永遠不寫。
+#   • Shopify 編號若已存在於 members（代理/本地會員，例如貼錯的 B0049）→ 不寫入，記入 conflicts。
+#   • 更新只覆蓋 name / phone / email / address / shipping_rate 五欄；
+#     password / line_id / note / status / agent_id 是本地獨有資料，絕不覆蓋。
+#   • 不刪會員。Shopify 上消失的只標 status='shopify_missing'，資料留著（歷史出貨憑證）。
+#   • 同一個 goyoutati_id 掛在兩個以上 Shopify 客戶身上 → 該編號整個跳過，記入 duplicates。
+#   • Shopify 回空或拋例外 → 一筆都不寫，回報失敗。
+#   • 多 worker 防重用 admin_settings 的租約（條件式 UPDATE），不用記憶體變數。
+MEMBER_SYNC_LEASE_KEY = "member_sync_lease"          # 值：unix epoch（0 = 沒人在跑）
+MEMBER_SYNC_LEASE_SEC = 300                          # 租約有效期；超過視為前一個 worker 掛了，可搶
+MEMBER_SYNC_INTERVAL_SEC = 1800                      # 背景定時：每 30 分鐘
+MEMBER_SYNC_MIN_GAP_SEC = 1500                       # 定時任務：距上次成功同步不到 25 分鐘就跳過（兩個 worker 計時器錯開時避免變成每 15 分鐘跑一次）
+MEMBER_SYNC_LAST_KEY = "member_sync_last_at"         # 最後一次成功同步時間（'%Y-%m-%d %H:%M:%S'）
+MEMBER_SYNC_REPORT_KEY = "member_sync_last_report"   # 最後一次同步回報（JSON，成功失敗都存）
+MEMBER_SYNC_FIELDS = ("name", "phone", "email", "address", "shipping_rate")  # 更新時唯一允許覆蓋的欄位
+
+
+def _acquire_member_sync_lease():
+    """搶同步租約。用 admin_settings 做條件式 UPDATE：舊值 < now - 300 才搶得到。
+    跨 worker 有效（gunicorn 2 個 worker 各自跑定時器，只能有一個實際執行）。
+    回 True 表示搶到；搶到的人做完要呼叫 _release_member_sync_lease()。"""
+    now_ts = int(time.time())
+    conn = get_db()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO admin_settings (key, value) VALUES (?, '0')",
+            (MEMBER_SYNC_LEASE_KEY,)
+        )
+        cur = conn.execute(
+            "UPDATE admin_settings SET value=? WHERE key=? AND CAST(value AS INTEGER) < ?",
+            (str(now_ts), MEMBER_SYNC_LEASE_KEY, now_ts - MEMBER_SYNC_LEASE_SEC)
+        )
+        conn.commit()
+        return cur.rowcount == 1
+    finally:
+        conn.close()
+
+
+def _release_member_sync_lease():
+    try:
+        _set_setting(MEMBER_SYNC_LEASE_KEY, "0")
+    except Exception as e:
+        print(f"[member_sync] 釋放租約失敗（{MEMBER_SYNC_LEASE_SEC}s 後自動失效）: {e}", flush=True)
+
+
+def _member_sync_is_running():
+    """租約值非 0 且未過期 → 有人正在跑。"""
+    try:
+        v = int(_get_setting(MEMBER_SYNC_LEASE_KEY, "0") or "0")
+    except (ValueError, TypeError):
+        v = 0
+    return v > 0 and (time.time() - v) < MEMBER_SYNC_LEASE_SEC
+
+
+def _shopify_created_at_to_local(iso_str, fallback):
+    """Shopify createdAt（ISO 8601，如 2024-01-31T08:15:00Z）→ 與 members.created_at 同格式。
+    解析不了就用 fallback（現在時間）。"""
+    s = (iso_str or "").strip()
+    if not s:
+        return fallback
+    try:
+        return datetime.strptime(s[:19], "%Y-%m-%dT%H:%M:%S").strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return fallback
+
+
+def _shopify_rate_to_float(v):
+    try:
+        return float(v) if v not in (None, "", 0, "0") else 0.0
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def sync_members_from_shopify(customers=None):
+    """Shopify 會員 → 本地 members_shopify 主檔（只寫不讀）。
+
+    customers=None 時用既有的 _fetch_customers_from_shopify() 抓；測試可直接注入清單。
+    回傳 dict（success / inserted / updated / unchanged / shopify_missing /
+    conflicts[] / duplicates[] / shopify_total / local_total / elapsed_sec）。
+    ★ 本函式不搶租約；租約由 run_member_sync() 負責。"""
+    t0 = time.time()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    report = {
+        "success": False, "inserted": 0, "updated": 0, "unchanged": 0,
+        "shopify_missing": 0, "shopify_missing_total": 0,
+        "conflicts": [], "duplicates": [], "skipped_invalid": 0,
+        "shopify_total": 0, "local_total": 0, "elapsed_sec": 0.0,
+        "error": "", "synced_at": now,
+    }
+
+    # ── 1. 抓 Shopify（回空或例外 → 一筆都不寫）──
+    try:
+        if customers is None:
+            customers = _fetch_customers_from_shopify()
+    except Exception as e:
+        report["error"] = f"Shopify 抓取失敗：{e}"
+        report["elapsed_sec"] = round(time.time() - t0, 2)
+        return report
+    if not customers:
+        report["error"] = "Shopify 回空（不寫入，保留本地資料）"
+        report["elapsed_sec"] = round(time.time() - t0, 2)
+        return report
+    report["shopify_total"] = len(customers)
+
+    # ── 2. 重複偵測：同一 goyoutati_id 掛在兩個以上客戶 → 整個編號跳過 ──
+    by_code = {}
+    for c in customers:
+        code = (c.get("g_code") or "").strip().upper()
+        if not code:
+            report["skipped_invalid"] += 1
+            continue
+        by_code.setdefault(code, []).append(c)
+    duplicates = sorted(code for code, lst in by_code.items() if len(lst) > 1)
+    for code in duplicates:
+        ids = [c.get("customer_id", "") for c in by_code[code]]
+        print(f"[member_sync] ⚠️ 重複 goyoutati_id {code}：Shopify 客戶 {ids}，整個跳過不寫", flush=True)
+    report["duplicates"] = duplicates
+    shopify_codes = set(by_code.keys())   # 含重複的（Shopify 上確實存在，不能標 missing）
+
+    # ── 3. 逐筆比對寫入（單一交易，失敗全部回滾）──
+    conn = get_db()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        # members 表（代理/本地會員）只讀：Shopify 上若出現同編號就是衝突，一律不寫
+        agent_codes = {r["g_code"] for r in conn.execute("SELECT g_code FROM members").fetchall()}
+        local_rows = {
+            r["g_code"]: r for r in conn.execute(
+                "SELECT g_code, name, phone, email, address, shipping_rate, status, shopify_customer_id "
+                "FROM members_shopify"
+            ).fetchall()
+        }
+        for code in sorted(by_code.keys()):
+            if code in duplicates:
+                continue
+            if code in agent_codes:
+                # 【衝突】編號已是代理/本地會員 → 完全不寫入（members 與 members_shopify 都不動）
+                report["conflicts"].append(code)
+                continue
+            c = by_code[code][0]
+            vals = {
+                "name": (c.get("name") or "").strip(),
+                "phone": normalize_phone(c.get("phone") or c.get("phone_raw") or ""),
+                "email": (c.get("email") or "").strip(),
+                "address": (c.get("address") or "").strip(),
+                "shipping_rate": _shopify_rate_to_float(c.get("shipping_rate")),
+            }
+            customer_id = str(c.get("customer_id") or "")
+            row = local_rows.get(code)
+
+            if row is None:
+                # 【新增】本地沒有 → INSERT，agent_id=0，本地獨有欄位（password/line_id/note）留空
+                conn.execute(
+                    "INSERT INTO members_shopify (g_code, agent_id, name, password, phone, address, line_id, "
+                    "email, note, status, created_at, shipping_rate, source, shopify_customer_id, synced_at) "
+                    "VALUES (?, 0, ?, '', ?, ?, '', ?, '', 'active', ?, ?, 'shopify', ?, ?)",
+                    (code, vals["name"], vals["phone"], vals["address"], vals["email"],
+                     _shopify_created_at_to_local(c.get("created_at"), now),
+                     vals["shipping_rate"], customer_id, now)
+                )
+                report["inserted"] += 1
+                continue
+
+            # 【更新】只比對/覆蓋五個欄位；password / line_id / note / status / agent_id 絕不動
+            changed = False
+            for f in MEMBER_SYNC_FIELDS:
+                cur = row[f]
+                if f == "shipping_rate":
+                    if _shopify_rate_to_float(cur) != vals[f]:
+                        changed = True
+                elif (cur or "") != vals[f]:
+                    changed = True
+            if (row["shopify_customer_id"] or "") != customer_id:
+                changed = True
+            # 之前被標 shopify_missing、現在又出現 → 還原 active（這個標記是同步自己打的，才允許改回）
+            restore_status = (row["status"] == "shopify_missing")
+            if changed or restore_status:
+                conn.execute(
+                    "UPDATE members_shopify SET name=?, phone=?, email=?, address=?, shipping_rate=?, "
+                    "shopify_customer_id=?, synced_at=?"
+                    + (", status='active'" if restore_status else "")
+                    + " WHERE g_code=?",
+                    (vals["name"], vals["phone"], vals["email"], vals["address"], vals["shipping_rate"],
+                     customer_id, now, code)
+                )
+                report["updated"] += 1
+            else:
+                report["unchanged"] += 1
+
+        # 【消失】本地有、Shopify 找不到 → 只標 status，不刪
+        for code, row in local_rows.items():
+            if code in shopify_codes:
+                continue
+            if row["status"] != "shopify_missing":
+                conn.execute(
+                    "UPDATE members_shopify SET status='shopify_missing', synced_at=? WHERE g_code=?",
+                    (now, code)
+                )
+                report["shopify_missing"] += 1
+                print(f"[member_sync] {code} 在 Shopify 上找不到 → status='shopify_missing'（資料保留）", flush=True)
+
+        conn.commit()
+        report["shopify_missing_total"] = conn.execute(
+            "SELECT COUNT(*) AS c FROM members_shopify WHERE status='shopify_missing'"
+        ).fetchone()["c"]
+        report["local_total"] = conn.execute("SELECT COUNT(*) AS c FROM members_shopify").fetchone()["c"]
+        report["success"] = True
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        report["error"] = f"寫入失敗（已回滾）：{e}"
+    finally:
+        conn.close()
+
+    report["elapsed_sec"] = round(time.time() - t0, 2)
+    return report
+
+
+def run_member_sync(trigger="manual", customers=None):
+    """搶租約 → 同步 → 存回報 → 釋放租約。永遠不拋例外（同步失敗不能影響任何請求）。
+    回傳 report；搶不到租約時回 {"success": False, "skipped": True, "error": "同步進行中"}。"""
+    try:
+        if not _acquire_member_sync_lease():
+            return {"success": False, "skipped": True, "error": "同步進行中（另一個 worker 正在執行）"}
+    except Exception as e:
+        print(f"[member_sync] 搶租約失敗: {e}", flush=True)
+        return {"success": False, "skipped": True, "error": f"租約取得失敗：{e}"}
+    try:
+        report = sync_members_from_shopify(customers)
+        report["trigger"] = trigger
+        try:
+            if report.get("success"):
+                _set_setting(MEMBER_SYNC_LAST_KEY, report["synced_at"])
+            _set_setting(MEMBER_SYNC_REPORT_KEY, json.dumps(report, ensure_ascii=False))
+        except Exception as e:
+            print(f"[member_sync] 存回報失敗: {e}", flush=True)
+        print(f"[member_sync] ({trigger}) {json.dumps(report, ensure_ascii=False)}", flush=True)
+        return report
+    except Exception as e:
+        print(f"[member_sync] ❌ 未預期例外: {e}", flush=True)
+        return {"success": False, "error": f"未預期例外：{e}"}
+    finally:
+        _release_member_sync_lease()
+
+
+def _member_sync_loop():
+    """背景定時（每個 worker 一條執行緒，靠租約保證只有一個真的跑）。"""
+    time.sleep(120)   # 開機先讓 _prewarm_cache 抓完，不要同時打 Shopify 兩次
+    while True:
+        try:
+            last = _get_setting(MEMBER_SYNC_LAST_KEY, "")
+            recent = False
+            if last:
+                try:
+                    recent = (datetime.now() - datetime.strptime(last[:19], "%Y-%m-%d %H:%M:%S")).total_seconds() < MEMBER_SYNC_MIN_GAP_SEC
+                except ValueError:
+                    pass
+            if not recent:
+                run_member_sync(trigger="scheduled")
+        except Exception as e:
+            print(f"[member_sync] 定時任務例外: {e}", flush=True)
+        time.sleep(MEMBER_SYNC_INTERVAL_SEC)
+
+
+def _start_member_sync_thread():
+    """MEMBER_SYNC_AUTO=0 可關閉（測試用）。"""
+    if os.environ.get("MEMBER_SYNC_AUTO", "1") != "1":
+        return
+    try:
+        threading.Thread(target=_member_sync_loop, daemon=True, name="MemberSync").start()
+        print(f"[member_sync] 背景定時同步已啟動（每 {MEMBER_SYNC_INTERVAL_SEC // 60} 分鐘）", flush=True)
+    except Exception as e:
+        print(f"[member_sync] 背景執行緒啟動失敗: {e}", flush=True)
+
+
+_start_member_sync_thread()
 
 
 # ============ 路由 ============
@@ -2253,6 +2564,61 @@ def admin_enable_member(g_code):
     conn.commit()
     conn.close()
     return jsonify({"success": True})
+
+
+# ── 會員主檔同步（M1）：手動觸發 + 唯讀狀態。員工也能按（is_super_admin）──
+@app.route("/api/admin/members/sync", methods=["POST"])
+def admin_members_sync():
+    """手動觸發 Shopify → members 同步。手貼完 metafield 可立刻按，不用等 30 分鐘。
+    不受定時間隔限制，但同一時間只允許一個（租約搶不到就回「同步進行中」）。"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    report = run_member_sync(trigger=f"manual:{current_operator()}")
+    if report.get("skipped"):
+        return jsonify({"success": False, "error": report.get("error") or "同步進行中", "running": True}), 409
+    try:
+        log_op("member_sync", "members",
+               f"inserted={report.get('inserted', 0)} updated={report.get('updated', 0)} "
+               f"missing={report.get('shopify_missing', 0)} conflicts={len(report.get('conflicts') or [])} "
+               f"duplicates={len(report.get('duplicates') or [])}"
+               + (f" error={report.get('error')}" if not report.get("success") else ""))
+    except Exception:
+        pass
+    return jsonify(report)
+
+
+@app.route("/api/admin/members/sync_status", methods=["GET"])
+def admin_members_sync_status():
+    """最後一次同步時間、各項統計、source 分布。唯讀。"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    try:
+        last_report = json.loads(_get_setting(MEMBER_SYNC_REPORT_KEY, "") or "{}")
+    except (ValueError, TypeError):
+        last_report = {}
+    conn = get_db()
+    try:
+        n_shopify = conn.execute("SELECT COUNT(*) AS c FROM members_shopify").fetchone()["c"]
+        missing_total = conn.execute(
+            "SELECT COUNT(*) AS c FROM members_shopify WHERE status='shopify_missing'"
+        ).fetchone()["c"]
+        # members 表只讀：agent_id>0 = 代理會員、=0 = 本地（離職移交/主帳號直接管）
+        n_agent = conn.execute("SELECT COUNT(*) AS c FROM members WHERE agent_id>0").fetchone()["c"]
+        n_local = conn.execute("SELECT COUNT(*) AS c FROM members WHERE agent_id=0").fetchone()["c"]
+    finally:
+        conn.close()
+    dist = {"shopify": n_shopify, "agent": n_agent, "local": n_local}
+    return jsonify({
+        "success": True,
+        "last_sync_at": _get_setting(MEMBER_SYNC_LAST_KEY, ""),
+        "running": _member_sync_is_running(),
+        "last_report": last_report,
+        "source_dist": dist,
+        "local_total": n_shopify,   # members_shopify 筆數（同步的主檔）
+        "members_total": n_agent + n_local,
+        "shopify_missing_total": missing_total,
+        "interval_min": MEMBER_SYNC_INTERVAL_SEC // 60,
+    })
 
 
 @app.route("/api/admin/members", methods=["POST"])
