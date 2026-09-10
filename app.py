@@ -646,6 +646,11 @@ def normalize_phone(phone_raw):
         phone = "0" + phone[4:]
     elif phone.startswith("+81"):
         phone = "0" + phone[3:]
+    elif phone.startswith("886") and len(phone) == 12 and phone[3:].isdigit() and phone[3] == "9":
+        # 沒有 '+' 的 886 格式：REAL affinity 曾把 '+' 吃掉，殘留這種值。
+        # 電話一律以 0 開頭儲存，這裡把前綴換回 0。
+        # （'+81' 的規則維持原樣，日本號碼規則不同，不一起改。）
+        phone = "0" + phone[3:]
     return phone
 
 
@@ -2905,6 +2910,17 @@ def _scan_dirty_last5(conn, table, sample_limit=30):
     return {"total": total, "would_change": len(changes), "samples": samples}, changes
 
 
+def _unique_backup_path(suffix):
+    """備份檔路徑：DB_PATH + suffix + 時間戳。
+    時間戳只到秒，同一秒內重複執行會撞名並蓋掉前一份備份，所以撞名時加序號。"""
+    base = os.path.abspath(DB_PATH) + suffix + datetime.now().strftime("%Y%m%d_%H%M%S")
+    path, n = base, 1
+    while os.path.exists(path):
+        n += 1
+        path = f"{base}-{n}"
+    return path
+
+
 def _last5_num_core(v):
     """比對用：去掉 .0 尾巴與前導零，只留數字本身；非數字原樣。"""
     t = str(v or "").strip()
@@ -3576,6 +3592,211 @@ def _fix_types_verify(conn, all_cols, target_cols):
     return problems
 
 
+# ============ 維運：還原被 REAL affinity 吃掉的前導零與 + 號 ============
+# 任務 J2 已把七欄型別改回 TEXT 並去除 .0，但前導零是在寫入當下就被吃掉的，
+# 型別修好也回不來。這裡依三條規則還原，其餘一律不動。
+# ★ 只碰 shipment_requests 的 payment_last5 與 ship_phone 兩欄。
+
+ZERO_TABLE = "shipment_requests"
+ZERO_COLS = ("payment_last5", "ship_phone")
+
+
+def _restore_last5(v):
+    """R1：純數字且長度 1~4 → zfill(5)。其餘回 None（不動）。
+    依據：客戶自報路徑強制「剛好 5 位純數字」，operation_logs 的 ground truth
+    也全部與 zfill(5) 一致。長度已達 5、非純數字、空值一律不動；
+    長度 > 5 的純數字也不動（不該存在，會列入 anomalies）。"""
+    t = "" if v is None else str(v)
+    if t.isdigit() and 1 <= len(t) <= 4:
+        return t.zfill(5)
+    return None
+
+
+def _restore_phone(v):
+    """R2：長度 9、純數字、開頭 9 → 補 '0'。
+    R3：'886' / '+886' 開頭，去前綴後為 9 位純數字且開頭 9 → 前綴換 '0'。
+    其餘回 (None, None)（不動）。"""
+    t = "" if v is None else str(v)
+    if len(t) == 9 and t.isdigit() and t.startswith("9"):
+        return "0" + t, "R2"
+    for pre in ("+886", "886"):
+        if t.startswith(pre):
+            rest = t[len(pre):]
+            if len(rest) == 9 and rest.isdigit() and rest.startswith("9"):
+                return "0" + rest, "R3"
+            break
+    return None, None
+
+
+def _is_anomalous_phone(v):
+    """非空、且不是「10 碼 0 開頭純數字」→ 看起來異常。"""
+    t = "" if v is None else str(v)
+    if not t:
+        return False
+    return not (len(t) == 10 and t.isdigit() and t.startswith("0"))
+
+
+def _is_anomalous_last5(v):
+    """非空、且不是 5 碼純數字 → 看起來異常。"""
+    t = "" if v is None else str(v)
+    if not t:
+        return False
+    return not (len(t) == 5 and t.isdigit())
+
+
+def _scan_leading_zeros(conn, sample_limit=30):
+    """掃出三條規則各自要改的列，以及不符合任何規則但看起來異常的值。
+    不寫入任何資料。回傳 (report, plan)；plan 為 [(id, 欄位, 新值)]。"""
+    rows = conn.execute(
+        f"SELECT id, g_code, CAST(payment_last5 AS TEXT) AS l5, "
+        f"       CAST(ship_phone AS TEXT) AS ph "
+        f"FROM {ZERO_TABLE} ORDER BY id"
+    ).fetchall()
+    counts = {"R1": 0, "R2": 0, "R3": 0}
+    samples = {"R1": [], "R2": [], "R3": []}
+    plan = []
+    anomalies = []
+    for r in rows:
+        rid, g = r["id"], r["g_code"]
+        l5 = r["l5"]
+        new5 = _restore_last5(l5)
+        if new5 is not None:
+            counts["R1"] += 1
+            plan.append((rid, "payment_last5", new5))
+            if len(samples["R1"]) < sample_limit:
+                samples["R1"].append({"id": rid, "g_code": g, "before": l5,
+                                      "after": new5, "rule": "R1"})
+        elif _is_anomalous_last5(l5):
+            anomalies.append({"id": rid, "g_code": g, "column": "payment_last5",
+                              "value": l5, "len": len(l5 or ""),
+                              "reason": "非 5 碼純數字，不符合任何還原規則"})
+
+        ph = r["ph"]
+        newp, rule = _restore_phone(ph)
+        if newp is not None:
+            counts[rule] += 1
+            plan.append((rid, "ship_phone", newp))
+            if len(samples[rule]) < sample_limit:
+                samples[rule].append({"id": rid, "g_code": g, "before": ph,
+                                      "after": newp, "rule": rule})
+        elif _is_anomalous_phone(ph):
+            anomalies.append({"id": rid, "g_code": g, "column": "ship_phone",
+                              "value": ph, "len": len(ph or ""),
+                              "reason": "非 10 碼 0 開頭，不符合任何還原規則"})
+    report = {
+        "R1_last5_zfill": {"would_change": counts["R1"], "samples": samples["R1"],
+                           "rule": "payment_last5 純數字且長度 1~4 → zfill(5)"},
+        "R2_phone_9digits": {"would_change": counts["R2"], "samples": samples["R2"],
+                             "rule": "ship_phone 長度 9、純數字、開頭 9 → 前面補 0"},
+        "R3_phone_886": {"would_change": counts["R3"], "samples": samples["R3"],
+                         "rule": "ship_phone 886/+886 開頭且其後為 9 位開頭 9 → 前綴換 0"},
+        "total_would_change": len(plan),
+        # 刻意保留錯誤外觀，讓客服看到會去問客人；完整列出不截斷
+        "untouched_anomalies": {"total": len(anomalies), "items": anomalies},
+    }
+    return report, plan
+
+
+@app.route("/api/admin/maintenance/restore_leading_zeros", methods=["POST"])
+def admin_restore_leading_zeros():
+    """還原 payment_last5 與 ship_phone 被 REAL affinity 吃掉的前導零／+ 號。
+    預設 dry run；confirm=true 才寫入，且寫入前一定先用 backup API 備份。
+    只 UPDATE 這兩個欄位，不做任何 DELETE，列數不變。"""
+    if not is_boss():
+        return jsonify({"success": False, "error": "只有老闆可以執行維運作業"}), 403
+
+    confirm = (request.json or {}).get("confirm") is True
+    conn = get_db()
+    try:
+        report, plan = _scan_leading_zeros(conn)
+        total_rows = conn.execute(f"SELECT COUNT(*) FROM {ZERO_TABLE}").fetchone()[0]
+        base = {"table": ZERO_TABLE, "columns": list(ZERO_COLS), "row_count": total_rows, **report}
+
+        if not confirm:
+            conn.close()
+            return jsonify({"success": True, "dry_run": True, **base})
+
+        # ── 備份（SQLite 官方 backup API，WAL 安全）──
+        backup_path = _unique_backup_path(".bak-zeros-")
+        try:
+            dest = sqlite3.connect(backup_path)
+            try:
+                conn.backup(dest)
+                dest.commit()
+            finally:
+                dest.close()
+            if not os.path.exists(backup_path) or os.path.getsize(backup_path) == 0:
+                raise IOError("備份檔不存在或為空")
+        except Exception as e:
+            conn.close()
+            print(f"[restore_zeros] ❌ 備份失敗，已中止：{e}", flush=True)
+            return jsonify({"success": False, "error": f"備份失敗，未做任何寫入：{e}"}), 500
+
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            for rid, col, val in plan:
+                conn.execute(f'UPDATE {ZERO_TABLE} SET "{col}"=? WHERE id=?', (val, rid))
+            conn.commit()
+        except Exception as e:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            conn.close()
+            print(f"[restore_zeros] ❌ 更新失敗已回滾：{e}", flush=True)
+            return jsonify({"success": False, "error": f"更新失敗已回滾：{e}",
+                            "backup": backup_path}), 500
+
+        after_report, _after_plan = _scan_leading_zeros(conn)
+        row_after = conn.execute(f"SELECT COUNT(*) FROM {ZERO_TABLE}").fetchone()[0]
+
+        # ground truth：operation_logs 保存的原始輸入（含前導零）應與現值完全相同
+        by_req, _n = _last5_log_originals(conn)
+        gt_checked, gt_mismatch = 0, []
+        if by_req:
+            ids = list(by_req.keys())
+            for i in range(0, len(ids), 500):
+                chunk = ids[i:i + 500]
+                ph = ",".join(["?"] * len(chunk))
+                for cr in conn.execute(
+                    f"SELECT id, g_code, CAST(payment_last5 AS TEXT) AS v FROM {ZERO_TABLE} "
+                    f"WHERE id IN ({ph})", chunk
+                ).fetchall():
+                    logged = by_req[cr["id"]]
+                    if not str(logged).isdigit():      # 現金／管確認之類不比對
+                        continue
+                    gt_checked += 1
+                    if (cr["v"] or "") != logged:
+                        if len(gt_mismatch) < 50:
+                            gt_mismatch.append({"id": cr["id"], "g_code": cr["g_code"],
+                                                "now": cr["v"], "logged": logged})
+        conn.close()
+
+        n1 = report["R1_last5_zfill"]["would_change"]
+        n2 = report["R2_phone_9digits"]["would_change"]
+        n3 = report["R3_phone_886"]["would_change"]
+        log_op("還原前導零", ZERO_TABLE, f"R1={n1} R2={n2} R3={n3} backup={backup_path}")
+        print(f"[restore_zeros] ✅ R1={n1} R2={n2} R3={n3} backup={backup_path}", flush=True)
+        return jsonify({
+            "success": True, "dry_run": False, **base,
+            "backup": backup_path,
+            "updated": {"R1": n1, "R2": n2, "R3": n3, "total": len(plan)},
+            "remaining": {"R1": after_report["R1_last5_zfill"]["would_change"],
+                          "R2": after_report["R2_phone_9digits"]["would_change"],
+                          "R3": after_report["R3_phone_886"]["would_change"]},
+            "row_count_after": row_after,
+            "row_count_unchanged": row_after == total_rows,
+            "ground_truth": {"checked": gt_checked, "mismatch": len(gt_mismatch),
+                             "samples": gt_mismatch},
+        })
+    except Exception as e:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route("/api/admin/maintenance/fix_column_types", methods=["POST"])
 def admin_fix_column_types():
     """把 shipment_requests 上 7 個誤宣告為 REAL 的欄位型別改回 TEXT（重建表）。
@@ -3657,8 +3878,7 @@ def admin_fix_column_types():
             return jsonify({"success": True, "dry_run": True, **base})
 
         # ── 1) 備份（SQLite 官方 backup API，WAL 安全）──
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_path = os.path.abspath(DB_PATH) + ".bak-fixtype-" + stamp
+        backup_path = _unique_backup_path(".bak-fixtype-")
         try:
             dest = sqlite3.connect(backup_path)
             try:
@@ -3784,8 +4004,7 @@ def admin_clean_last5():
             return jsonify({"success": True, "dry_run": True, **scans})
 
         # ── 實際執行：先備份，備份失敗就中止 ──
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_path = os.path.abspath(DB_PATH) + ".bak-" + stamp
+        backup_path = _unique_backup_path(".bak-")
         try:
             # 用 SQLite 官方 backup API，不要自己複製檔案：
             # DB 是 WAL 模式，commit() 只保證寫進 -wal 旁檔、不保證 checkpoint 回主檔，
