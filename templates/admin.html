@@ -367,8 +367,16 @@
                     <h3 style="color:#9b59b6;">🗂️ 本地會員主檔同步</h3>
                     <button class="btn btn-primary" id="memberSyncBtn" style="padding:8px 16px;" onclick="syncMembersNow()">🔄 立即同步</button>
                 </div>
-                <p style="font-size:12px;color:#888;margin:6px 0 8px;">把 Shopify 會員（goyoutati_id）複製到本系統的會員主檔（members_shopify 表），每 30 分鐘自動跑一次；手貼完 metafield 後可按「立即同步」。只寫入不讀取：登入、會員列表、統計仍走 Shopify，同步失敗不影響營運。代理會員（B/C 開頭）永遠不會被同步碰到。</p>
+                <p style="font-size:12px;color:#888;margin:6px 0 8px;">把 Shopify 會員（goyoutati_id）複製到本系統的會員主檔（members_shopify 表），依下方間隔自動跑；手貼完 metafield 後可按「立即同步」。登入、會員列表、統計、出檔案現在都讀這份本地主檔（新客人若還沒同步到，登入時會自動向 Shopify 補撈一筆）。代理會員（B/C 開頭）永遠不會被同步碰到。</p>
                 <div id="memberSyncStatus" style="font-size:12px;color:#aaa;">載入中…</div>
+                <div id="memberSyncIntervalRow" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;font-size:12px;color:#888;">
+                    <span>自動同步間隔</span>
+                    <input type="number" id="member-sync-interval-input" class="form-control" min="5" max="1440" style="width:90px;padding:6px;font-size:13px;">
+                    <span>分鐘（5~1440，預設 30）</span>
+                    <button class="btn" id="member-sync-interval-save" style="background:#27ae60;color:#fff;padding:6px 14px;font-weight:700;display:none;" onclick="saveMemberSyncInterval()">💾 儲存</button>
+                    <span id="member-sync-interval-msg"></span>
+                    <span style="color:#666;">這個值就是本地會員資料（含運費）最多可能落後 Shopify 的時間，別隨手調長。</span>
+                </div>
             </div>
             <div class="card">
                 <div class="toolbar">
@@ -4538,7 +4546,28 @@ async function loadMemberSyncStatus() {
             if ((r.duplicates || []).length) html += '<div style="margin-top:4px;color:#e74c3c;">⚠️ 重複編號（多個 Shopify 客戶同一 goyoutati_id、已跳過）：' + r.duplicates.join('、') + '</div>';
         }
         el.innerHTML = html;
+        var iv = document.getElementById('member-sync-interval-input');
+        if (iv && d.interval_min) { iv.value = d.interval_min; iv.disabled = !_hbBoss(); }
+        var sv = document.getElementById('member-sync-interval-save');
+        if (sv) sv.style.display = _hbBoss() ? '' : 'none';
     } catch(e) { el.textContent = '無法載入同步狀態'; }
+}
+async function saveMemberSyncInterval() {
+    if (!_hbBoss()) return;
+    var input = document.getElementById('member-sync-interval-input');
+    var msg = document.getElementById('member-sync-interval-msg');
+    var v = parseInt(input.value, 10);
+    if (!(v >= 5 && v <= 1440)) { showToast('間隔必須是 5~1440 的整數（分鐘）', 'error'); return; }
+    try {
+        var res = await fetch('/api/admin/settings/sync_interval', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ interval_min: v })
+        });
+        var d = await res.json();
+        if (!d.success) { showToast('❌ ' + (d.error || '儲存失敗'), 'error'); return; }
+        if (msg) msg.textContent = '已儲存（' + d.old + ' → ' + d.interval_min + ' 分鐘），定時任務下一輪起生效';
+        showToast('✅ 已儲存', 'success');
+    } catch (e) { showToast('網路錯誤', 'error'); }
 }
 async function syncMembersNow() {
     var el = document.getElementById('memberSyncStatus');

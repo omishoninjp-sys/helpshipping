@@ -595,9 +595,16 @@ def init_db():
             shopify_customer_id TEXT DEFAULT '',
             shopify_created_at  TEXT DEFAULT '',
             status              TEXT DEFAULT 'active',
-            synced_at           TEXT DEFAULT ''
+            synced_at           TEXT DEFAULT '',
+            phone_raw           TEXT DEFAULT ''
         )
     """)
+    # M2：讀取切到本地後，phone_raw（Shopify 原始電話字串，客戶端顯示用）也要有，才能與舊路徑逐鍵相同
+    try:
+        conn.execute("ALTER TABLE members_shopify ADD COLUMN phone_raw TEXT DEFAULT ''")
+        print("[migrate] 已加 members_shopify.phone_raw 欄位", flush=True)
+    except:
+        pass
 
     # ===== 包裹類型欄位：區分「包裹」與「信件」（信件計費一件 +NT$20，見帳單邏輯）=====
     try:
@@ -743,155 +750,135 @@ def shopify_request(endpoint, method="GET", data=None):
 
 # 快取檔案位置：跟 DB 放同個目錄（Zeabur Volume 持久化）
 _db_dir = os.path.dirname(os.path.abspath(DB_PATH))
+# 舊的 Shopify 記憶體/磁碟快取層已在 M2 移除（讀取改走本地 members_shopify，見下方）。
+# 這個檔案保留不刪、也不再寫入：只在「members_shopify 為空且 Shopify 也抓不到」的災難情境唯讀使用。
 SHOPIFY_CACHE_FILE = os.environ.get(
     "SHOPIFY_CACHE_FILE",
     os.path.join(_db_dir or ".", "shopify_cache.json")
 )
-CACHE_TTL = 600  # 10 分鐘
 
-_customers_cache = {"data": None, "time": 0}
-_cache_lock = threading.Lock()
-_refresh_thread = None  # 背景更新執行緒（同時間只允許一個）
+# ============ 會員讀取（M2：本地 members_shopify）============
+# get_all_goyoutati_customers() 的簽章與回傳格式完全不變（7 個呼叫點一行未改），
+# 只把資料來源從「Shopify 快取」改成 SELECT … FROM members_shopify。
+# ★ 回傳 dict 必須與 _fetch_customers_from_shopify() 產出的逐鍵相同：
+#   g_code / customer_id / gid / name / email / address / phone / phone_raw / shipping_rate / created_at
+#   shipping_rate 沿用舊格式：字串（"180"；沒設定 = ""），登入端用 int(c["shipping_rate"]) 解析。
+#   phone_raw：Shopify 原始電話字串（客戶端顯示用），同步時一併存進 members_shopify.phone_raw。
+CUSTOMER_DICT_KEYS = ("g_code", "customer_id", "gid", "name", "email", "address",
+                      "phone", "phone_raw", "shipping_rate", "created_at")
 
 
-def _load_cache_from_disk():
-    """容器啟動時嘗試從磁碟讀取快取，避免每次重啟都要等 Shopify 慢慢回應。"""
-    global _customers_cache
+def _rate_float_to_str(v):
+    """members_shopify.shipping_rate（REAL）→ 舊路徑的字串格式：180.0 → "180"、180.5 → "180.5"、0/None → ""。"""
     try:
-        if os.path.exists(SHOPIFY_CACHE_FILE):
-            with open(SHOPIFY_CACHE_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if data.get("data"):
-                _customers_cache = {"data": data["data"], "time": data.get("time", 0)}
-                age = int(time.time() - _customers_cache["time"])
-                print(f"[Shopify] 📂 從磁碟讀取快取：{len(_customers_cache['data'])} 位會員（{age}秒前）", flush=True)
-    except Exception as e:
-        print(f"[Shopify] ⚠️ 讀取磁碟快取失敗: {e}", flush=True)
+        f = float(v or 0)
+    except (ValueError, TypeError):
+        return ""
+    if f <= 0:
+        return ""
+    return str(int(f)) if f == int(f) else str(f)
 
 
-def _save_cache_to_disk():
-    """以原子方式寫入磁碟（先寫 .tmp 再 rename，避免多 worker 競爭時寫到一半）"""
+def _customer_dict_from_local_row(r):
+    cid = r["shopify_customer_id"] or ""
+    phone = r["phone"] or ""
+    return {
+        "g_code": r["g_code"] or "",
+        "customer_id": cid,
+        "gid": f"gid://shopify/Customer/{cid}" if cid else "",
+        "name": r["name"] or "",
+        "email": r["email"] or "",
+        "address": r["address"] or "",
+        "phone": phone,
+        "phone_raw": r["phone_raw"] or phone,   # 舊資料還沒同步到 phone_raw 前先用正規化值
+        "shipping_rate": _rate_float_to_str(r["shipping_rate"]),  # 台幣，字串
+        "created_at": r["shopify_created_at"] or "",
+    }
+
+
+def _load_customers_from_local():
+    """SELECT members_shopify → 與 Shopify 路徑同格式的 list。
+    status='shopify_missing'（Shopify 上已消失）的不回：舊路徑本來就抓不到他們。"""
+    conn = get_db()
     try:
-        os.makedirs(os.path.dirname(os.path.abspath(SHOPIFY_CACHE_FILE)) or ".", exist_ok=True)
-        tmp = SHOPIFY_CACHE_FILE + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(_customers_cache, f, ensure_ascii=False)
-        os.replace(tmp, SHOPIFY_CACHE_FILE)
-    except Exception as e:
-        print(f"[Shopify] ⚠️ 寫入磁碟快取失敗: {e}", flush=True)
-
-
-def _refresh_shopify_async():
-    """背景靜默更新（呼叫者立刻回舊資料、不阻塞使用者）"""
-    global _customers_cache, _refresh_thread
-    try:
-        t0 = time.time()
-        print("[Shopify] 🔄 背景重新抓取會員…", flush=True)
-        customers = _fetch_customers_from_shopify()
-        elapsed = time.time() - t0
-        if customers:
-            with _cache_lock:
-                _customers_cache = {"data": customers, "time": time.time()}
-            _save_cache_to_disk()
-            print(f"[perf] Shopify 背景更新完成: {len(customers)} 位、{elapsed:.2f}s", flush=True)
-        else:
-            print(f"[Shopify] ⚠️ 背景抓取回空，保留舊快取（{elapsed:.2f}s）", flush=True)
-    except Exception as e:
-        print(f"[Shopify] ❌ 背景抓取失敗: {e}", flush=True)
+        rows = conn.execute(
+            "SELECT g_code, name, phone, phone_raw, email, address, shipping_rate, shopify_customer_id, shopify_created_at "
+            "FROM members_shopify WHERE status != 'shopify_missing' ORDER BY g_code"
+        ).fetchall()
     finally:
-        with _cache_lock:
-            _refresh_thread = None
+        conn.close()
+    return [_customer_dict_from_local_row(r) for r in rows]
+
+
+def _load_customers_from_disk_backup():
+    """災難備援：members_shopify 為空、Shopify 也抓不到 → 讀舊的 shopify_cache.json（唯讀）。
+    內容可能很舊，但比整站沒有會員好。"""
+    try:
+        if not os.path.exists(SHOPIFY_CACHE_FILE):
+            return []
+        with open(SHOPIFY_CACHE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        out = []
+        for c in (data.get("data") or []):
+            if not isinstance(c, dict) or not c.get("g_code"):
+                continue
+            d = {k: c.get(k, "") for k in CUSTOMER_DICT_KEYS}
+            d = {k: ("" if v is None else v) for k, v in d.items()}
+            out.append(d)
+        return out
+    except Exception as e:
+        print(f"[members] ⚠️ 讀取 shopify_cache.json 備援失敗: {e}", flush=True)
+        return []
+
+
+def _recent_sync_attempt(within_sec):
+    """最近 within_sec 秒內是否已嘗試過同步（成功失敗都算；看 last_report.synced_at）。
+    用途：members_shopify 為空時避免每個請求都去打 Shopify。"""
+    try:
+        rep = json.loads(_get_setting(MEMBER_SYNC_REPORT_KEY, "") or "{}")
+        ts = datetime.strptime((rep.get("synced_at") or "")[:19], "%Y-%m-%d %H:%M:%S")
+        return (datetime.now() - ts).total_seconds() < within_sec
+    except Exception:
+        return False
 
 
 def get_all_goyoutati_customers(force_refresh=False):
     """
-    取得 Shopify 會員清單。Stale-while-revalidate 行為：
-      • force_refresh=True：同步等新資料（admin 按「整理」用）
-      • 完全無快取（冷啟動、磁碟也沒有）：同步等
-      • 有快取但過期：立刻回舊資料，背景靜默更新
-      • 有快取且新鮮：直接回（最快路徑，無 print）
-    ★ 每個回傳點都交出淺複本 list(...)，不能把 _customers_cache["data"] 本身交出去：
-      呼叫端（如 get_all_members）會對回傳的 list append / sort，若拿到的是快取物件本身，
-      本地會員就會被寫進全域快取、被全部呼叫點共用、還會隨 _save_cache_to_disk 落盤。
+    取得 Shopify 會員清單 —— M2 起讀本地 members_shopify（由 M1 同步維護），不再打 Shopify。
+      • force_refresh=True（admin 按「整理」）：先跑一次同步再讀本地；同步失敗仍回本地現有資料
+      • 一般：直接讀本地
+      • 降級：本地為空 → 嘗試同步一次（60 秒內只試一次）→ 仍為空就讀 shopify_cache.json 備援
+    回傳的是每次新建的 list / dict，呼叫端 append / sort 不會影響任何共用狀態。
     """
-    global _customers_cache, _refresh_thread
-    now = time.time()
-    has_cache = _customers_cache.get("data") is not None
-    age = now - _customers_cache.get("time", 0)
-    is_stale = age >= CACHE_TTL
-
-    # 情境 1：強制重抓（admin 按「整理」）→ 同步等新資料
     if force_refresh:
-        t0 = time.time()
         try:
-            customers = _fetch_customers_from_shopify()
-            elapsed = time.time() - t0
-            if customers:
-                with _cache_lock:
-                    _customers_cache = {"data": customers, "time": time.time()}
-                _save_cache_to_disk()
-                print(f"[perf] Shopify force_refresh: {len(customers)} 位、{elapsed:.2f}s", flush=True)
-                return list(customers)
-            print(f"[Shopify] ⚠️ force_refresh 回空，回傳舊快取（{elapsed:.2f}s）", flush=True)
-            return list(_customers_cache.get("data") or [])
+            rep = run_member_sync(trigger="force_refresh")   # 永不拋例外；租約搶不到會回 skipped
+            if not rep.get("success"):
+                print(f"[members] force_refresh 同步未完成（{rep.get('error')}），改回本地現有資料", flush=True)
         except Exception as e:
-            print(f"[Shopify] ❌ force_refresh 失敗: {e}", flush=True)
-            return list(_customers_cache.get("data") or [])
+            print(f"[members] force_refresh 同步例外（改回本地現有資料）: {e}", flush=True)
 
-    # 情境 2：完全無快取（容器啟動 + 磁碟也沒有）→ 同步等首次抓取
-    if not has_cache:
-        t0 = time.time()
-        try:
-            customers = _fetch_customers_from_shopify()
-            elapsed = time.time() - t0
-            if customers:
-                with _cache_lock:
-                    _customers_cache = {"data": customers, "time": time.time()}
-                _save_cache_to_disk()
-                print(f"[perf] Shopify cold-start: {len(customers)} 位、{elapsed:.2f}s", flush=True)
-            return list(customers or [])
-        except Exception as e:
-            print(f"[Shopify] ❌ cold-start 失敗: {e}", flush=True)
-            return []
-
-    # 情境 3：有快取但過期 → 啟動背景更新（lock 確保同時間只一個）
-    if is_stale:
-        with _cache_lock:
-            if _refresh_thread is None or not _refresh_thread.is_alive():
-                _refresh_thread = threading.Thread(
-                    target=_refresh_shopify_async, daemon=True, name="ShopifyRefresh"
-                )
-                _refresh_thread.start()
-
-    # 情境 3/4：立刻回現有資料（最多就是舊一點點，等背景更新完下次就新的）
-    return list(_customers_cache.get("data") or [])
-
-
-# 啟動時嘗試從磁碟讀取快取
-_load_cache_from_disk()
-
-
-def _prewarm_cache():
-    """開機預熱：容器一啟動就在背景先抓一次 Shopify 會員，
-    讓「登入後第一屏（會員管理）」不用等冷啟動的同步撈取。
-    只有在完全沒快取、或快取已過期時才預熱；有新鮮快取就跳過。"""
-    global _refresh_thread
     try:
-        has = _customers_cache.get("data") is not None
-        age = time.time() - _customers_cache.get("time", 0)
-        if (not has) or age >= CACHE_TTL:
-            with _cache_lock:
-                if _refresh_thread is None or not _refresh_thread.is_alive():
-                    _refresh_thread = threading.Thread(
-                        target=_refresh_shopify_async, daemon=True, name="ShopifyPrewarm"
-                    )
-                    _refresh_thread.start()
-                    print("[Shopify] 🔥 開機預熱：背景抓取會員中…", flush=True)
+        customers = _load_customers_from_local()
     except Exception as e:
-        print(f"[Shopify] 預熱啟動失敗: {e}", flush=True)
+        print(f"[members] ❌ 讀取 members_shopify 失敗: {e}", flush=True)
+        customers = []
+    if customers:
+        return customers
 
-
-_prewarm_cache()
+    # ── 降級：本地表為空 ──
+    if not force_refresh and not _recent_sync_attempt(60):
+        print("[members] ⚠️ members_shopify 為空 → 嘗試同步一次", flush=True)
+        try:
+            run_member_sync(trigger="empty_table")
+            customers = _load_customers_from_local()
+        except Exception as e:
+            print(f"[members] 空表同步例外: {e}", flush=True)
+    if customers:
+        return customers
+    backup = _load_customers_from_disk_backup()
+    print(f"[members] ⚠️ members_shopify 仍為空，改用 shopify_cache.json 備援：{len(backup)} 位", flush=True)
+    return backup
 
 
 def _fetch_customers_from_shopify():
@@ -932,38 +919,128 @@ def _fetch_customers_from_shopify():
             owner = node.get("owner", {})
             if not g_code or not owner:
                 continue
-            gid = owner.get("id", "")
-            customer_id = gid.split("/")[-1] if "/" in gid else gid
-            customer_name = f"{owner.get('lastName', '')}{owner.get('firstName', '')}".strip()
-            if not customer_name:
-                customer_name = owner.get("email", "")
-            default_address = owner.get("defaultAddress") or {}
-            phone_raw = default_address.get("phone") or owner.get("phone") or ""
-            phone = normalize_phone(phone_raw)
-            # 用郵遞區號反查補齊缺的縣市/區（Shopify 拆欄常漏縣市區 → 黑貓無法投遞）
-            address, _addr_fixed = tw_zip.compose_full_address(
-                default_address.get("province", ""),
-                default_address.get("city", ""),
-                default_address.get("address1", ""),
-                default_address.get("address2", ""),
-                default_address.get("zip", ""),
-            )
-            rate_mf = owner.get("shippingRate")
-            # shipping_rate 現在儲存台幣值
-            shipping_rate_twd = rate_mf["value"] if rate_mf and rate_mf.get("value") else ""
-            customers.append({
-                "g_code": g_code,
-                "customer_id": customer_id,
-                "gid": gid,
-                "name": customer_name,
-                "email": owner.get("email", ""),
-                "address": address,
-                "phone": phone,
-                "phone_raw": phone_raw,
-                "shipping_rate": shipping_rate_twd,  # 台幣
-                "created_at": owner.get("createdAt", "")
-            })
+            customers.append(_customer_dict_from_shopify_owner(g_code, owner))
     return customers
+
+
+def _customer_dict_from_shopify_owner(g_code, owner):
+    """Shopify Customer 節點 → 會員 dict（欄位順序/型別是全站的基準格式，
+    本地讀取 _customer_dict_from_local_row 與登入 fallback 都必須產出相同的鍵）。"""
+    gid = owner.get("id", "")
+    customer_id = gid.split("/")[-1] if "/" in gid else gid
+    customer_name = f"{owner.get('lastName', '')}{owner.get('firstName', '')}".strip()
+    if not customer_name:
+        customer_name = owner.get("email", "")
+    default_address = owner.get("defaultAddress") or {}
+    phone_raw = default_address.get("phone") or owner.get("phone") or ""
+    phone = normalize_phone(phone_raw)
+    # 用郵遞區號反查補齊缺的縣市/區（Shopify 拆欄常漏縣市區 → 黑貓無法投遞）
+    address, _addr_fixed = tw_zip.compose_full_address(
+        default_address.get("province", ""),
+        default_address.get("city", ""),
+        default_address.get("address1", ""),
+        default_address.get("address2", ""),
+        default_address.get("zip", ""),
+    )
+    rate_mf = owner.get("shippingRate")
+    # shipping_rate 現在儲存台幣值
+    shipping_rate_twd = rate_mf["value"] if rate_mf and rate_mf.get("value") else ""
+    return {
+        "g_code": g_code,
+        "customer_id": customer_id,
+        "gid": gid,
+        "name": customer_name,
+        "email": owner.get("email", ""),
+        "address": address,
+        "phone": phone,
+        "phone_raw": phone_raw,
+        "shipping_rate": shipping_rate_twd,  # 台幣
+        "created_at": owner.get("createdAt", "")
+    }
+
+
+# ============ 登入 fallback：本地查無 → Shopify 單筆補撈（T2）============
+# 新客人剛在 Shopify 貼完 goyoutati_id、定時同步還沒輪到的空窗期保險。
+# Shopify 的 customers 搜尋語法不支援 metafield 過濾，所以抓「最近更新的 100 位」
+# （貼 metafield 會更新客戶的 updatedAt）並在其中找該編號；一個請求、5 秒逾時、永不拋例外。
+# 每次觸發都 print [member_fallback] g_code=… hit=…，次數 = 手貼 metafield 時間差的量化指標。
+MEMBER_FALLBACK_TIMEOUT_SEC = 5
+MEMBER_FALLBACK_SCAN = 100
+
+
+def _upsert_member_shopify(c):
+    """把一筆會員 dict 寫進 members_shopify（fallback 補撈用）。已存在則更新五欄。
+    若編號已是代理/本地會員（members 表）則不寫（與同步的衝突規則一致）。"""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    code = (c.get("g_code") or "").strip().upper()
+    try:
+        rate = float(c.get("shipping_rate") or 0)
+    except (ValueError, TypeError):
+        rate = 0.0
+    conn = get_db()
+    try:
+        if conn.execute("SELECT 1 FROM members WHERE g_code=?", (code,)).fetchone():
+            print(f"[member_fallback] {code} 已存在於 members（代理/本地會員），不寫入 members_shopify", flush=True)
+            return False
+        conn.execute(
+            "INSERT INTO members_shopify (g_code, name, phone, phone_raw, email, address, shipping_rate, "
+            "shopify_customer_id, shopify_created_at, status, synced_at) VALUES (?,?,?,?,?,?,?,?,?,'active',?) "
+            "ON CONFLICT(g_code) DO UPDATE SET name=excluded.name, phone=excluded.phone, phone_raw=excluded.phone_raw, "
+            "email=excluded.email, address=excluded.address, shipping_rate=excluded.shipping_rate, "
+            "shopify_customer_id=excluded.shopify_customer_id, status='active', synced_at=excluded.synced_at",
+            (code, (c.get("name") or "").strip(), normalize_phone(c.get("phone") or ""), c.get("phone_raw") or "",
+             (c.get("email") or "").strip(), (c.get("address") or "").strip(), rate,
+             str(c.get("customer_id") or ""), str(c.get("created_at") or ""), now)
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def _member_login_fallback(g_code):
+    """本地 members / members_shopify 都查無此編號時呼叫。
+    回傳與 get_all_goyoutati_customers() 同格式的 dict，或 None。永不拋例外、有逾時上限。"""
+    t0 = time.time()
+    hit = False
+    err = ""
+    try:
+        if not SHOPIFY_STORE or not SHOPIFY_ACCESS_TOKEN:
+            err = "未設定 Shopify"
+            return None
+        query = (
+            '{customers(first:' + str(MEMBER_FALLBACK_SCAN) + ',sortKey:UPDATED_AT,reverse:true){edges{node{'
+            'id firstName lastName email phone createdAt defaultAddress{phone province city zip address1 address2} '
+            'gcode:metafield(namespace:"custom",key:"goyoutati_id"){value} '
+            'shippingRate:metafield(namespace:"custom",key:"shipping_rate"){value}}}}}'
+        )
+        resp = requests.post(
+            f"https://{SHOPIFY_STORE}/admin/api/2026-01/graphql.json",
+            headers={"X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN, "Content-Type": "application/json"},
+            json={"query": query}, timeout=MEMBER_FALLBACK_TIMEOUT_SEC
+        )
+        data = resp.json()
+        if "data" not in data:
+            err = f"Shopify 回應無 data: {str(data)[:120]}"
+            return None
+        for edge in (data["data"].get("customers") or {}).get("edges", []):
+            owner = edge.get("node") or {}
+            code = ((owner.get("gcode") or {}).get("value") or "").strip().upper()
+            if code != g_code:
+                continue
+            c = _customer_dict_from_shopify_owner(code, owner)
+            hit = True
+            try:
+                _upsert_member_shopify(c)
+            except Exception as e:
+                print(f"[member_fallback] 寫入 members_shopify 失敗（登入照常繼續）: {e}", flush=True)
+            return c
+        return None
+    except Exception as e:
+        err = f"{type(e).__name__}: {e}"
+        return None
+    finally:
+        print(f"[member_fallback] g_code={g_code} hit={hit} {time.time() - t0:.2f}s" + (f" error={err}" if err else ""), flush=True)
 
 
 # ============ 會員主檔同步（M1：只寫不讀）============
@@ -975,19 +1052,22 @@ def _fetch_customers_from_shopify():
 # 安全規則（硬規則，改動前先讀）：
 #   • 只寫 members_shopify。members 表只讀來偵測衝突，永遠不寫。
 #   • Shopify 編號若已存在於 members（代理/本地會員，例如貼錯的 B0049）→ 不寫入，記入 conflicts。
-#   • 更新覆蓋 name / phone / email / address / shipping_rate + synced_at（這張表全部都是 Shopify 來源）；
-#     五欄都沒變就不寫（冪等）。status 只有同步自己會動（shopify_missing ↔ active）。
+#   • 更新覆蓋 name / phone / phone_raw / email / address / shipping_rate + synced_at（這張表全部都是 Shopify 來源）；
+#     六欄都沒變就不寫（冪等）。status 只有同步自己會動（shopify_missing ↔ active）。
 #   • 不刪會員。Shopify 上消失的只標 status='shopify_missing'，資料留著（歷史出貨憑證）。
 #   • 同一個 goyoutati_id 掛在兩個以上 Shopify 客戶身上 → 該編號整個跳過，記入 duplicates。
 #   • Shopify 回空或拋例外 → 一筆都不寫，回報失敗。
 #   • 多 worker 防重用 admin_settings 的租約（條件式 UPDATE），不用記憶體變數。
 MEMBER_SYNC_LEASE_KEY = "member_sync_lease"          # 值：unix epoch（0 = 沒人在跑）
 MEMBER_SYNC_LEASE_SEC = 300                          # 租約有效期；超過視為前一個 worker 掛了，可搶
-MEMBER_SYNC_INTERVAL_SEC = 1800                      # 背景定時：每 30 分鐘
-MEMBER_SYNC_MIN_GAP_SEC = 1500                       # 定時任務：距上次成功同步不到 25 分鐘就跳過（兩個 worker 計時器錯開時避免變成每 15 分鐘跑一次）
+MEMBER_SYNC_INTERVAL_KEY = "member_sync_interval_min"   # 同步間隔（分鐘），admin_settings 可調
+MEMBER_SYNC_INTERVAL_DEFAULT_MIN = 30                # 預設 30。M2 起這個值 = 本地資料（含計費用的 shipping_rate）的新鮮度上限，別隨手調長
+MEMBER_SYNC_INTERVAL_MIN_MIN, MEMBER_SYNC_INTERVAL_MAX_MIN = 5, 1440
+MEMBER_SYNC_RETRY_BACKOFF_SEC = 300                  # 上次嘗試失敗後至少隔 5 分鐘再試（Shopify 掛掉時不要每分鐘打）
+MEMBER_SYNC_TICK_SEC = 60                            # 定時執行緒每分鐘檢查一次「到期了沒」（間隔改了不用重啟、啟動時到期就立刻跑）
 MEMBER_SYNC_LAST_KEY = "member_sync_last_at"         # 最後一次成功同步時間（'%Y-%m-%d %H:%M:%S'）
 MEMBER_SYNC_REPORT_KEY = "member_sync_last_report"   # 最後一次同步回報（JSON，成功失敗都存）
-MEMBER_SYNC_FIELDS = ("name", "phone", "email", "address", "shipping_rate")  # 更新時唯一允許覆蓋的欄位
+MEMBER_SYNC_FIELDS = ("name", "phone", "phone_raw", "email", "address", "shipping_rate")  # 更新時唯一允許覆蓋的欄位
 
 
 def _acquire_member_sync_lease():
@@ -1088,7 +1168,7 @@ def sync_members_from_shopify(customers=None):
         agent_codes = {r["g_code"] for r in conn.execute("SELECT g_code FROM members").fetchall()}
         local_rows = {
             r["g_code"]: r for r in conn.execute(
-                "SELECT g_code, name, phone, email, address, shipping_rate, status, shopify_customer_id "
+                "SELECT g_code, name, phone, phone_raw, email, address, shipping_rate, status, shopify_customer_id "
                 "FROM members_shopify"
             ).fetchall()
         }
@@ -1104,6 +1184,7 @@ def sync_members_from_shopify(customers=None):
             vals = {
                 "name": (c.get("name") or "").strip(),
                 "phone": normalize_phone(c.get("phone") or c.get("phone_raw") or ""),
+                "phone_raw": c.get("phone_raw") or "",
                 "email": (c.get("email") or "").strip(),
                 "address": (c.get("address") or "").strip(),
                 "shipping_rate": _shopify_rate_to_float(c.get("shipping_rate")),
@@ -1114,10 +1195,10 @@ def sync_members_from_shopify(customers=None):
             if row is None:
                 # 【新增】本地沒有 → INSERT（shopify_created_at 存 Shopify 原始 ISO 字串）
                 conn.execute(
-                    "INSERT INTO members_shopify (g_code, name, phone, email, address, shipping_rate, "
+                    "INSERT INTO members_shopify (g_code, name, phone, phone_raw, email, address, shipping_rate, "
                     "shopify_customer_id, shopify_created_at, status, synced_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)",
-                    (code, vals["name"], vals["phone"], vals["email"], vals["address"], vals["shipping_rate"],
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)",
+                    (code, vals["name"], vals["phone"], vals["phone_raw"], vals["email"], vals["address"], vals["shipping_rate"],
                      customer_id, str(c.get("created_at") or ""), now)
                 )
                 report["inserted"] += 1
@@ -1138,11 +1219,11 @@ def sync_members_from_shopify(customers=None):
             restore_status = (row["status"] == "shopify_missing")
             if changed or restore_status:
                 conn.execute(
-                    "UPDATE members_shopify SET name=?, phone=?, email=?, address=?, shipping_rate=?, "
+                    "UPDATE members_shopify SET name=?, phone=?, phone_raw=?, email=?, address=?, shipping_rate=?, "
                     "shopify_customer_id=?, synced_at=?"
                     + (", status='active'" if restore_status else "")
                     + " WHERE g_code=?",
-                    (vals["name"], vals["phone"], vals["email"], vals["address"], vals["shipping_rate"],
+                    (vals["name"], vals["phone"], vals["phone_raw"], vals["email"], vals["address"], vals["shipping_rate"],
                      customer_id, now, code)
                 )
                 report["updated"] += 1
@@ -1207,23 +1288,58 @@ def run_member_sync(trigger="manual", customers=None):
         _release_member_sync_lease()
 
 
+def _get_sync_interval_min():
+    """同步間隔（分鐘）。設定值壞掉或超出範圍就回預設 30。"""
+    try:
+        v = int(str(_get_setting(MEMBER_SYNC_INTERVAL_KEY, "") or "").strip())
+        if MEMBER_SYNC_INTERVAL_MIN_MIN <= v <= MEMBER_SYNC_INTERVAL_MAX_MIN:
+            return v
+    except (ValueError, TypeError):
+        pass
+    return MEMBER_SYNC_INTERVAL_DEFAULT_MIN
+
+
+def _seconds_since_setting_ts(key, from_report=False):
+    """距 admin_settings 裡某個時間戳幾秒；沒有或壞掉回 None。"""
+    try:
+        raw = _get_setting(key, "")
+        if from_report:
+            raw = (json.loads(raw or "{}").get("synced_at") or "")
+        ts = datetime.strptime(raw[:19], "%Y-%m-%d %H:%M:%S")
+        return (datetime.now() - ts).total_seconds()
+    except Exception:
+        return None
+
+
+def _member_sync_due(now_interval_min=None):
+    """到期判斷：距上次「成功」已 ≥ 間隔（或從未成功），且距上次「嘗試」≥ 5 分鐘（失敗退避）。"""
+    interval_sec = (now_interval_min or _get_sync_interval_min()) * 60
+    since_ok = _seconds_since_setting_ts(MEMBER_SYNC_LAST_KEY)
+    if since_ok is not None and since_ok < interval_sec:
+        return False
+    since_try = _seconds_since_setting_ts(MEMBER_SYNC_REPORT_KEY, from_report=True)
+    if since_try is not None and since_try < MEMBER_SYNC_RETRY_BACKOFF_SEC:
+        return False
+    return True
+
+
+def _member_sync_tick():
+    """定時執行緒的一次迴圈：每次都重讀間隔設定（改了不用重啟）；到期才跑，租約保證跨 worker 只跑一個。
+    容器啟動後第一次 tick 就會檢查，所以「距上次同步已超過間隔」的話會立刻補跑，不會因為重啟重置計時器。"""
+    try:
+        if _member_sync_due():
+            run_member_sync(trigger="scheduled")
+            return True
+    except Exception as e:
+        print(f"[member_sync] 定時任務例外: {e}", flush=True)
+    return False
+
+
 def _member_sync_loop():
-    """背景定時（每個 worker 一條執行緒，靠租約保證只有一個真的跑）。"""
-    time.sleep(120)   # 開機先讓 _prewarm_cache 抓完，不要同時打 Shopify 兩次
+    time.sleep(5)   # 讓 worker 完成啟動
     while True:
-        try:
-            last = _get_setting(MEMBER_SYNC_LAST_KEY, "")
-            recent = False
-            if last:
-                try:
-                    recent = (datetime.now() - datetime.strptime(last[:19], "%Y-%m-%d %H:%M:%S")).total_seconds() < MEMBER_SYNC_MIN_GAP_SEC
-                except ValueError:
-                    pass
-            if not recent:
-                run_member_sync(trigger="scheduled")
-        except Exception as e:
-            print(f"[member_sync] 定時任務例外: {e}", flush=True)
-        time.sleep(MEMBER_SYNC_INTERVAL_SEC)
+        _member_sync_tick()
+        time.sleep(MEMBER_SYNC_TICK_SEC)
 
 
 def _start_member_sync_thread():
@@ -1232,7 +1348,7 @@ def _start_member_sync_thread():
         return
     try:
         threading.Thread(target=_member_sync_loop, daemon=True, name="MemberSync").start()
-        print(f"[member_sync] 背景定時同步已啟動（每 {MEMBER_SYNC_INTERVAL_SEC // 60} 分鐘）", flush=True)
+        print(f"[member_sync] 背景定時同步已啟動（間隔 {_get_sync_interval_min()} 分鐘，每 {MEMBER_SYNC_TICK_SEC}s 檢查到期）", flush=True)
     except Exception as e:
         print(f"[member_sync] 背景執行緒啟動失敗: {e}", flush=True)
 
@@ -2615,8 +2731,36 @@ def admin_members_sync_status():
         "local_total": n_shopify,   # members_shopify 筆數（同步的主檔）
         "members_total": n_agent + n_local,
         "shopify_missing_total": missing_total,
-        "interval_min": MEMBER_SYNC_INTERVAL_SEC // 60,
+        "interval_min": _get_sync_interval_min(),
     })
+
+
+@app.route("/api/admin/settings/sync_interval", methods=["GET"])
+def admin_get_sync_interval():
+    """同步間隔（老闆＋員工都能看）。"""
+    if not is_super_admin():
+        return jsonify({"success": False, "error": "權限不足"}), 403
+    return jsonify({"success": True, "interval_min": _get_sync_interval_min(), "default": MEMBER_SYNC_INTERVAL_DEFAULT_MIN,
+                    "min": MEMBER_SYNC_INTERVAL_MIN_MIN, "max": MEMBER_SYNC_INTERVAL_MAX_MIN})
+
+
+@app.route("/api/admin/settings/sync_interval", methods=["PUT"])
+def admin_set_sync_interval():
+    """修改同步間隔（只有老闆）。M2 起這個值 = 本地會員資料（含計費用 shipping_rate）的新鮮度上限。"""
+    if not is_boss():
+        return jsonify({"success": False, "error": "只有老闆可以修改此設定"}), 403
+    raw = (request.json or {}).get("interval_min")
+    msg = f"間隔必須是 {MEMBER_SYNC_INTERVAL_MIN_MIN}~{MEMBER_SYNC_INTERVAL_MAX_MIN} 的整數（分鐘）"
+    try:
+        v = int(str(raw).strip())
+    except (ValueError, TypeError, AttributeError):
+        return jsonify({"success": False, "error": msg}), 400
+    if not (MEMBER_SYNC_INTERVAL_MIN_MIN <= v <= MEMBER_SYNC_INTERVAL_MAX_MIN):
+        return jsonify({"success": False, "error": msg}), 400
+    old = _get_sync_interval_min()
+    _set_setting(MEMBER_SYNC_INTERVAL_KEY, str(v))
+    log_op("修改會員同步間隔", "member_sync_interval", f"{old} → {v} 分鐘")
+    return jsonify({"success": True, "interval_min": v, "old": old})
 
 
 @app.route("/api/admin/members", methods=["POST"])
@@ -2812,6 +2956,15 @@ def set_shipping_rate():
             if user_errors:
                 return jsonify({"success": False, "error": "; ".join([e["message"] for e in user_errors])})
             if mutation_result.get("metafields"):
+                # M2：讀取走本地 members_shopify，Shopify 寫成功後順手更新本地，不用等下一輪同步
+                try:
+                    cid = customer_gid.split("/")[-1] if "/" in customer_gid else customer_gid
+                    _c = get_db()
+                    _c.execute("UPDATE members_shopify SET shipping_rate=?, synced_at=? WHERE shopify_customer_id=?",
+                               (float(rate_val), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), cid))
+                    _c.commit(); _c.close()
+                except Exception as _e:
+                    print(f"[shipping_rate] 本地 members_shopify 更新失敗（下一輪同步會補上）: {_e}", flush=True)
                 return jsonify({
                     "success": True,
                     "shipping_rate_twd": rate_val,
@@ -3961,37 +4114,41 @@ def verify_customer():
     except Exception as e:
         print(f"[verify_customer] 本地查詢失敗：{e}", flush=True)
 
-    # ===== 2) 回退查 Shopify（你的客戶，原有邏輯）=====
+    # ===== 2) 回退查 Shopify 會員（M2 起 get_all_goyoutati_customers 讀本地 members_shopify）=====
     try:
         customers = get_all_goyoutati_customers()
-        for c in customers:
-            if c["g_code"] == g_code:
-                if c["phone"] and c["phone"] == password_clean:
-                    try:
-                        rate_twd = int(c["shipping_rate"]) if c["shipping_rate"] else DEFAULT_SHIPPING_RATE
-                    except (ValueError, TypeError):
-                        rate_twd = DEFAULT_SHIPPING_RATE
-                    rate_jpy = twd_to_jpy(rate_twd) if rate_twd else 0
-                    session["cust_g_code"] = g_code       # 客戶登入狀態（客戶端 API 守門用）
-                    session.permanent = True
-                    _login_record(g_code, _ip, True)      # 成功 → 清掉該客編視窗內的失敗紀錄
-                    return jsonify({
-                        "success": True,
-                        "customer": {
-                            "id": c["customer_id"],
-                            "g_code": g_code,
-                            "name": c["name"] or "會員",
-                            "email": c["email"],
-                            "phone": c["phone"],
-                            "phone_raw": c["phone_raw"],
-                            "address": c.get("address", ""),
-                            "shipping_rate_twd": rate_twd,
-                            "shipping_rate_jpy": rate_jpy,
-                            "source": "shopify",
-                        }
-                    })
-                else:
-                    return _login_fail(g_code, _ip, "密碼錯誤，請輸入您的手機號碼")
+        c = next((x for x in customers if x["g_code"] == g_code), None)
+        if c is None:
+            # ===== 3) 本地都查無 → Shopify 單筆補撈（新客人剛貼完 metafield 的空窗期保險）=====
+            # 已存在於本地的會員在上面就命中了，永遠不會走到這裡：正常登入不打 Shopify。
+            c = _member_login_fallback(g_code)
+        if c is not None:
+            if c["phone"] and c["phone"] == password_clean:
+                try:
+                    rate_twd = int(c["shipping_rate"]) if c["shipping_rate"] else DEFAULT_SHIPPING_RATE
+                except (ValueError, TypeError):
+                    rate_twd = DEFAULT_SHIPPING_RATE
+                rate_jpy = twd_to_jpy(rate_twd) if rate_twd else 0
+                session["cust_g_code"] = g_code       # 客戶登入狀態（客戶端 API 守門用）
+                session.permanent = True
+                _login_record(g_code, _ip, True)      # 成功 → 清掉該客編視窗內的失敗紀錄
+                return jsonify({
+                    "success": True,
+                    "customer": {
+                        "id": c["customer_id"],
+                        "g_code": g_code,
+                        "name": c["name"] or "會員",
+                        "email": c["email"],
+                        "phone": c["phone"],
+                        "phone_raw": c["phone_raw"],
+                        "address": c.get("address", ""),
+                        "shipping_rate_twd": rate_twd,
+                        "shipping_rate_jpy": rate_jpy,
+                        "source": "shopify",
+                    }
+                })
+            else:
+                return _login_fail(g_code, _ip, "密碼錯誤，請輸入您的手機號碼")
         return _login_fail(g_code, _ip, "找不到此會員編號，請確認後重試")
     except Exception as e:
         return jsonify({"success": False, "error": f"查詢失敗: {str(e)}"})
@@ -6020,25 +6177,14 @@ def _admin_exports_pending_impl():
             g_codes
         ).fetchall():
             members_map[m["g_code"]] = {"name": m["name"], "phone": m["phone"], "address": m["address"]}
-    # ★ 重要：用「目前已快取」的 Shopify 客戶，不觸發新抓取（避免冷啟動阻塞）
-    # 如果快取為空 → shopify_map 空 → fallback 只用 members 表 + customer_name
+    # Shopify 客戶 fallback：M2 起讀本地 members_shopify（毫秒級，不會阻塞請求）
     shopify_map = {}
     try:
-        cached = _customers_cache.get("data") or []
-        for c in cached:
+        for c in get_all_goyoutati_customers():
             if c.get("g_code") in g_codes:
                 shopify_map[c["g_code"]] = {"name": c.get("name", ""), "phone": c.get("phone", ""), "address": c.get("address", "")}
-        # 順手在背景觸發更新（如果過期、不會阻塞請求）
-        if cached and (time.time() - _customers_cache.get("time", 0)) >= CACHE_TTL:
-            with _cache_lock:
-                global _refresh_thread
-                if _refresh_thread is None or not _refresh_thread.is_alive():
-                    _refresh_thread = threading.Thread(
-                        target=_refresh_shopify_async, daemon=True, name="ShopifyRefresh"
-                    )
-                    _refresh_thread.start()
     except Exception as e:
-        print(f"[export-pending] Shopify cache 讀取失敗（不致命）: {e}", flush=True)
+        print(f"[export-pending] 會員資料讀取失敗（不致命）: {e}", flush=True)
     conn.close()
 
     items = []
@@ -6150,11 +6296,10 @@ def _admin_exports_generate_impl():
             g_codes_needed
         ).fetchall():
             members_map[m["g_code"]] = {"name": m["name"], "phone": m["phone"], "address": m["address"]}
-    # Shopify 客戶 fallback：從「目前已快取」撈，不觸發新抓取（避免冷啟動阻塞）
+    # Shopify 客戶 fallback：M2 起讀本地 members_shopify（毫秒級，不會阻塞請求）
     shopify_map = {}
     try:
-        cached = _customers_cache.get("data") or []
-        for c in cached:
+        for c in get_all_goyoutati_customers():
             if c.get("g_code") in g_codes_needed:
                 shopify_map[c["g_code"]] = {"name": c.get("name", ""), "phone": c.get("phone", ""), "address": c.get("address", "")}
     except Exception as ex:
