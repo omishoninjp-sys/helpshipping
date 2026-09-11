@@ -810,6 +810,9 @@ def get_all_goyoutati_customers(force_refresh=False):
       • 完全無快取（冷啟動、磁碟也沒有）：同步等
       • 有快取但過期：立刻回舊資料，背景靜默更新
       • 有快取且新鮮：直接回（最快路徑，無 print）
+    ★ 每個回傳點都交出淺複本 list(...)，不能把 _customers_cache["data"] 本身交出去：
+      呼叫端（如 get_all_members）會對回傳的 list append / sort，若拿到的是快取物件本身，
+      本地會員就會被寫進全域快取、被全部呼叫點共用、還會隨 _save_cache_to_disk 落盤。
     """
     global _customers_cache, _refresh_thread
     now = time.time()
@@ -828,12 +831,12 @@ def get_all_goyoutati_customers(force_refresh=False):
                     _customers_cache = {"data": customers, "time": time.time()}
                 _save_cache_to_disk()
                 print(f"[perf] Shopify force_refresh: {len(customers)} 位、{elapsed:.2f}s", flush=True)
-                return customers
+                return list(customers)
             print(f"[Shopify] ⚠️ force_refresh 回空，回傳舊快取（{elapsed:.2f}s）", flush=True)
-            return _customers_cache.get("data") or []
+            return list(_customers_cache.get("data") or [])
         except Exception as e:
             print(f"[Shopify] ❌ force_refresh 失敗: {e}", flush=True)
-            return _customers_cache.get("data") or []
+            return list(_customers_cache.get("data") or [])
 
     # 情境 2：完全無快取（容器啟動 + 磁碟也沒有）→ 同步等首次抓取
     if not has_cache:
@@ -846,7 +849,7 @@ def get_all_goyoutati_customers(force_refresh=False):
                     _customers_cache = {"data": customers, "time": time.time()}
                 _save_cache_to_disk()
                 print(f"[perf] Shopify cold-start: {len(customers)} 位、{elapsed:.2f}s", flush=True)
-            return customers or []
+            return list(customers or [])
         except Exception as e:
             print(f"[Shopify] ❌ cold-start 失敗: {e}", flush=True)
             return []
@@ -861,7 +864,7 @@ def get_all_goyoutati_customers(force_refresh=False):
                 _refresh_thread.start()
 
     # 情境 3/4：立刻回現有資料（最多就是舊一點點，等背景更新完下次就新的）
-    return _customers_cache.get("data") or []
+    return list(_customers_cache.get("data") or [])
 
 
 # 啟動時嘗試從磁碟讀取快取
@@ -2294,6 +2297,10 @@ def admin_operation_logs():
                     "has_more": offset + len(rows) < total})
 
 
+# TODO: 此函式會就地修改傳入 list 的元素（每個 dict 寫入 disabled/disabled_reason/disabled_at），
+# get_all_members 交進來的是 Shopify 快取裡的 dict，所以快取元素也會被加上這三個 key。
+# 目前冪等無害（每次都從 disabled_members 重算後覆寫、不讀舊值、不影響筆數）；
+# 日後若要隔離，改成回傳新 dict（[{**m, "disabled": ...} for m in members]），不要用 deepcopy。
 def _mark_disabled(members):
     """為 members list 標記停用狀態（依 disabled_members 表）。"""
     try:
