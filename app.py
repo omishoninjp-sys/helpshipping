@@ -964,8 +964,41 @@ def _customer_dict_from_shopify_owner(g_code, owner):
 # Shopify 的 customers 搜尋語法不支援 metafield 過濾，所以抓「最近更新的 100 位」
 # （貼 metafield 會更新客戶的 updatedAt）並在其中找該編號；一個請求、5 秒逾時、永不拋例外。
 # 每次觸發都 print [member_fallback] g_code=… hit=…，次數 = 手貼 metafield 時間差的量化指標。
+#
+# 節流（T-fix）：抓回來的 100 筆在記憶體快取 MEMBER_FALLBACK_CACHE_SEC 秒。
+# 打錯客編、掃客編的每一次失敗登入都會走到 fallback，若每次都打 Shopify，一支換編號的迴圈
+# 就能放大成 N 次請求；快取後 60 秒內不論試幾個編號都只打 1 次。
+# ★ 只存這一批的「編號 → 客戶節點」查找表，不落盤、不與其他快取共用；
+#   多 worker 各持一份可接受（最多放大 worker 數倍，不是 N 倍），不引入共用儲存。
+# ★ 只快取「成功抓到」的結果：逾時／例外不快取，下一次再重抓（登入本身有 5 秒逾時，不會卡住）。
 MEMBER_FALLBACK_TIMEOUT_SEC = 5
 MEMBER_FALLBACK_SCAN = 100
+MEMBER_FALLBACK_CACHE_SEC = 60
+
+_fallback_lock = threading.Lock()
+# {"at": 抓取時間 time.time(), "by_code": {g_code: Shopify customer node}}；at=0 表示沒有快取
+_fallback_cache = {"at": 0.0, "by_code": {}}
+# 自程序啟動起算、不持久化。attempts 高但 hits≈0 → 多半是打錯客編而非空窗期，fallback 價值要重評。
+_fallback_stats = {"attempts": 0, "hits": 0}
+
+
+def _fallback_cache_get(g_code, now):
+    """快取有效期內回傳 (True, node_or_None)；過期或沒有快取回傳 (False, None)。"""
+    with _fallback_lock:
+        if _fallback_cache["at"] and now - _fallback_cache["at"] < MEMBER_FALLBACK_CACHE_SEC:
+            return True, _fallback_cache["by_code"].get(g_code)
+    return False, None
+
+
+def _fallback_cache_put(by_code, now):
+    with _fallback_lock:
+        _fallback_cache["at"] = now
+        _fallback_cache["by_code"] = by_code
+
+
+def _fallback_stats_snapshot():
+    with _fallback_lock:
+        return dict(_fallback_stats)
 
 
 def _upsert_member_shopify(c):
@@ -998,16 +1031,32 @@ def _upsert_member_shopify(c):
         conn.close()
 
 
+# 已知盲區：
+# 本 fallback 取最近更新的 100 位會員。若貼上 metafield 之後
+# 有超過 100 位客戶的 Shopify 資料被更新，該編號會掉出視窗而撈不到。
+# Shopify 不支援以 metafield 過濾，這是變通做法。
+# 撈不到時客人會收到『找不到此會員編號』，等下一輪同步後即可登入。
+# 另外，快取期間（60 秒）內新貼編號的客人也會撈不到——快取裡沒有他，且不會重抓；
+# 等快取過期或下一輪同步即可，這是節流的預期行為。
 def _member_login_fallback(g_code):
     """本地 members / members_shopify 都查無此編號時呼叫。
     回傳與 get_all_goyoutati_customers() 同格式的 dict，或 None。永不拋例外、有逾時上限。"""
     t0 = time.time()
     hit = False
+    cached = False
     err = ""
+    with _fallback_lock:
+        _fallback_stats["attempts"] += 1
     try:
         if not SHOPIFY_STORE or not SHOPIFY_ACCESS_TOKEN:
             err = "未設定 Shopify"
             return None
+        cached, owner = _fallback_cache_get(g_code, t0)
+        if cached:
+            if owner is None:
+                return None
+            hit = True
+            return _fallback_hit(g_code, owner)
         query = (
             '{customers(first:' + str(MEMBER_FALLBACK_SCAN) + ',sortKey:UPDATED_AT,reverse:true){edges{node{'
             'id firstName lastName email phone createdAt defaultAddress{phone province city zip address1 address2} '
@@ -1023,24 +1072,37 @@ def _member_login_fallback(g_code):
         if "data" not in data:
             err = f"Shopify 回應無 data: {str(data)[:120]}"
             return None
+        by_code = {}
         for edge in (data["data"].get("customers") or {}).get("edges", []):
             owner = edge.get("node") or {}
             code = ((owner.get("gcode") or {}).get("value") or "").strip().upper()
-            if code != g_code:
-                continue
-            c = _customer_dict_from_shopify_owner(code, owner)
-            hit = True
-            try:
-                _upsert_member_shopify(c)
-            except Exception as e:
-                print(f"[member_fallback] 寫入 members_shopify 失敗（登入照常繼續）: {e}", flush=True)
-            return c
-        return None
+            if code and code not in by_code:   # 同編號多筆時保留最近更新的那筆（列表已依 UPDATED_AT 降冪）
+                by_code[code] = owner
+        _fallback_cache_put(by_code, t0)
+        owner = by_code.get(g_code)
+        if owner is None:
+            return None
+        hit = True
+        return _fallback_hit(g_code, owner)
     except Exception as e:
         err = f"{type(e).__name__}: {e}"
         return None
     finally:
-        print(f"[member_fallback] g_code={g_code} hit={hit} {time.time() - t0:.2f}s" + (f" error={err}" if err else ""), flush=True)
+        if hit:
+            with _fallback_lock:
+                _fallback_stats["hits"] += 1
+        print(f"[member_fallback] g_code={g_code} hit={hit} cached={cached} {time.time() - t0:.2f}s"
+              + (f" error={err}" if err else ""), flush=True)
+
+
+def _fallback_hit(g_code, owner):
+    """命中後的共同處理：轉成登入用 dict 並順手寫進 members_shopify（寫入失敗不影響登入）。"""
+    c = _customer_dict_from_shopify_owner(g_code, owner)
+    try:
+        _upsert_member_shopify(c)
+    except Exception as e:
+        print(f"[member_fallback] 寫入 members_shopify 失敗（登入照常繼續）: {e}", flush=True)
+    return c
 
 
 # ============ 會員主檔同步（M1：只寫不讀）============
@@ -2722,6 +2784,7 @@ def admin_members_sync_status():
     finally:
         conn.close()
     dist = {"shopify": n_shopify, "agent": n_agent, "local": n_local}
+    fb = _fallback_stats_snapshot()
     return jsonify({
         "success": True,
         "last_sync_at": _get_setting(MEMBER_SYNC_LAST_KEY, ""),
@@ -2732,6 +2795,10 @@ def admin_members_sync_status():
         "members_total": n_agent + n_local,
         "shopify_missing_total": missing_total,
         "interval_min": _get_sync_interval_min(),
+        # 登入 fallback 計數（自程序啟動起算、不持久化、多 worker 各自計）：
+        # attempts 高但 hits≈0 → 多半是打錯客編，不是手貼 metafield 的空窗期
+        "fallback_attempts": fb["attempts"],
+        "fallback_hits": fb["hits"],
     })
 
 
